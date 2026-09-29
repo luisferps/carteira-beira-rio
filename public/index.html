@@ -209,7 +209,7 @@ async function reabrir(){await api('fechar/'+C.contrato.numero,{method:'DELETE'}
 
 /* ---------- MODAIS ---------- */
 function abreModal(h){$('#modal').innerHTML=`<div class="modal" onclick="if(event.target===this)fechaModal()"><div class="card">${h}</div></div>`}
-function fechaModal(){$('#modal').innerHTML=''}
+function fechaModal(){$('#modal').innerHTML='';if(C&&location.hash.match(/^#(c|f)\//))desenhaContrato()}
 const GRUPOS=[
  ['Identificação no Asaas (em pagamento fora do Asaas pode ficar em branco)',[['fatura','Número da fatura'],['situacao_asaas','Situação no Asaas'],['forma','Forma de pagamento','sel'],['cliente_asaas','Cliente no Asaas']]],
  ['Valores',[['valor_cobranca','Valor da cobrança (parcela do contrato + correção)','num'],['valor_pago','Valor pago','num']]],
@@ -237,9 +237,17 @@ function calcEncargos(){
   let dif=r2(pago-cob),mu=0,ju=0,ho=0,de=0,msg='';
   if(dif<0)de=-dif;
   else if(dif>0&&dias>0){mu=Math.min(dif,r2(cob*.02));const jEsp=r2(cob*(Math.pow(1.01,dias/30)-1));ju=Math.min(r2(dif-mu),jEsp);ho=r2(dif-mu-ju)}
-  else if(dif>0)msg=`<div class="aviso">Pago <b>no prazo</b> e ${brl(dif)} acima da cobrança. Não é multa nem juros — provavelmente falta lançar a <b>correção anual</b> deste ano (botão "Adicionar correção" no contrato). Os encargos ficaram zerados.</div>`;
+  else if(dif>0)msg=`<div class="aviso">Pago <b>no prazo</b> e ${brl(dif)} acima da cobrança. Não é multa nem juros — provavelmente falta lançar a <b>correção anual</b> deste ano (botão "Adicionar correção" no contrato). Os encargos ficaram zerados. <button onclick="correcaoRapida()" style="margin-top:6px">Lançar correção agora: ${esc(window._TIT?.grupo==='anual'?'anual':'mensal')} a partir desta parcela = ${brl(pago)}</button></div>`;
   const put=(k,v)=>{$('#f_'+k).value=v?String(r2(v)).replace('.',','):'0'};put('multa_paga',mu);put('juros_pago',ju);put('honorarios_pago',ho);put('desconto_dado',de);
   $('#encInfo').innerHTML=msg||(dif?`<div class="info">Diferença de ${brl(dif)} em relação ao valor da cobrança${dias?` · pago ${dias} dia(s) depois do vencimento original`:''}. Multa 2%, juros 1% ao mês capitalizado ao dia; o que passar disso vai como custo de cobrança.</div>`:'');
+}
+async function correcaoRapida(){
+  const t=window._TIT;if(!t||!['mensal','anual'].includes(t.grupo))return alert('Correção só vale para mensal ou anual.');
+  const antes=valorAno(t),novo=numBR($('#f_valor_pago').value);
+  if(!confirm(`Lançar correção: ${t.grupo} a partir da ${t.numero}/${t.total}, de ${brl(antes)} para ${brl(novo)} (${((novo/antes-1)*100).toFixed(2).replace('.',',')}%)?`))return;
+  await api('correcao',{method:'POST',body:{contrato:C.contrato.numero,grupo:t.grupo,a_partir:t.numero,data:t.vencimento,igpm_pct:r2((novo/antes-1)*100),juros_pct:0,novo_valor:novo,obs:'Lançada pela ficha do pagamento'}});
+  C=await api('contrato/'+C.contrato.numero);
+  $('#f_valor_cobranca').value=String(r2(valorAno(t))).replace('.',',');calcEncargos();
 }
 function ligaLink(){const l=$('#f_link_fatura');if(!l)return;l.oninput=()=>{const m=l.value.match(/asaas\.com\/i\/([A-Za-z0-9]+)/);if(m&&!$('#f_id_asaas').value)$('#f_id_asaas').value='pay_'+m[1]}}
 const numBR=s=>{s=String(s??'').replace(/[^\d.,-]/g,'');if(!s)return null;if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=Number(s);return isNaN(n)?null:n};
