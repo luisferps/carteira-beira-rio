@@ -63,6 +63,17 @@ Conferência cega: cada um entra com seu próprio acesso e não vê o que o outr
 
 Sem número de fatura quando a forma não for Asaas (ex.: pagamento à construtora); nesse caso vale anexar o comprovante, se houver.
 
+### 6.1 Campos do Asaas acrescentados (29/09/2026)
+Para a integração futura com o Asaas (gerar boleto, baixar pagamento sozinho), o pagamento também guarda:
+- **ID do pagamento no Asaas (pay_…)**: a chave que liga o lançamento ao Asaas. O sistema tira sozinho do link "Visualizar fatura" (asaas.com/i/XXXX → pay_XXXX)
+- **Link da fatura**, **nosso número**, **linha digitável/código de barras**
+- **Valor líquido** (o que caiu na conta, já sem a taxa do Asaas)
+- **Vencimento original** (antes de reemissão), **dia em que o cliente pagou**
+- **Juros ao mês, multa e desconto configurados** no boleto
+- **ID do cliente no Asaas (cus_…)** e **ID do parcelamento no Asaas** (para acordos parcelados pelo Asaas)
+
+Com o ID pay_ gravado, na ligação com o Asaas o sistema confere e completa o resto automaticamente.
+
 ## 7. Tela do contrato
 
 ### 7.1 Cabeçalho

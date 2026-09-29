@@ -36,7 +36,9 @@ async function log(conf, acao, detalhe) {
 }
 
 const CAMPOS_PAG = ['forma', 'fatura', 'situacao_asaas', 'valor_cobranca', 'valor_pago', 'criada_em',
-  'vencimento_boleto', 'confirmada_em', 'saque_em', 'cliente_asaas', 'descricao', 'obs'];
+  'vencimento_boleto', 'confirmada_em', 'saque_em', 'cliente_asaas', 'descricao', 'obs',
+  'id_asaas', 'link_fatura', 'nosso_numero', 'linha_digitavel', 'valor_liquido', 'vencimento_original', 'pago_cliente_em',
+  'juros_mes_pct', 'multa_pct', 'desconto_valor', 'id_cliente_asaas', 'id_parcelamento_asaas'];
 
 function limpa(v) { return v === '' || v === undefined ? null : v; }
 
@@ -60,6 +62,9 @@ Devolva SOMENTE um JSON, sem texto antes ou depois, com estas chaves (null quand
 fatura (número da fatura, só dígitos), situacao_asaas (ex.: Recebida, Confirmada, Recebida em dinheiro, Vencida, Cancelada),
 valor_cobranca (valor original da cobrança, número), valor_pago (número), criada_em, vencimento_boleto, confirmada_em, saque_em (datas no formato AAAA-MM-DD),
 forma (Boleto Bancário, Pix, Cartão, etc.), cliente_asaas (nome), descricao (texto completo da descrição),
+valor_liquido (valor líquido, se aparecer), vencimento_original (se aparecer), pago_cliente_em (data de pagamento pelo cliente, se aparecer),
+juros_mes_pct (juros ao mês %), multa_pct (valor percentual da multa), desconto_valor (valor fixo do desconto),
+nosso_numero, linha_digitavel (linha digitável do boleto, só dígitos), link_fatura (link "asaas.com/i/..." se aparecer),
 contrato (número de 4 dígitos do contrato citado na descrição, ex. "Condomínio Beira Rio - 0099" => "0099"),
 quadra, lote (2 dígitos cada, ex. "Q05 L03" => "05","03"),
 parcelas_citadas (lista de textos das parcelas citadas na descrição, ex. ["Mensal 34/120"]).
@@ -110,7 +115,7 @@ function estadoDe(t, D) {
 const n2 = v => v == null ? '' : Number(v).toFixed(2);
 function assinaturaTitulo(t, D) {
   const e = estadoDe(t, D);
-  const pg = D.pagamentos.filter(p => p.titulo_id == t.id).map(p => `${p.fatura || ''}:${n2(p.valor_pago)}:${p.confirmada_em || ''}`).sort().join(',');
+  const pg = D.pagamentos.filter(p => p.titulo_id == t.id).map(p => `${p.fatura || p.id_asaas || ''}:${n2(p.valor_pago)}:${p.confirmada_em || ''}`).sort().join(',');
   return e + '|' + pg;
 }
 function rot(D, id) { const t = D.base.find(x => x.id == id) || D.titAcordo.find(x => x.id == id); return t ? t.rotulo.replace(/^Acordo .* — /, 'Acordo ') : '?'; }
@@ -165,7 +170,7 @@ async function comparar(n) {
 async function compararTodos(numeros) {
   const all = ['luis', 'secretaria', 'legado', 'final'];
   const T = await q(`select * from carteira.titulos where contrato = any($1) and (conferente is null or conferente = any($2)) ${ORDEM}`, [numeros, all]);
-  const P = await q(`select g.id, g.titulo_id, g.conferente, g.fatura, g.valor_pago, g.confirmada_em, t.contrato from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato = any($1)`, [numeros]);
+  const P = await q(`select g.id, g.titulo_id, g.conferente, g.fatura, g.id_asaas, g.valor_pago, g.confirmada_em, t.contrato from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato = any($1)`, [numeros]);
   const S = await q(`select ct.*, t.contrato from carteira.conferencia_titulo ct join carteira.titulos t on t.id=ct.titulo_id where t.contrato = any($1)`, [numeros]);
   const A = await q('select * from carteira.acordos where contrato = any($1)', [numeros]);
   const C = await q('select * from carteira.correcoes where contrato = any($1)', [numeros]);

@@ -210,8 +210,13 @@ async function reabrir(){await api('fechar/'+C.contrato.numero,{method:'DELETE'}
 /* ---------- MODAIS ---------- */
 function abreModal(h){$('#modal').innerHTML=`<div class="modal" onclick="if(event.target===this)fechaModal()"><div class="card">${h}</div></div>`}
 function fechaModal(){$('#modal').innerHTML=''}
-const CAMPOS=[['fatura','Número da fatura'],['situacao_asaas','Situação no Asaas'],['forma','Forma de pagamento','sel'],['valor_cobranca','Valor da cobrança','num'],['valor_pago','Valor pago','num'],
- ['criada_em','Criada em','date'],['vencimento_boleto','Vencimento do boleto','date'],['confirmada_em','Confirmada em (dinheiro entrou)','date'],['saque_em','Saque disponível em','date'],['cliente_asaas','Cliente no Asaas']];
+const GRUPOS=[
+ ['Identificação no Asaas',[['fatura','Número da fatura'],['link_fatura','Link da fatura (Visualizar fatura)'],['id_asaas','ID do pagamento (pay_…)'],['situacao_asaas','Situação no Asaas'],['forma','Forma de pagamento','sel'],['cliente_asaas','Cliente no Asaas']]],
+ ['Valores',[['valor_cobranca','Valor da cobrança','num'],['valor_pago','Valor pago','num'],['valor_liquido','Valor líquido (caiu na conta)','num']]],
+ ['Datas',[['criada_em','Criada em','date'],['vencimento_original','Vencimento original','date'],['vencimento_boleto','Vencimento do boleto','date'],['pago_cliente_em','Cliente pagou em','date'],['confirmada_em','Confirmada em (dinheiro entrou)','date'],['saque_em','Saque disponível em','date']]],
+ ['Boleto',[['nosso_numero','Nosso número'],['linha_digitavel','Linha digitável / código de barras']]],
+ ['Juros, multa e desconto configurados',[['juros_mes_pct','Juros ao mês (%)','num'],['multa_pct','Multa (%)','num'],['desconto_valor','Desconto (R$)','num']]]];
+const CAMPOS=GRUPOS.flatMap(g=>g[1]);
 const FORMAS=['Boleto Bancário','Pix','Cartão de crédito','Pagamento à construtora','Transferência bancária','Dinheiro','Cheque','Veículo (dação)','Outro'];
 let PRINT=null;
 function lerDescricao(t){
@@ -220,11 +225,13 @@ function lerDescricao(t){
   r.parcelas=[...t.matchAll(/(\d{1,3})\s*\/\s*(\d{1,3})/g)].map(x=>x[0]);return r;
 }
 function formPag(p,t){
-  return `<div class="f2">${CAMPOS.map(([k,l,tp])=>`<div><label>${l}</label>${tp==='sel'?`<select id="f_${k}">${FORMAS.map(f=>`<option ${p[k]===f?'selected':''}>${f}</option>`).join('')}</select>`
-  :`<input id="f_${k}" type="${tp==='date'?'date':'text'}" ${tp==='num'?'inputmode="decimal"':''} value="${esc(tp==='date'?(p[k]||'').slice(0,10):p[k]??'')}">`}</div>`).join('')}</div>
-  <label style="margin-top:8px">Descrição completa (copie e cole do Asaas)</label><textarea id="f_descricao">${esc(p.descricao||'')}</textarea><div id="descInfo"></div>
+  const campo=([k,l,tp])=>`<div><label>${l}</label>${tp==='sel'?`<select id="f_${k}">${FORMAS.map(f=>`<option ${p[k]===f?'selected':''}>${f}</option>`).join('')}</select>`
+   :`<input id="f_${k}" type="${tp==='date'?'date':'text'}" ${tp==='num'?'inputmode="decimal"':''} value="${esc(tp==='date'?(p[k]||'').slice(0,10):(tp==='num'&&p[k]!=null?String(p[k]).replace('.',','):p[k]??''))}">`}</div>`;
+  return GRUPOS.map(([g,cs])=>`<div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">${g}</div><div class="f2">${cs.map(campo).join('')}</div>`).join('')+`
+  <label style="margin-top:10px">Descrição completa (copie e cole do Asaas)</label><textarea id="f_descricao">${esc(p.descricao||'')}</textarea><div id="descInfo"></div>
   <label>Observação</label><input id="f_obs" value="${esc(p.obs||'')}">`;
 }
+function ligaLink(){const l=$('#f_link_fatura');if(!l)return;l.oninput=()=>{const m=l.value.match(/asaas\.com\/i\/([A-Za-z0-9]+)/);if(m&&!$('#f_id_asaas').value)$('#f_id_asaas').value='pay_'+m[1]}}
 const numBR=s=>{s=String(s??'').replace(/[^\d.,-]/g,'');if(!s)return null;if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=Number(s);return isNaN(n)?null:n};
 function pegaForm(){const o={};for(const [k,,tp] of CAMPOS){let v=$('#f_'+k).value.trim();if(tp==='num')v=numBR(v);o[k]=v===''?null:v}
   o.descricao=$('#f_descricao').value;o.obs=$('#f_obs').value;return o}
@@ -248,7 +255,7 @@ function modalTitulo(id,editId){
   <div class="bt" style="margin-top:12px"><button class="pri" onclick="salvaPag(${id},${ed?ed.id:'null'})">Salvar</button>
    <span style="flex:1"></span><button onclick="marca(${id},'em_atraso')">Em atraso (conferido)</button><button onclick="marca(${id},'cancelada')">Marcar cancelada</button>
    ${sit&&sit.situacao!=='paga'?`<button onclick="marca(${id},null)">Limpar marcação</button>`:''}</div>`);
-  $('#f_descricao').oninput=checaDesc;checaDesc();
+  $('#f_descricao').oninput=checaDesc;checaDesc();ligaLink();
   const dz=$('#drop');if(dz){dz.onpaste=colaPrint;dz.onclick=()=>dz.focus();document.onpaste=e=>{if($('#drop'))colaPrint(e)}}
 }
 function colaPrint(e){const it=[...(e.clipboardData||{}).items||[]].find(i=>i.type.startsWith('image/'));if(!it)return;e.preventDefault();
@@ -260,13 +267,14 @@ async function lerIA(){
   $('#iast').textContent='Lendo…';$('#bia').disabled=true;
   try{const d=await api('ler-print',{method:'POST',body:{imagem:PRINT,descricao:$('#f_descricao').value}});
     for(const [k,,tp] of CAMPOS){if(d[k]!=null&&d[k]!==''){if(k==='forma'){const f=FORMAS.find(x=>x.toLowerCase().startsWith(String(d[k]).toLowerCase().slice(0,5)));if(f)$('#f_forma').value=f}else $('#f_'+k).value=tp==='num'?String(d[k]).replace('.',','):d[k]}}
-    if(d.descricao&&!$('#f_descricao').value.trim())$('#f_descricao').value=d.descricao;checaDesc();
+    if(d.descricao&&!$('#f_descricao').value.trim())$('#f_descricao').value=d.descricao;
+    if(d.link_fatura){const m=String(d.link_fatura).match(/\/i\/([A-Za-z0-9]+)/);if(m&&!$('#f_id_asaas').value)$('#f_id_asaas').value='pay_'+m[1]}checaDesc();
     $('#iast').textContent='Pronto. Confira os campos antes de salvar.';
   }catch(e){$('#iast').textContent=''}$('#bia').disabled=false}
 async function salvaPag(tid,pid){
   const o=pegaForm();o.titulo_id=tid;if(PRINT)o.print=PRINT;
   if(!o.valor_pago)return alert('Informe o valor pago.');if(!o.confirmada_em)return alert('Informe a data em que o dinheiro entrou (Confirmada em).');
-  const dup=o.fatura&&C.pagamentos.find(p=>p.fatura===o.fatura&&p.id!=pid);
+  const dup=(o.fatura&&C.pagamentos.find(p=>p.fatura===o.fatura&&p.id!=pid))||(o.id_asaas&&C.pagamentos.find(p=>p.id_asaas===o.id_asaas&&p.id!=pid));
   if(dup&&!confirm('Essa fatura já foi lançada em outra parcela deste contrato. Salvar mesmo assim?'))return;
   await api(pid?'pagamento/'+pid:'pagamento',{method:pid?'PUT':'POST',body:o});fechaModal();recarrega();
 }
