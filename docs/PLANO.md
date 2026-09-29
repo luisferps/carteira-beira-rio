@@ -67,7 +67,10 @@ Sem número de fatura quando a forma não for Asaas (ex.: pagamento à construto
 - Identificação: número da fatura (é o código da cobrança no Asaas), situação, forma, cliente
 - Valores: valor da cobrança, valor pago (sem valor líquido — a taxa do boleto não interessa)
 - Datas: criada em, **vencimento original** (vem preenchido com o vencimento da parcela no contrato, editável — o Asaas não mostra na tela), vencimento do boleto, confirmada/recebida em, saque disponível em
-- Juros ao mês, multa e desconto configurados no boleto
+- **Encargos pagos** neste pagamento (multa, juros, custo de cobrança, desconto), calculados sozinhos pela diferença entre valor pago e valor da cobrança — multa 2%, juros 1% a.m. capitalizado ao dia, o que passar é custo de cobrança. Os percentuais configurados no boleto não são guardados (são sempre os mesmos)
+- **Valor da cobrança** vem preenchido com o valor da parcela do contrato + correção (o Asaas não mostra na tela)
+- Botão **Conferir e salvar**: mostra em vermelho o que é obrigatório e está vazio (valor pago, data em que o dinheiro entrou e, se for Asaas, número da fatura), em amarelo o que ficou em branco, e avisa se a descrição cita outro contrato, outro lote ou outra parcela
+- Botão **Não foi paga (conferido)**: para quando olhou no Asaas e confirmou que a parcela não foi paga
 - Descrição: **sempre colada** do Asaas (Ctrl+A / Ctrl+C lá, Ctrl+V aqui), porque o print mostra só o começo
 - Retirados: link da fatura, ID pay_, valor líquido, nosso número, linha digitável, data em que o cliente pagou
 
