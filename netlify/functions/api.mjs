@@ -2,10 +2,15 @@ import pg from 'pg';
 
 pg.types.setTypeParser(1082, v => v);
 
+function enderecoBanco() {
+  const raw = (process.env.DATABASE_URL || '').trim(), pw = (process.env.DB_PASSWORD || '').trim();
+  if (!pw) return raw;
+  try { const u = new URL(raw.replace('[YOUR-PASSWORD]', 'x')); u.password = encodeURIComponent(pw); return u.toString(); }
+  catch { return raw; }
+}
+
 const pool = new pg.Pool({
-  connectionString: process.env.DB_PASSWORD
-    ? (process.env.DATABASE_URL || '').trim().replace('[YOUR-PASSWORD]', encodeURIComponent(process.env.DB_PASSWORD.trim()))
-    : process.env.DATABASE_URL,
+  connectionString: enderecoBanco(),
   ssl: process.env.PGSSL === 'off' ? false : { rejectUnauthorized: false },
   max: 3,
 });
