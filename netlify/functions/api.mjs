@@ -13,10 +13,11 @@ const pool = new pg.Pool({
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json' } });
 
+const PL = (process.env.PIN_LUIS || '').trim(), PS = (process.env.PIN_SECRETARIA || '').trim();
 function quem(req) {
-  const pin = req.headers.get('x-pin') || '';
-  if (pin && pin === process.env.PIN_LUIS) return 'luis';
-  if (pin && pin === process.env.PIN_SECRETARIA) return 'secretaria';
+  const pin = (req.headers.get('x-pin') || '').trim();
+  if (pin && pin === PL) return 'luis';
+  if (pin && pin === PS) return 'secretaria';
   return null;
 }
 
@@ -75,7 +76,10 @@ export default async (req) => {
   const url = new URL(req.url);
   const p = url.pathname.replace(/^\/(\.netlify\/functions\/api|api)/, '').split('/').filter(Boolean);
   const conf = quem(req);
-  if (!conf) return json({ erro: 'Senha inválida' }, 401);
+  if (!conf) {
+    const falta = [!PL && 'PIN_LUIS', !PS && 'PIN_SECRETARIA', !process.env.DATABASE_URL && 'DATABASE_URL'].filter(Boolean);
+    return json({ erro: falta.length ? 'O servidor não está lendo: ' + falta.join(', ') : 'Senha inválida' }, 401);
+  }
   const m = req.method;
   const body = m === 'GET' || m === 'DELETE' ? {} : await req.json().catch(() => ({}));
 
