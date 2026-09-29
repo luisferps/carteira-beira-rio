@@ -249,8 +249,8 @@ function modalTitulo(id,editId){
     <span class="mut">salvo ${new Date(p.salvo_em).toLocaleString('pt-BR')}</span>${p.tem_print?`<button onclick="verPrint(${p.id})">Ver print</button>`:''}
     <button onclick="modalTitulo(${id},${p.id})">Editar</button><button class="per" onclick="apagar('pagamento',${p.id})">Apagar</button></div>`).join('')}
   <h4 style="margin:12px 0 6px">${ed?'Editar pagamento':'Lançar pagamento'}</h4>
-  ${EU==='luis'?`<div class="drop" id="drop" tabindex="0">Clique aqui e cole o print (Ctrl+V)<div id="pv"></div></div>
-   <div class="bt" style="margin:8px 0"><button class="pri" id="bia" onclick="lerIA()">Ler print e descrição com IA</button><span id="iast" class="mut"></span></div>`:''}
+  <div class="drop" id="drop" tabindex="0">Clique aqui e cole o print (Ctrl+V)<div id="pv"></div></div>
+   <div class="bt" style="margin:8px 0"><button class="pri" id="bia" onclick="lerIA()">Ler print e descrição com IA</button><span id="iast" class="mut"></span></div>
   ${formPag(ed||{forma:'Boleto Bancário'},t)}
   <div class="bt" style="margin-top:12px"><button class="pri" onclick="salvaPag(${id},${ed?ed.id:'null'})">Salvar</button>
    <span style="flex:1"></span><button onclick="marca(${id},'em_atraso')">Em atraso (conferido)</button><button onclick="marca(${id},'cancelada')">Marcar cancelada</button>
