@@ -61,13 +61,13 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 <script>
 const $=s=>document.querySelector(s), app=$('#app');
 let PIN=''; try{PIN=localStorage.getItem('cbr_pin')||''}catch(e){}
-let EU='', LISTA=[], C=null, SEL=new Set(), SELMODO=false;
+let EU='', COMO='', LISTA=[], C=null, SEL=new Set(), SELMODO=false, X=null;
 const brl=v=>v==null||isNaN(v)?'—':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const dbr=d=>d?String(d).slice(0,10).split('-').reverse().join('/'):'—';
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const r2=v=>Math.round(v*100)/100;
 async function api(path,opt={}){
-  const r=await fetch('/api/'+path,{method:opt.method||'GET',headers:{'x-pin':PIN,'content-type':'application/json'},body:opt.body?JSON.stringify(opt.body):undefined});
+  const r=await fetch('/api/'+path,{method:opt.method||'GET',headers:{'x-pin':PIN,'x-como':COMO,'content-type':'application/json'},body:opt.body?JSON.stringify(opt.body):undefined});
   const d=await r.json().catch(()=>({erro:'Resposta inválida'}));
   if(r.status===401){PIN='';try{localStorage.removeItem('cbr_pin')}catch(e){}telaLogin(d.erro||'Senha inválida');throw new Error('401')}
   if(!r.ok||d.erro){alert(d.erro||'Erro');throw new Error(d.erro)}
@@ -83,12 +83,16 @@ function telaLogin(msg){
 async function iniciar(){
   if(!PIN)return telaLogin();
   try{const d=await api('eu');EU=d.conferente}catch(e){return}
-  $('#quem').textContent=EU==='luis'?'Conferência do Luis':'Conferência da Secretária';
+  $('#quem').innerHTML=EU==='luis'?'<button onclick="location.hash=\'\'">Minha conferência</button> <button onclick="location.hash=\'x\'">Cruzamento</button>':'Conferência da Secretária';
   $('#sair').classList.remove('hid');$('#sair').onclick=()=>{PIN='';try{localStorage.removeItem('cbr_pin')}catch(e){};telaLogin()};
   route();
 }
 window.onhashchange=()=>route();
-function route(){const h=location.hash.slice(1);if(h.startsWith('c/'))abrirContrato(h.slice(2));else telaLista()}
+function route(){const h=location.hash.slice(1);COMO='';
+  if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
+  else if(h==='x'&&EU==='luis')telaCruzamento();
+  else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
+  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else telaLista()}
 
 /* ---------- LISTA ---------- */
 async function telaLista(){
@@ -165,7 +169,8 @@ function desenhaContrato(){
   const co=C.correcoes.map(k=>`<div class="pgl"><b>${k.grupo==='mensal'?'Mensal':'Anual'} a partir da ${k.a_partir}</b><span>${dbr(k.data)}</span><span>IGPM ${k.igpm_pct??'—'}% · Juros ${k.juros_pct??'—'}%</span><b>${brl(k.novo_valor)}</b><span class="mut">lançada ${new Date(k.salvo_em).toLocaleString('pt-BR')}</span><button class="per" onclick="apagar('correcao',${k.id})">Apagar</button></div>`).join('')||'<div class="mut">Nenhuma correção lançada.</div>';
   const ev=C.eventos.map(e=>`<div class="pgl"><b>${e.tipo==='encerramento'?'Encerramento':'Cessão'}</b><span>${esc(e.motivo||'')}</span><span>a partir de ${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo||'?')}</span><span>${dbr(e.data)}</span><span>${esc(e.dados?.novos_titulares||'')}</span><span class="mut">${esc(e.obs||'')}</span><button class="per" onclick="apagar('evento',${e.id})">Apagar</button></div>`).join('')||'<div class="mut">Nenhum evento.</div>';
   const itens=(c.itens||[]).map(i=>`<li>${esc(i.texto)}</li>`).join('');
-  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Contratos</button></div>
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='${COMO?'x/'+c.numero:''}'">${COMO?'← Voltar ao cruzamento':'← Contratos'}</button></div>
+  ${COMO?'<div class="aviso" style="background:#eff6ff;color:#1e3a8a;border-color:#bfdbfe"><b>Você está editando a VERSÃO FINAL</b> (a verdade do sistema). Tudo o que salvar aqui vai para a versão final.</div>':''}
   <div class="card"><div class="bt" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">Contrato ${c.numero} · Q${c.quadra} L${c.lote}</h2>
   <div>${comp}</div><div class="mut">Assinado em ${dbr(c.data_assinatura)} · Imóvel ${brl(c.valor_imovel)} · Fonte: ${esc(c.fonte)} "${esc(c.arquivo)}"</div></div>
   ${C.fechamento?`<span class="tag ok">Conferência fechada em ${new Date(C.fechamento.fechado_em).toLocaleString('pt-BR')}</span>`:''}</div>
@@ -348,6 +353,69 @@ function modalEvento(tipo){
   <div class="bt"><button class="pri" onclick="salvaEvento('${tipo}')">Salvar</button></div>`);
 }
 async function salvaEvento(tipo){await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo,motivo:$('#e_m')?.value,a_partir_titulo:Number($('#e_t').value),data:$('#e_d').value,dados:{novos_titulares:$('#e_n')?.value||null},obs:$('#e_o').value}});fechaModal();recarrega()}
+
+
+/* ---------- CRUZAMENTO (só administrador) ---------- */
+const NOMECONF={luis:'Luis',secretaria:'Secretária',legado:'Banco antigo',final:'Final'};
+async function telaCruzamento(todos){
+  app.innerHTML='<div class="card">Comparando as conferências…</div>';
+  const L=await api('cruzamento'+(todos?'?todos=1':''));
+  const pend=L.filter(c=>c.pendentes).length,res=L.filter(c=>c.resolvido).length;
+  app.innerHTML=`<div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Cruzamento das conferências</h3>
+   <span class="tag al">${pend} com divergência pendente</span><span class="tag ok">${res} resolvidos</span>
+   <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" style="width:auto" ${todos?'checked':''} onchange="telaCruzamento(this.checked)"> mostrar todos (não só os fechados pelos dois)</label></div>
+   <div class="mut" style="margin-top:6px">Aparecem os contratos já fechados pela sua conferência e pela da secretária. Verde = tudo igual. Amarelo = tem divergência para decidir.</div></div>
+   <div class="cgrid">${L.map(c=>`<button class="cb ${c.resolvido||!c.pendentes?'fech':'alt'}" onclick="location.hash='x/${c.numero}'">
+    <div class="cbt"><b>${c.numero}</b><span>Q${c.quadra} L${c.lote}</span></div><div class="cbn">${esc(c.titular)}</div>
+    <div class="mut">Comparando: ${c.confs.map(x=>NOMECONF[x]).join(' × ')||'—'}</div>
+    <div>${c.divergencias?`<span class="tag al">${c.pendentes} de ${c.divergencias} divergência(s) pendentes</span>`:'<span class="tag ok">Tudo igual</span>'} ${c.resolvido?'<span class="tag ok">Resolvido</span>':''}</div></button>`).join('')||'<div class="card">Nenhum contrato fechado pelos dois ainda.</div>'}</div>`;
+}
+async function cruzContrato(n){
+  app.innerHTML='<div class="card">Carregando…</div>';
+  X=await api('cruzamento/'+n);X.n=n;desenhaCruz();
+}
+function desenhaCruz(){
+  const T=X.titulos,ct=X.dados.final.contrato||X.dados[X.confs[0]]?.contrato;
+  const b=t=>{const cls=t.decidido?'cancelada':t.diverge?'vencida':'paga';
+    return `<button class="pc ${cls} ${t.grupo==='anual'?'anual':''}" title="${esc(t.rotulo)}" onclick="cruzTitulo(${t.id})"><b>${t.grupo==='mensal'?'M':t.grupo==='anual'?'A':t.grupo==='entrada'?'E':'P'} ${t.numero}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${t.decidido?'decidido':t.diverge?'DIVERGE':'igual'}</small></button>`};
+  const ent=T.filter(t=>t.grupo==='entrada'),men=T.filter(t=>t.grupo==='mensal'),anu=T.filter(t=>t.grupo==='anual'),out=T.filter(t=>t.grupo==='outra');
+  let lin='';if(ent.length)lin+=`<div class="lin"><span class="rot">Entrada</span>${ent.map(b).join('')}</div>`;
+  for(let a=0;a<Math.max(Math.ceil(men.length/12),anu.length);a++)lin+=`<div class="lin"><span class="rot">Ano ${a+1}</span>${men.slice(a*12,a*12+12).map(b).join('')}${anu[a]?'<span style="width:10px"></span>'+b(anu[a]):''}</div>`;
+  if(out.length)lin+=`<div class="lin"><span class="rot">Outras</span>${out.map(b).join('')}</div>`;
+  const NS={acordos:'Acordos',correcoes:'Correções',eventos:'Encerramento e cessão'};
+  const sec=X.secoes.map(s=>`<div class="card" style="margin:8px 0;border-left:5px solid ${s.decidido?'var(--ca)':s.diverge?'var(--ve)':'var(--pg)'}">
+   <div class="bt" style="align-items:center"><b style="flex:1">${NS[s.secao]}</b>${s.decidido?`<span class="tag">decidido: ${esc(NOMECONF[s.decidido.de]||s.decidido.de)}</span>`:s.diverge?'<span class="tag al">DIVERGE</span>':'<span class="tag ok">igual</span>'}</div>
+   <table><tbody>${X.confs.map(c=>`<tr><td style="width:130px"><b>${NOMECONF[c]}</b></td><td>${esc(s.sig[c]||'(nada lançado)')}</td><td style="width:150px">${s.diverge?`<button onclick="cruzUsar('secao','${s.secao}','${c}')">Usar esta versão</button>`:''}</td></tr>`).join('')}</tbody></table></div>`).join('');
+  const nd=T.filter(t=>t.diverge).length+X.secoes.filter(s=>s.diverge).length,np=T.filter(t=>t.diverge&&!t.decidido).length+X.secoes.filter(s=>s.diverge&&!s.decidido).length;
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='x'">← Cruzamento</button></div>
+  <div class="card"><h2 style="margin:0">Cruzamento · Contrato ${X.n} · Q${ct?.quadra} L${ct?.lote}</h2>
+   <div class="mut">Comparando: ${X.confs.map(c=>NOMECONF[c]).join(' × ')} · ${nd} divergência(s), ${np} pendente(s)</div>
+   ${X.dados.final.fechamento?`<div class="info">Contrato marcado como RESOLVIDO em ${new Date(X.dados.final.fechamento.fechado_em).toLocaleString('pt-BR')}</div>`:''}
+   <div class="bt" style="margin-top:10px"><button class="pri" onclick="cruzAcao('aceitar_iguais')">Aceitar tudo que bate</button>
+    <button onclick="location.hash='f/${X.n}'">Abrir versão final para editar</button><span style="flex:1"></span>
+    ${X.dados.final.fechamento?`<button onclick="cruzAcao('reabrir')">Reabrir</button>`:`<button class="pri" onclick="cruzResolver(${np})">Marcar contrato resolvido</button>`}</div></div>
+  <div class="card"><div class="leg"><span style="--c:var(--pg)">Igual nas conferências</span><span style="--c:var(--ve)">Diverge (clique para decidir)</span><span style="--c:var(--ca)">Já decidido</span></div><br>
+   <div class="grid">${lin}</div></div><div class="card">${sec}</div>`;
+}
+function cruzTitulo(id){
+  const t=X.titulos.find(x=>x.id==id);
+  const col=c=>{const D=X.dados[c],pg=D.pagamentos.filter(p=>p.titulo_id==id),sit=D.situacoes.find(s=>s.titulo_id==id),est=(t.sig[c]||'').split('|')[0];
+    return `<div class="card" style="flex:1;min-width:220px;margin:0"><h4 style="margin:0 0 6px">${NOMECONF[c]}</h4><div><b>${NOMES[est]||est}</b></div>
+     ${sit?.obs?`<div class="mut">Obs.: ${esc(sit.obs)}</div>`:''}
+     ${pg.map(p=>`<div class="pgl" style="display:block"><b>${brl(p.valor_pago)}</b> · entrou ${dbr(p.confirmada_em)}<br>fatura ${esc(p.fatura||'—')} · ${esc(p.forma||'')}<br><span class="mut">${esc((p.descricao||'').slice(0,160))}</span>${p.tem_print?`<br><button onclick="verPrintDe(${p.id},'${c}')">Ver print</button>`:''}</div>`).join('')||'<div class="mut">Nenhum pagamento lançado</div>'}
+     <button class="pri" style="margin-top:8px" onclick="cruzUsar('titulo',${id},'${c}')">Usar esta versão</button></div>`};
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)}</h3><button onclick="fechaModal()">Fechar</button></div>
+   ${t.decidido?`<div class="info">Decidido: versão ${esc(NOMECONF[t.decidido.de]||t.decidido.de)} em ${new Date(t.decidido.em).toLocaleString('pt-BR')}</div>`:''}
+   <div class="bt" style="align-items:stretch">${X.confs.map(col).join('')}</div>
+   <div class="mut" style="margin-top:8px">Se nenhuma estiver certa, use "Abrir versão final para editar" e corrija direto na versão final.</div>`);
+}
+async function verPrintDe(id,c){const antes=COMO;COMO=c==='final'?'final':'';try{const d=await api('print/'+id);if(!d.conteudo)return alert('Print não disponível para a conferência de outra pessoa.');const w=window.open('');w.document.write(`<img src="${d.conteudo}" style="max-width:100%">`)}finally{COMO=antes}}
+async function cruzUsar(tipo,alvo,de){
+  await api('cruzamento/'+X.n,{method:'POST',body:tipo==='titulo'?{acao:'titulo',titulo_id:alvo,de}:{acao:'secao',secao:alvo,de}});
+  fechaModal();cruzContrato(X.n);
+}
+async function cruzAcao(acao){await api('cruzamento/'+X.n,{method:'POST',body:{acao}});cruzContrato(X.n)}
+async function cruzResolver(np){if(np&&!confirm(`Ainda há ${np} divergência(s) sem decisão. Marcar resolvido mesmo assim?`))return;cruzAcao('resolver')}
 
 iniciar();
 </script>

@@ -77,6 +77,174 @@ Números com ponto decimal (967.68). Descrição colada pelo usuário: """${body
   try { return JSON.parse(txt.slice(i, j + 1)); } catch { return { erro: 'Não consegui entender a resposta', bruto: txt }; }
 }
 
+
+const ORDEM = `order by case grupo when 'entrada' then 0 when 'mensal' then 1 when 'anual' then 2 when 'outra' then 3 else 4 end, vencimento, numero`;
+async function carregar(n, conf) {
+  const [contrato] = await q('select * from carteira.contratos where numero=$1', [n]);
+  if (!contrato) return null;
+  const titulos = await q(`select * from carteira.titulos where contrato=$1 and (conferente is null or conferente=$2) ${ORDEM}`, [n, conf]);
+  const ids = titulos.map(t => t.id);
+  const pagamentos = await q(`select ${['id', 'titulo_id', 'tem_print', 'salvo_em', ...CAMPOS_PAG].join(',')} from carteira.pagamentos
+                              where conferente=$1 and titulo_id = any($2) order by salvo_em`, [conf, ids]);
+  const situacoes = await q('select * from carteira.conferencia_titulo where conferente=$1 and titulo_id = any($2)', [conf, ids]);
+  const acordos = await q('select * from carteira.acordos where contrato=$1 and conferente=$2 order by data_acordo, id', [n, conf]);
+  const correcoes = await q('select * from carteira.correcoes where contrato=$1 and conferente=$2 order by grupo, a_partir', [n, conf]);
+  const eventos = await q('select * from carteira.eventos where contrato=$1 and conferente=$2 order by data, id', [n, conf]);
+  const [fechamento] = await q('select * from carteira.fechamentos where contrato=$1 and conferente=$2', [n, conf]);
+  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, fechamento: fechamento || null, hoje: new Date().toISOString().slice(0, 10), conferente: conf };
+}
+
+/* ---------- cruzamento ---------- */
+const HOJE = () => new Date().toISOString().slice(0, 10);
+function estadoDe(t, D) {
+  const pags = D.pagamentos.filter(p => p.titulo_id == t.id), sit = D.situacoes.find(s => s.titulo_id == t.id);
+  const enc = D.eventos.find(e => e.tipo === 'encerramento' && t.grupo !== 'acordo' && (() => { const t0 = D.base.find(x => x.id == e.a_partir_titulo); return t0 && t.vencimento && t.vencimento >= t0.vencimento; })());
+  if ((sit && sit.situacao === 'cancelada') || enc) return 'cancelada';
+  if (pags.length) return 'paga';
+  const ac = D.acordos.find(a => (a.titulos_origem || []).map(String).includes(String(t.id)));
+  if (ac) { const pago = D.titAcordo.some(x => x.acordo_id == ac.id && D.pagamentos.some(p => p.titulo_id == x.id)); return pago ? 'quitada_acordo' : 'em_acordo'; }
+  if (sit && sit.situacao === 'em_atraso') return 'em_atraso';
+  if (t.vencimento && t.vencimento <= HOJE()) return 'vencida';
+  return 'futura';
+}
+const n2 = v => v == null ? '' : Number(v).toFixed(2);
+function assinaturaTitulo(t, D) {
+  const e = estadoDe(t, D);
+  const pg = D.pagamentos.filter(p => p.titulo_id == t.id).map(p => `${p.fatura || ''}:${n2(p.valor_pago)}:${p.confirmada_em || ''}`).sort().join(',');
+  return e + '|' + pg;
+}
+function rot(D, id) { const t = D.base.find(x => x.id == id) || D.titAcordo.find(x => x.id == id); return t ? t.rotulo.replace(/^Acordo .* — /, 'Acordo ') : '?'; }
+function assinaturaSecao(sec, D) {
+  if (sec === 'acordos') return D.acordos.map(a => {
+    const ts = D.titAcordo.filter(t => t.acordo_id == a.id);
+    const pago = ts.reduce((s, t) => s + D.pagamentos.filter(p => p.titulo_id == t.id).reduce((x, p) => x + Number(p.valor_pago || 0), 0), 0);
+    return `${a.data_acordo}|${n2(a.valor_acordado)}|${(a.titulos_origem || []).map(i => rot(D, i)).sort().join('+')}|${ts.length}x|pago ${n2(pago)}`;
+  }).sort().join(' ; ');
+  if (sec === 'correcoes') return D.correcoes.map(c => `${c.grupo} ${c.a_partir}: ${n2(c.novo_valor)}`).sort().join(' ; ');
+  if (sec === 'eventos') return D.eventos.map(e => `${e.tipo} ${e.motivo || ''} a partir de ${rot(D, e.a_partir_titulo)}`).sort().join(' ; ');
+}
+async function dadosTodos(n, confs) {
+  const out = {};
+  for (const c of confs) {
+    const d = await carregar(n, c);
+    d.base = d.titulos.filter(t => t.grupo !== 'acordo'); d.titAcordo = d.titulos.filter(t => t.grupo === 'acordo');
+    out[c] = d;
+  }
+  return out;
+}
+const COMPARA = ['luis', 'secretaria', 'legado'];
+async function quemTem(n) {
+  const r = await q(`select distinct conferente from (
+     select g.conferente from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato=$1
+     union select ct.conferente from carteira.conferencia_titulo ct join carteira.titulos t on t.id=ct.titulo_id where t.contrato=$1
+     union select conferente from carteira.acordos where contrato=$1 union select conferente from carteira.correcoes where contrato=$1
+     union select conferente from carteira.eventos where contrato=$1 union select conferente from carteira.fechamentos where contrato=$1) x`, [n]);
+  return COMPARA.filter(c => r.some(x => x.conferente === c));
+}
+function compararCom(confs, D, decis) {
+  const base = (D[confs[0]] || D.final).base;
+  const titulos = base.map(t => {
+    const sig = {}; for (const c of confs) sig[c] = assinaturaTitulo(t, D[c]);
+    const dec = decis.find(d => d.item === 'titulo:' + t.id);
+    return { id: t.id, rotulo: t.rotulo, grupo: t.grupo, numero: t.numero, vencimento: t.vencimento, valor_face: t.valor_face, sig,
+      diverge: confs.length > 1 && new Set(Object.values(sig)).size > 1, decidido: dec || null };
+  });
+  const secoes = ['acordos', 'correcoes', 'eventos'].map(sec => {
+    const sig = {}; for (const c of confs) sig[c] = assinaturaSecao(sec, D[c]);
+    const dec = decis.find(d => d.item === 'secao:' + sec);
+    return { secao: sec, sig, diverge: confs.length > 1 && new Set(Object.values(sig)).size > 1, decidido: dec || null };
+  });
+  return { titulos, secoes };
+}
+async function comparar(n) {
+  const confs = await quemTem(n);
+  const D = await dadosTodos(n, [...confs, 'final']);
+  const decis = await q('select item, de, em from carteira.decisoes where contrato=$1', [n]);
+  return { confs, D, ...compararCom(confs, D, decis) };
+}
+async function compararTodos(numeros) {
+  const all = ['luis', 'secretaria', 'legado', 'final'];
+  const T = await q(`select * from carteira.titulos where contrato = any($1) and (conferente is null or conferente = any($2)) ${ORDEM}`, [numeros, all]);
+  const P = await q(`select g.id, g.titulo_id, g.conferente, g.fatura, g.valor_pago, g.confirmada_em, t.contrato from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato = any($1)`, [numeros]);
+  const S = await q(`select ct.*, t.contrato from carteira.conferencia_titulo ct join carteira.titulos t on t.id=ct.titulo_id where t.contrato = any($1)`, [numeros]);
+  const A = await q('select * from carteira.acordos where contrato = any($1)', [numeros]);
+  const C = await q('select * from carteira.correcoes where contrato = any($1)', [numeros]);
+  const E = await q('select * from carteira.eventos where contrato = any($1)', [numeros]);
+  const F = await q('select * from carteira.fechamentos where contrato = any($1)', [numeros]);
+  const X = await q('select contrato, item, de, em from carteira.decisoes where contrato = any($1)', [numeros]);
+  const res = {};
+  for (const n of numeros) {
+    const D = {}, tem = new Set();
+    for (const c of all) {
+      const base = T.filter(t => t.contrato === n && t.conferente == null);
+      const d = { base, titAcordo: T.filter(t => t.contrato === n && t.conferente === c),
+        pagamentos: P.filter(x => x.contrato === n && x.conferente === c), situacoes: S.filter(x => x.contrato === n && x.conferente === c),
+        acordos: A.filter(x => x.contrato === n && x.conferente === c), correcoes: C.filter(x => x.contrato === n && x.conferente === c),
+        eventos: E.filter(x => x.contrato === n && x.conferente === c) };
+      D[c] = d;
+      if (d.pagamentos.length || d.situacoes.length || d.acordos.length || d.correcoes.length || d.eventos.length || F.some(f => f.contrato === n && f.conferente === c)) tem.add(c);
+    }
+    const confs = COMPARA.filter(c => tem.has(c));
+    const r = compararCom(confs, D, X.filter(x => x.contrato === n));
+    res[n] = { confs, fechados: F.filter(f => f.contrato === n).map(f => f.conferente),
+      divergencias: r.titulos.filter(t => t.diverge).length + r.secoes.filter(s => s.diverge).length,
+      pendentes: r.titulos.filter(t => t.diverge && !t.decidido).length + r.secoes.filter(s => s.diverge && !s.decidido).length };
+  }
+  return res;
+}
+async function copiarTitulo(id, de) {
+  await q(`delete from carteira.pagamentos where conferente='final' and titulo_id=$1`, [id]);
+  await q(`delete from carteira.conferencia_titulo where conferente='final' and titulo_id=$1`, [id]);
+  const pags = await q('select * from carteira.pagamentos where conferente=$1 and titulo_id=$2', [de, id]);
+  for (const g of pags) {
+    const [nv] = await q(`insert into carteira.pagamentos(conferente, titulo_id, ${CAMPOS_PAG.join(',')}, tem_print)
+                          values ('final',$1,${CAMPOS_PAG.map((_, i) => '$' + (i + 2)).join(',')},$${CAMPOS_PAG.length + 2}) returning id`,
+      [id, ...CAMPOS_PAG.map(c => g[c]), g.tem_print]);
+    if (g.tem_print) await q(`insert into carteira.prints(pagamento_id, tipo, conteudo) select $1, tipo, conteudo from carteira.prints where pagamento_id=$2`, [nv.id, g.id]);
+  }
+  await q(`insert into carteira.conferencia_titulo(conferente, titulo_id, situacao, obs)
+           select 'final', titulo_id, situacao, obs from carteira.conferencia_titulo where conferente=$1 and titulo_id=$2`, [de, id]);
+}
+async function copiarSecao(n, sec, de) {
+  if (sec === 'correcoes') {
+    await q(`delete from carteira.correcoes where contrato=$1 and conferente='final'`, [n]);
+    await q(`insert into carteira.correcoes(contrato, conferente, grupo, a_partir, data, igpm_pct, juros_pct, novo_valor, obs)
+             select contrato, 'final', grupo, a_partir, data, igpm_pct, juros_pct, novo_valor, obs from carteira.correcoes where contrato=$1 and conferente=$2`, [n, de]);
+  }
+  if (sec === 'eventos') {
+    await q(`delete from carteira.eventos where contrato=$1 and conferente='final'`, [n]);
+    await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs)
+             select contrato, 'final', tipo, motivo, a_partir_titulo, data, dados, obs from carteira.eventos where contrato=$1 and conferente=$2`, [n, de]);
+  }
+  if (sec === 'acordos') {
+    await q(`delete from carteira.titulos where contrato=$1 and conferente='final' and grupo='acordo'`, [n]);
+    await q(`delete from carteira.acordos where contrato=$1 and conferente='final'`, [n]);
+    const acs = await q('select * from carteira.acordos where contrato=$1 and conferente=$2 order by id', [n, de]);
+    const mapa = {};
+    for (const a of acs) {
+      const [na] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios,
+                            valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs)
+                            values ($1,'final',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning id`,
+        [n, a.data_acordo, a.titulos_origem, a.principal, a.multa, a.juros, a.honorarios, a.valor_calculado, a.valor_acordado, a.desconto_encargos, a.qtd_parcelas, a.obs]);
+      const ts = await q('select * from carteira.titulos where acordo_id=$1 order by numero', [a.id]);
+      for (const t of ts) {
+        const [nt] = await q(`insert into carteira.titulos(contrato, grupo, numero, total, rotulo, vencimento, valor_face, conferente, acordo_id)
+                              values ($1,'acordo',$2,$3,$4,$5,$6,'final',$7) returning id`, [n, t.numero, t.total, t.rotulo, t.vencimento, t.valor_face, na.id]);
+        mapa[t.id] = nt.id; await copiarTitulo(nt.id, '__nada__');
+        const pags = await q('select * from carteira.pagamentos where conferente=$1 and titulo_id=$2', [de, t.id]);
+        for (const g of pags) await q(`insert into carteira.pagamentos(conferente, titulo_id, ${CAMPOS_PAG.join(',')}, tem_print)
+            values ('final',$1,${CAMPOS_PAG.map((_, i) => '$' + (i + 2)).join(',')},false)`, [nt.id, ...CAMPOS_PAG.map(c => g[c])]);
+      }
+    }
+    const fin = await q(`select id, titulos_origem from carteira.acordos where contrato=$1 and conferente='final'`, [n]);
+    for (const a of fin) await q('update carteira.acordos set titulos_origem=$2 where id=$1', [a.id, a.titulos_origem.map(i => mapa[i] || i)]);
+  }
+}
+async function decidir(n, item, de, conf) {
+  await q(`insert into carteira.decisoes(contrato, item, de, por) values ($1,$2,$3,$4)
+           on conflict (contrato, item) do update set de=excluded.de, por=excluded.por, em=now()`, [n, item, de, conf]);
+}
+
 export default async (req) => {
   const url = new URL(req.url);
   const p = url.pathname.replace(/^\/(\.netlify\/functions\/api|api)/, '').split('/').filter(Boolean);
@@ -85,16 +253,52 @@ export default async (req) => {
     try { await q('select 1'); } catch (e) { teste = e.message; }
     return json({ teste_conexao: teste });
   }
-  const conf = quem(req);
+  let conf = quem(req);
   if (!conf) {
     const falta = [!PL && 'PIN_LUIS', !PS && 'PIN_SECRETARIA', !process.env.DATABASE_URL && 'DATABASE_URL'].filter(Boolean);
     return json({ erro: falta.length ? 'O servidor não está lendo: ' + falta.join(', ') : 'Senha inválida' }, 401);
   }
   const m = req.method;
   const body = m === 'GET' || m === 'DELETE' ? {} : await req.json().catch(() => ({}));
+  const real = conf;
+  if (conf === 'luis' && req.headers.get('x-como') === 'final') conf = 'final';
 
   try {
-    if (p[0] === 'eu') return json({ conferente: conf });
+    if (p[0] === 'eu') return json({ conferente: real });
+
+    if (p[0] === 'cruzamento') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador acessa o cruzamento' }, 403);
+      if (!p[1] && m === 'GET') {
+        const cs = await q(`select c.numero, c.quadra, c.lote, coalesce(c.compradores->0->>'nome', c.nome_planilha) as titular,
+          (select array_agg(conferente) from carteira.fechamentos f where f.contrato=c.numero) as fechados
+          from carteira.contratos c order by c.numero`);
+        const soFechados = url.searchParams.get('todos') !== '1';
+        const alvo = cs.filter(c => !soFechados || ((c.fechados || []).includes('luis') && (c.fechados || []).includes('secretaria')));
+        const r = await compararTodos(alvo.map(c => c.numero));
+        const out = alvo.map(c => ({ ...c, ...r[c.numero], resolvido: (c.fechados || []).includes('final') }));
+        return json(out);
+      }
+      if (p[1] && m === 'GET') {
+        const r = await comparar(p[1]);
+        const D = {}; for (const [k, v] of Object.entries(r.D)) D[k] = { ...v, base: undefined, titAcordo: undefined };
+        return json({ confs: r.confs, titulos: r.titulos, secoes: r.secoes, dados: D, hoje: HOJE() });
+      }
+      if (p[1] && m === 'POST') {
+        const n = p[1], b = body;
+        if (b.acao === 'titulo') { await copiarTitulo(b.titulo_id, b.de); await decidir(n, 'titulo:' + b.titulo_id, b.de, real); }
+        if (b.acao === 'secao') { await copiarSecao(n, b.secao, b.de); await decidir(n, 'secao:' + b.secao, b.de, real); }
+        if (b.acao === 'aceitar_iguais') {
+          const r = await comparar(n); const de = r.confs[0];
+          for (const t of r.titulos) if (!t.diverge && !t.decidido && de) { await copiarTitulo(t.id, de); await decidir(n, 'titulo:' + t.id, de + ' (iguais)', real); }
+          for (const s of r.secoes) if (!s.diverge && !s.decidido && de) { await copiarSecao(n, s.secao, de); await decidir(n, 'secao:' + s.secao, de + ' (iguais)', real); }
+        }
+        if (b.acao === 'resolver') await q(`insert into carteira.fechamentos(contrato, conferente) values ($1,'final') on conflict (contrato, conferente) do update set fechado_em=now()`, [n]);
+        if (b.acao === 'reabrir') await q(`delete from carteira.fechamentos where contrato=$1 and conferente='final'`, [n]);
+        await log(real, 'cruzamento', { contrato: n, ...b });
+        return json({ ok: true });
+      }
+    }
+
 
     if (p[0] === 'contratos' && m === 'GET') {
       const rows = await q(`
@@ -112,20 +316,9 @@ export default async (req) => {
     }
 
     if (p[0] === 'contrato' && p[1] && m === 'GET') {
-      const n = p[1];
-      const [contrato] = await q('select * from carteira.contratos where numero=$1', [n]);
-      if (!contrato) return json({ erro: 'Contrato não encontrado' }, 404);
-      const titulos = await q(`select * from carteira.titulos where contrato=$1 and (conferente is null or conferente=$2)
-                               order by case grupo when 'entrada' then 0 when 'mensal' then 1 when 'anual' then 2 when 'outra' then 3 else 4 end, vencimento, numero`, [n, conf]);
-      const ids = titulos.map(t => t.id);
-      const pagamentos = await q(`select ${['id', 'titulo_id', 'tem_print', 'salvo_em', ...CAMPOS_PAG].join(',')} from carteira.pagamentos
-                                  where conferente=$1 and titulo_id = any($2) order by salvo_em`, [conf, ids]);
-      const situacoes = await q('select * from carteira.conferencia_titulo where conferente=$1 and titulo_id = any($2)', [conf, ids]);
-      const acordos = await q('select * from carteira.acordos where contrato=$1 and conferente=$2 order by data_acordo, id', [n, conf]);
-      const correcoes = await q('select * from carteira.correcoes where contrato=$1 and conferente=$2 order by grupo, a_partir', [n, conf]);
-      const eventos = await q('select * from carteira.eventos where contrato=$1 and conferente=$2 order by data, id', [n, conf]);
-      const [fechamento] = await q('select * from carteira.fechamentos where contrato=$1 and conferente=$2', [n, conf]);
-      return json({ contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, fechamento: fechamento || null, hoje: new Date().toISOString().slice(0, 10) });
+      const d = await carregar(p[1], conf);
+      if (!d) return json({ erro: 'Contrato não encontrado' }, 404);
+      return json(d);
     }
 
     if (p[0] === 'pagamento' && m === 'POST') {
@@ -168,7 +361,7 @@ export default async (req) => {
 
     if (p[0] === 'print' && p[1]) {
       const [r] = await q(`select pr.conteudo from carteira.prints pr join carteira.pagamentos g on g.id=pr.pagamento_id
-                           where pr.pagamento_id=$1 and g.conferente=$2`, [p[1], conf]);
+                           where pr.pagamento_id=$1 and (g.conferente=$2 or $3)`, [p[1], conf, real === 'luis']);
       return json({ conteudo: r?.conteudo || null });
     }
 
