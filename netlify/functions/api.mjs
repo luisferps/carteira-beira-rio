@@ -81,13 +81,9 @@ export default async (req) => {
   const url = new URL(req.url);
   const p = url.pathname.replace(/^\/(\.netlify\/functions\/api|api)/, '').split('/').filter(Boolean);
   if (p[0] === 'diag') {
-    const raw = (process.env.DATABASE_URL || '').trim(), pw = (process.env.DB_PASSWORD || '').trim();
-    let info = {};
-    try { const u = new URL(raw.replace('[YOUR-PASSWORD]', 'x')); info = { usuario: u.username, servidor: u.hostname, porta: u.port, banco: u.pathname }; } catch (e) { info = { erro_endereco: e.message }; }
     let teste = 'ok';
     try { await q('select 1'); } catch (e) { teste = e.message; }
-    return json({ ...info, tem_marcador_senha: raw.includes('[YOUR-PASSWORD]'), tamanho_senha: pw.length,
-      senha_tem_espaco_ou_aspas: /[\s"']/.test(pw), inicio_fim_senha: pw ? pw[0] + '…' + pw[pw.length - 1] : '', teste_conexao: teste });
+    return json({ teste_conexao: teste });
   }
   const conf = quem(req);
   if (!conf) {
