@@ -45,6 +45,11 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .aviso{background:#fef2f2;color:#7f1d1d;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;margin:8px 0}
 .info{background:#f0f9ff;color:#0c4a6e;border:1px solid #bae6fd;border-radius:8px;padding:8px 10px;margin:8px 0}
 .mut{color:var(--mut);font-size:12px}.r{text-align:right}.hid{display:none}
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.cb{text-align:left;background:#fff;border:1px solid var(--ln);border-left:5px solid var(--fu);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px;min-height:140px}
+.cb:hover{border-color:var(--az);box-shadow:0 2px 10px rgba(0,0,0,.06)}.cb.alt{border-left-color:var(--ac)}.cb.fech{border-left-color:var(--pg)}
+.cbt{display:flex;justify-content:space-between;align-items:baseline}.cbt b{font-size:20px}.cbt span{font-weight:600;color:var(--azd)}
+.cbn{font-size:13px;line-height:1.25;min-height:32px}
 .pgl{border:1px solid var(--ln);border-radius:8px;padding:8px;margin-bottom:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 @media(max-width:600px){main{padding:10px}.pc{width:62px}.lin .rot{width:100%}}
 </style>
@@ -92,14 +97,15 @@ async function telaLista(){
   const fech=LISTA.filter(c=>c.fechado_em).length;
   app.innerHTML=`<div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Contratos (${LISTA.length})</h3>
   <span class="tag ok">${fech} fechados</span><span class="tag">${LISTA.length-fech} abertos</span></div><br>
-  <input id="bus" placeholder="Buscar por número, quadra/lote ou nome"></div>
-  <div class="card" style="padding:0"><table><thead><tr><th>Contrato</th><th>Quadra/Lote</th><th>Titular</th><th>Andamento</th><th>Situação</th></tr></thead><tbody id="tb"></tbody></table></div>`;
+  <input id="bus" placeholder="Buscar por número, quadra/lote ou nome"></div><div class="cgrid" id="tb"></div>`;
   const desenha=()=>{const t=$('#bus').value.toLowerCase();
-    $('#tb').innerHTML=LISTA.filter(c=>!t||(c.numero+' q'+c.quadra+' l'+c.lote+' '+(c.titular||'')).toLowerCase().includes(t)).map(c=>{
+    $('#tb').innerHTML=LISTA.filter(c=>!t||(c.numero+' q'+c.quadra+' l'+c.lote+' q'+c.quadra+'l'+c.lote+' '+(c.titular||'')).toLowerCase().includes(t)).map(c=>{
       const pc=c.vencidas?Math.round(100*c.conferidas/c.vencidas):0;
-      return `<tr class="lk" onclick="location.hash='c/${c.numero}'"><td><b>${c.numero}</b></td><td>Q${c.quadra||'?'} L${c.lote||'?'}</td><td>${esc(c.titular)}</td>
-      <td><div class="bar"><i style="width:${pc}%"></i></div><span class="mut">${c.conferidas}/${c.vencidas} vencidas</span></td>
-      <td>${c.fechado_em?`<span class="tag ok">Fechado ${dbr(c.fechado_em)}</span>`:''} ${c.n_alertas?`<span class="tag al">${c.n_alertas} alerta(s)</span>`:''}</td></tr>`}).join('')};
+      return `<button class="cb ${c.fechado_em?'fech':''} ${c.n_alertas?'alt':''}" onclick="location.hash='c/${c.numero}'">
+      <div class="cbt"><b>${c.numero}</b><span>Q${c.quadra||'?'} L${c.lote||'?'}</span></div>
+      <div class="cbn">${esc(c.titular)}</div>
+      <div class="bar"><i style="width:${pc}%"></i></div><div class="mut">${c.conferidas}/${c.vencidas} vencidas conferidas</div>
+      <div>${c.fechado_em?`<span class="tag ok">Fechado ${dbr(c.fechado_em)}</span>`:''} ${c.n_alertas?`<span class="tag al">${c.n_alertas} alerta(s)</span>`:''}</div></button>`}).join('')};
   $('#bus').oninput=desenha;desenha();
 }
 
