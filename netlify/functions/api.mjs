@@ -4,7 +4,7 @@ pg.types.setTypeParser(1082, v => v);
 
 const pool = new pg.Pool({
   connectionString: process.env.DB_PASSWORD
-    ? (process.env.DATABASE_URL || '').replace('[YOUR-PASSWORD]', encodeURIComponent(process.env.DB_PASSWORD))
+    ? (process.env.DATABASE_URL || '').trim().replace('[YOUR-PASSWORD]', encodeURIComponent(process.env.DB_PASSWORD.trim()))
     : process.env.DATABASE_URL,
   ssl: process.env.PGSSL === 'off' ? false : { rejectUnauthorized: false },
   max: 3,
