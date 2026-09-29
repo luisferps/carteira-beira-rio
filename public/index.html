@@ -234,11 +234,12 @@ function calcEncargos(){
   const cob=numBR($('#f_valor_cobranca').value),pago=numBR($('#f_valor_pago').value);if(cob==null||pago==null)return;
   const vo=$('#f_vencimento_original').value||$('#f_vencimento_boleto').value,dt=$('#f_confirmada_em').value;
   const dias=vo&&dt?Math.max(0,Math.round((new Date(dt)-new Date(vo))/864e5)):0;
-  let dif=r2(pago-cob),mu=0,ju=0,ho=0,de=0;
+  let dif=r2(pago-cob),mu=0,ju=0,ho=0,de=0,msg='';
   if(dif<0)de=-dif;
-  else if(dif>0){mu=Math.min(dif,r2(cob*.02));const jEsp=dias?r2(cob*(Math.pow(1.01,dias/30)-1)):0;ju=Math.min(r2(dif-mu),jEsp);ho=r2(dif-mu-ju)}
+  else if(dif>0&&dias>0){mu=Math.min(dif,r2(cob*.02));const jEsp=r2(cob*(Math.pow(1.01,dias/30)-1));ju=Math.min(r2(dif-mu),jEsp);ho=r2(dif-mu-ju)}
+  else if(dif>0)msg=`<div class="aviso">Pago <b>no prazo</b> e ${brl(dif)} acima da cobrança. Não é multa nem juros — provavelmente falta lançar a <b>correção anual</b> deste ano (botão "Adicionar correção" no contrato). Os encargos ficaram zerados.</div>`;
   const put=(k,v)=>{$('#f_'+k).value=v?String(r2(v)).replace('.',','):'0'};put('multa_paga',mu);put('juros_pago',ju);put('honorarios_pago',ho);put('desconto_dado',de);
-  $('#encInfo').innerHTML=dif?`<div class="info">Diferença de ${brl(dif)} em relação ao valor da cobrança${dias?` · pago ${dias} dia(s) depois do vencimento original`:''}. Multa 2%, juros 1% ao mês capitalizado ao dia; o que passar disso vai como custo de cobrança.</div>`:'';
+  $('#encInfo').innerHTML=msg||(dif?`<div class="info">Diferença de ${brl(dif)} em relação ao valor da cobrança${dias?` · pago ${dias} dia(s) depois do vencimento original`:''}. Multa 2%, juros 1% ao mês capitalizado ao dia; o que passar disso vai como custo de cobrança.</div>`:'');
 }
 function ligaLink(){const l=$('#f_link_fatura');if(!l)return;l.oninput=()=>{const m=l.value.match(/asaas\.com\/i\/([A-Za-z0-9]+)/);if(m&&!$('#f_id_asaas').value)$('#f_id_asaas').value='pay_'+m[1]}}
 const numBR=s=>{s=String(s??'').replace(/[^\d.,-]/g,'');if(!s)return null;if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=Number(s);return isNaN(n)?null:n};
@@ -259,30 +260,31 @@ function modalTitulo(id,editId){
     <span class="mut">salvo ${new Date(p.salvo_em).toLocaleString('pt-BR')}</span>${p.tem_print?`<button onclick="verPrint(${p.id})">Ver print</button>`:''}
     <button onclick="modalTitulo(${id},${p.id})">Editar</button><button class="per" onclick="apagar('pagamento',${p.id})">Apagar</button></div>`).join('')}
   <h4 style="margin:12px 0 6px">${ed?'Editar pagamento':'Lançar pagamento'}</h4>
-  <div class="drop" id="drop" tabindex="0">Clique aqui e cole o print (Ctrl+V)<div id="pv"></div></div>
-   <div class="bt" style="margin:8px 0"><button class="pri" id="bia" onclick="lerIA()">Ler print e descrição com IA</button><span id="iast" class="mut"></span></div>
+  <div class="drop" id="drop">Aperte <b>Ctrl+V</b> com o print copiado — a leitura começa sozinha. Depois cole a descrição (Ctrl+V de novo).<div id="pv"></div></div>
+   <div class="bt" style="margin:8px 0;align-items:center"><span id="iast" class="mut"></span><span style="flex:1"></span><button id="bia" onclick="lerIA()" style="font-size:12px;padding:4px 10px">Ler de novo</button></div>
   ${formPag(ed||{forma:'Boleto Bancário',vencimento_original:t.vencimento,valor_cobranca:r2(valorAno(t))},t)}
   <div class="bt" style="margin-top:12px"><button class="pri" onclick="conferePag(${id},${ed?ed.id:'null'})">Conferir e salvar</button><span id="confBox" style="flex-basis:100%"></span>
    <span style="flex:1"></span><button title="Use quando você olhou no Asaas e confirmou que esta parcela NÃO foi paga. Assim ela sai de 'não conferida' e o contrato pode ser fechado." onclick="marca(${id},'em_atraso')">Não foi paga (conferido)</button><button onclick="marca(${id},'cancelada')">Marcar cancelada</button>
    ${sit&&sit.situacao!=='paga'?`<button onclick="marca(${id},null)">Limpar marcação</button>`:''}</div>`);
   window._TIT=t;$('#f_descricao').oninput=checaDesc;checaDesc();ligaLink();
   ['valor_cobranca','valor_pago','confirmada_em','vencimento_original'].forEach(k=>$('#f_'+k).addEventListener('change',calcEncargos));
-  const dz=$('#drop');if(dz){dz.onpaste=colaPrint;dz.onclick=()=>dz.focus();document.onpaste=e=>{if($('#drop'))colaPrint(e)}}
+  document.onpaste=e=>{if(!$('#drop'))return;const its=[...(e.clipboardData||{}).items||[]];
+    if(its.some(i=>i.type.startsWith('image/'))){colaPrint(e,true);return}
+    const tg=e.target;if(!(tg&&/INPUT|TEXTAREA|SELECT/.test(tg.tagName))){const tx=e.clipboardData.getData('text');if(tx){e.preventDefault();$('#f_descricao').value=tx;checaDesc()}}};
 }
-function colaPrint(e){const it=[...(e.clipboardData||{}).items||[]].find(i=>i.type.startsWith('image/'));if(!it)return;e.preventDefault();
+function colaPrint(e,auto){const it=[...(e.clipboardData||{}).items||[]].find(i=>i.type.startsWith('image/'));if(!it)return;e.preventDefault();
   const img=new Image();img.onload=()=>{const k=Math.min(1,1600/img.width);const cv=document.createElement('canvas');cv.width=img.width*k;cv.height=img.height*k;
-   cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);PRINT=cv.toDataURL('image/jpeg',.8);$('#pv').innerHTML=`<img src="${PRINT}">`};
+   cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);PRINT=cv.toDataURL('image/jpeg',.8);$('#pv').innerHTML=`<img src="${PRINT}">`;if(auto)lerIA()};
   img.src=URL.createObjectURL(it.getAsFile())}
 async function lerIA(){
-  if(!PRINT&&!$('#f_descricao').value.trim())return alert('Cole o print ou a descrição primeiro.');
+  if(!PRINT&&!$('#f_descricao').value.trim()){$('#iast').textContent='Cole o print primeiro (Ctrl+V).';return}
   $('#iast').textContent='Lendo…';$('#bia').disabled=true;
   try{const d=await api('ler-print',{method:'POST',body:{imagem:PRINT,descricao:$('#f_descricao').value}});
     for(const [k,,tp] of CAMPOS){if(['vencimento_original','valor_cobranca','multa_paga','juros_pago','honorarios_pago','desconto_dado'].includes(k))continue;if(d[k]!=null&&d[k]!==''){if(k==='forma'){const f=FORMAS.find(x=>x.toLowerCase().startsWith(String(d[k]).toLowerCase().slice(0,5)));if(f)$('#f_forma').value=f}else $('#f_'+k).value=tp==='num'?String(d[k]).replace('.',','):d[k]}}
     if(!$('#f_confirmada_em').value&&d.saque_em)$('#f_confirmada_em').value=d.saque_em;
     calcEncargos();
-    if(!$('#f_descricao').value.trim())alert('Cole a descrição completa do Asaas na caixa "Descrição" (lá no Asaas: clique na descrição, Ctrl+A, Ctrl+C; aqui: Ctrl+V). O print mostra só o começo dela.');
     if(d.link_fatura){const m=String(d.link_fatura).match(/\/i\/([A-Za-z0-9]+)/);if(m&&!$('#f_id_asaas').value)$('#f_id_asaas').value='pay_'+m[1]}checaDesc();
-    $('#iast').textContent='Pronto. Confira os campos antes de salvar.';
+    $('#iast').innerHTML='Print lido. '+($('#f_descricao').value.trim()?'Confira os campos e clique em Conferir e salvar.':'<b>Agora copie a descrição no Asaas e aperte Ctrl+V aqui.</b>');
   }catch(e){$('#iast').textContent=''}$('#bia').disabled=false}
 function conferePag(tid,pid){
   document.querySelectorAll('.modal input,.modal select,.modal textarea').forEach(e=>e.style.borderColor='');
