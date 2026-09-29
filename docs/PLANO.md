@@ -162,3 +162,13 @@ Prova final: cada contrato fechado + total geral recebido no banco novo = total 
 8. Ligar o sistema e puxar o que entrou depois de cada fechamento
 9. Tela final do dia a dia, parecida com a atual, lendo só o banco novo
 10. Desligar o banco antigo depois de um mês rodando junto
+
+## 11. Cruzamento (feito em 29/09/2026)
+- Só o administrador (Luis) vê o botão **Cruzamento**.
+- Compara Luis × Secretária × Banco antigo (quando carregado), parcela por parcela e também acordos, correções e encerramento/cessão.
+- Por padrão mostra os contratos fechados pelos dois; opção "mostrar todos".
+- Verde = igual; vermelho = diverge; azul = já decidido.
+- "Usar esta versão" copia a versão escolhida para a **versão final** e registra quem decidiu e quando.
+- "Aceitar tudo que bate" copia de uma vez tudo o que as conferências concordam.
+- "Abrir versão final para editar" abre a mesma tela de conferência, gravando direto na versão final.
+- "Marcar contrato resolvido" fecha o contrato na versão final. A versão final é a que sobe para o sistema definitivo.
