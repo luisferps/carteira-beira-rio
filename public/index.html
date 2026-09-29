@@ -219,7 +219,7 @@ const CAMPOS=GRUPOS.flatMap(g=>g[1]);
 const FORMAS=['Boleto Bancário','Pix','Cartão de crédito','Pagamento à construtora','Transferência bancária','Dinheiro','Cheque','Veículo (dação)','Outro'];
 let PRINT=null;
 function lerDescricao(t){
-  const r={};const m=t.match(/Beira\s*Rio\s*-\s*(\d{3,4})/i)||t.match(/Contrato\s*n?[º°o]?\s*(\d{3,4})/i);if(m)r.contrato=m[1].padStart(4,'0');
+  const r={};const m=t.match(/Beira\s*Rio\s*[-–—:]?\s*(\d{3,4})\b/i)||t.match(/Contrato\s*n?[º°o]?\s*(\d{3,4})/i);if(m)r.contrato=m[1].padStart(4,'0');
   const ql=t.match(/Q(?:d|uadra)?\.?\s*0?(\d{1,2})\s*L(?:t|ote)?\.?\s*0?(\d{1,2})/i);if(ql){r.quadra=ql[1].padStart(2,'0');r.lote=ql[2].padStart(2,'0')}
   r.parcelas=[...t.matchAll(/(?<![\d.\/-])(\d{1,3})\s*\/\s*(\d{1,3})(?![\d.\/-])/g)].filter(x=>+x[1]>0&&+x[1]<=+x[2]).map(x=>({txt:x[1]+'/'+x[2],n:+x[1],tot:+x[2]}));return r;
 }
@@ -305,14 +305,12 @@ function conferePag(tid,pid){
   for(const [k,l] of CAMPOS){const v=o[k];if(v==null||v===''){(obrig.includes(k)?falta:vazio).push(l);const e=$('#f_'+k);if(e)e.style.borderColor=obrig.includes(k)?'var(--at)':'var(--ac)'}}
   if(!o.descricao?.trim()){(asaas?falta:vazio).push('Descrição');$('#f_descricao').style.borderColor=asaas?'var(--at)':'var(--ac)'}
   const av=[...document.querySelectorAll('#descInfo .aviso')].map(e=>e.textContent);
-  if(o.valor_cobranca&&o.valor_pago&&Math.abs(o.valor_pago-o.valor_cobranca)>0.009)av.push(`Valor pago (${brl(o.valor_pago)}) diferente da cobrança (${brl(o.valor_cobranca)}): multa ${brl(o.multa_paga)}, juros ${brl(o.juros_pago)}, custo de cobrança ${brl(o.honorarios_pago)}, desconto ${brl(o.desconto_dado)}.`);
-  $('#confBox').innerHTML=`<div class="card" style="margin-top:10px;border-color:${falta.length?'var(--at)':'var(--pg)'}">
-   <b>Conferência antes de salvar — ${esc(t.rotulo)}</b>
-   ${falta.length?`<div class="aviso">Obrigatório e vazio (vermelho): ${falta.join(', ')}</div>`:''}
-   ${vazio.length?`<div class="mut" style="margin:6px 0">Em branco (amarelo): ${vazio.join(', ')}</div>`:''}
-   ${av.map(a=>`<div class="aviso" style="background:#fffbeb;color:#78350f;border-color:#fde68a">${esc(a)}</div>`).join('')}
-   <div class="mut">Valor pago <b>${brl(o.valor_pago)}</b> · entrou em <b>${dbr(o.confirmada_em)}</b> · fatura <b>${esc(o.fatura||'—')}</b> · ${esc(o.forma||'')}</div>
-   <div class="bt" style="margin-top:8px">${falta.length?'':`<button class="pri" onclick="salvaPag(${tid},${pid})">Está certo — salvar</button>`}<button onclick="$('#confBox').innerHTML=''">Voltar e corrigir</button></div></div>`;
+  if(o.valor_cobranca!=null&&o.valor_pago!=null&&Math.abs(o.valor_pago-o.valor_cobranca)>0.009)av.push(`Valor esperado ${brl(o.valor_cobranca)} e entrou ${brl(o.valor_pago)} (diferença de ${brl(o.valor_pago-o.valor_cobranca)}).`);
+  $('#confBox').innerHTML=`<div class="card" style="margin-top:10px;border-color:${falta.length||av.length?'var(--at)':'var(--pg)'}">
+   <div style="font-size:16px"><b>${esc(t.rotulo)}</b> — valor pago <b>${brl(o.valor_pago)}</b></div>
+   ${falta.length?`<div class="aviso">Falta preencher: ${falta.join(', ')}</div>`:''}
+   ${av.length?av.map(a=>`<div class="aviso">Divergência: ${esc(a)}</div>`).join(''):(falta.length?'':'<div style="color:var(--pg);font-weight:600;margin-top:6px">✓ Sem divergências</div>')}
+   <div class="bt" style="margin-top:8px">${falta.length?'':`<button class="pri" onclick="salvaPag(${tid},${pid})">${av.length?'Salvar mesmo assim':'Está certo — salvar'}</button>`}<button onclick="$('#confBox').innerHTML=''">Voltar e corrigir</button></div></div>`;
   $('#confBox').scrollIntoView({behavior:'smooth',block:'center'});
 }
 async function salvaPag(tid,pid){
