@@ -13,7 +13,7 @@ Conferência sempre **contrato por contrato, parcela por parcela**. Nada de plan
 | Onde fica | Repositório novo no GitHub → publica sozinho no Netlify. O próprio Netlify faz o papel de servidor (funções do Netlify), sem precisar de Railway |
 | Banco | Projeto novo no Supabase, separado do atual |
 | Quem lê o print | Inteligência artificial (Claude), usando a conta do Claude Console que já existe. A chave fica guardada no Netlify, nunca na tela |
-| Conferência do Luis | Print + descrição colada, parcela por parcela. Sem planilha exportada |
+| Conferências (Luis e secretária) | Print + descrição colada, parcela por parcela. Sem planilha exportada. As divergências esperadas estão nos acordos, que o Luis resolve no cruzamento |
 | Data de corte | Não tem. Cada parcela salva guarda data e hora; o fechamento do contrato também |
 | Contratos | Todos os ~250 entram como ativos. O encerramento é marcado durante a conferência |
 | Total esperado | Calculado pelo próprio sistema e mostrado na tela do contrato. Ninguém digita |
@@ -23,7 +23,7 @@ Conferência sempre **contrato por contrato, parcela por parcela**. Nada de plan
 |---|---|---|
 | A — Legado | Já existe | Foto congelada do banco atual, convertida para o formato novo |
 | B — Luis | Luis | Cola o print do Asaas e a descrição; a inteligência artificial preenche; Luis completa o que faltar |
-| C — Secretária | Secretária | Olha no Asaas e digita |
+| C — Secretária | Secretária | Também cola o print e a descrição (liberado em 29/09/2026); a IA preenche e ela confere |
 
 Conferência cega: cada um entra com seu próprio acesso e não vê o que o outro lançou.
 
