@@ -48,7 +48,7 @@ async function tituloDoConferente(id, conf) {
 }
 
 async function lerPrint(body) {
-  const key = process.env.ANTHROPIC_API_KEY;
+  const key = (process.env.ANTHROPIC_API_KEY || '').trim().replace(/^["']|["']$/g, '');
   if (!key) return { erro: 'Falta a chave da inteligência artificial no Netlify (ANTHROPIC_API_KEY).' };
   const content = [];
   if (body.imagem) {
@@ -256,7 +256,8 @@ export default async (req) => {
   if (p[0] === 'diag') {
     let teste = 'ok';
     try { await q('select 1'); } catch (e) { teste = e.message; }
-    return json({ teste_conexao: teste });
+    const k = (process.env.ANTHROPIC_API_KEY || '').trim();
+    return json({ teste_conexao: teste, chave_ia: k ? { comeca_com_sk_ant: k.startsWith('sk-ant-'), tamanho: k.length, tem_espaco: /\s/.test(k) } : 'não configurada' });
   }
   let conf = quem(req);
   if (!conf) {
