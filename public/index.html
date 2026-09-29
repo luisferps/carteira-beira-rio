@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conferência Beira Rio</title>
+<link rel="icon" href="logo.png">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#16181d;--mut:#6b7280;--ln:#e3e6eb;--az:#29c5f6;--azd:#0b8fbf;
+--pg:#16a34a;--ac:#eab308;--ca:#3b82f6;--at:#b91c1c;--ve:#ef4444;--fu:#d1d5db}
+*{box-sizing:border-box}body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--tx)}
+header{display:flex;align-items:center;gap:12px;padding:10px 20px;background:#111;color:#fff;position:sticky;top:0;z-index:5}
+header img{height:30px;background:#fff;border-radius:6px;padding:2px}header b{font-size:16px}header .sp{flex:1}
+header button{background:transparent;color:#fff;border:1px solid #444}
+main{max-width:1250px;margin:0 auto;padding:18px}
+button{font:inherit;cursor:pointer;border:1px solid var(--ln);background:#fff;border-radius:7px;padding:7px 12px}
+button.pri{background:var(--az);border-color:var(--az);color:#00202d;font-weight:600}button.pri:hover{background:var(--azd);color:#fff}
+button.per{color:var(--at);border-color:#f3c1c1}button:disabled{opacity:.45;cursor:default}
+input,select,textarea{font:inherit;border:1px solid var(--ln);border-radius:7px;padding:7px 9px;width:100%;background:#fff}
+textarea{min-height:70px}label{font-size:12px;color:var(--mut);display:block;margin:0 0 3px}
+.card{background:var(--card);border:1px solid var(--ln);border-radius:12px;padding:16px;margin-bottom:14px}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--ln)}
+th{font-size:12px;color:var(--mut);font-weight:600}tr.lk{cursor:pointer}tr.lk:hover{background:#f0fbff}
+.bar{height:8px;background:#eee;border-radius:9px;overflow:hidden;min-width:90px}.bar i{display:block;height:100%;background:var(--pg)}
+.tag{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;background:#eef2f7}
+.tag.ok{background:#dcfce7;color:#14532d}.tag.al{background:#fef3c7;color:#78350f}
+.grid{display:flex;flex-direction:column;gap:8px}.lin{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.lin .rot{width:78px;font-size:12px;color:var(--mut)}
+.pc{width:74px;height:50px;border-radius:8px;border:2px solid transparent;font-size:11px;line-height:1.15;padding:3px;color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;position:relative}
+.pc small{font-size:10px;opacity:.9}
+.pc.paga{background:var(--pg)}.pc.quitada_acordo{background:var(--ac);color:#3a2c00}.pc.em_acordo{background:#fff;color:#3a2c00;border-color:var(--ac)}
+.pc.cancelada{background:var(--ca)}.pc.em_atraso{background:var(--at)}.pc.vencida{background:var(--ve)}.pc.futura{background:var(--fu);color:#333}
+.pc.anual{outline:2px dashed #333;outline-offset:1px}.pc.sel{box-shadow:0 0 0 3px #111}
+.pc .cf{position:absolute;top:2px;right:4px;font-size:10px}
+.leg{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--mut)}.leg span:before{content:"";display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:4px;vertical-align:-2px;background:var(--c)}
+.tot{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}.tot div{background:#f8fafc;border:1px solid var(--ln);border-radius:9px;padding:9px}
+.tot b{display:block;font-size:17px}.tot .neg b{color:var(--at)}
+.bt{display:flex;flex-wrap:wrap;gap:8px}
+details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-top:10px;background:#fff}summary{cursor:pointer;font-weight:600}
+.f2{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding:30px 12px;overflow:auto;z-index:20}
+.modal .card{width:min(860px,100%);margin:0}.modal h3{margin:0 0 10px}
+.drop{border:2px dashed #9bdcf3;border-radius:10px;padding:14px;text-align:center;color:var(--mut);background:#f3fbfe;cursor:pointer}
+.drop img{max-width:100%;max-height:260px;margin-top:8px;border-radius:6px}
+.aviso{background:#fef2f2;color:#7f1d1d;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;margin:8px 0}
+.info{background:#f0f9ff;color:#0c4a6e;border:1px solid #bae6fd;border-radius:8px;padding:8px 10px;margin:8px 0}
+.mut{color:var(--mut);font-size:12px}.r{text-align:right}.hid{display:none}
+.pgl{border:1px solid var(--ln);border-radius:8px;padding:8px;margin-bottom:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+@media(max-width:600px){main{padding:10px}.pc{width:62px}.lin .rot{width:100%}}
+</style>
+</head>
+<body>
+<header><img src="logo.png" alt=""><b>Conferência Beira Rio</b><span class="sp"></span><span id="quem"></span><button id="sair" class="hid">Sair</button></header>
+<main id="app"></main>
+<div id="modal"></div>
+<script>
+const $=s=>document.querySelector(s), app=$('#app');
+let PIN=''; try{PIN=localStorage.getItem('cbr_pin')||''}catch(e){}
+let EU='', LISTA=[], C=null, SEL=new Set(), SELMODO=false;
+const brl=v=>v==null||isNaN(v)?'—':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const dbr=d=>d?String(d).slice(0,10).split('-').reverse().join('/'):'—';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const r2=v=>Math.round(v*100)/100;
+async function api(path,opt={}){
+  const r=await fetch('/api/'+path,{method:opt.method||'GET',headers:{'x-pin':PIN,'content-type':'application/json'},body:opt.body?JSON.stringify(opt.body):undefined});
+  const d=await r.json().catch(()=>({erro:'Resposta inválida'}));
+  if(r.status===401){PIN='';try{localStorage.removeItem('cbr_pin')}catch(e){}telaLogin('Senha inválida');throw new Error('401')}
+  if(!r.ok||d.erro){alert(d.erro||'Erro');throw new Error(d.erro)}
+  return d;
+}
+function telaLogin(msg){
+  $('#quem').textContent='';$('#sair').classList.add('hid');
+  app.innerHTML=`<div class="card" style="max-width:380px;margin:60px auto"><h3>Entrar</h3>${msg?`<div class="aviso">${msg}</div>`:''}
+  <label>Senha</label><input id="pin" type="password" autofocus><br><br><button class="pri" id="ent">Entrar</button></div>`;
+  const go=async()=>{PIN=$('#pin').value.trim();try{localStorage.setItem('cbr_pin',PIN)}catch(e){};iniciar()};
+  $('#ent').onclick=go;$('#pin').onkeydown=e=>{if(e.key==='Enter')go()};
+}
+async function iniciar(){
+  if(!PIN)return telaLogin();
+  try{const d=await api('eu');EU=d.conferente}catch(e){return}
+  $('#quem').textContent=EU==='luis'?'Conferência do Luis':'Conferência da Secretária';
+  $('#sair').classList.remove('hid');$('#sair').onclick=()=>{PIN='';try{localStorage.removeItem('cbr_pin')}catch(e){};telaLogin()};
+  route();
+}
+window.onhashchange=()=>route();
+function route(){const h=location.hash.slice(1);if(h.startsWith('c/'))abrirContrato(h.slice(2));else telaLista()}
+
+/* ---------- LISTA ---------- */
+async function telaLista(){
+  app.innerHTML='<div class="card">Carregando…</div>';
+  LISTA=await api('contratos');
+  const fech=LISTA.filter(c=>c.fechado_em).length;
+  app.innerHTML=`<div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Contratos (${LISTA.length})</h3>
+  <span class="tag ok">${fech} fechados</span><span class="tag">${LISTA.length-fech} abertos</span></div><br>
+  <input id="bus" placeholder="Buscar por número, quadra/lote ou nome"></div>
+  <div class="card" style="padding:0"><table><thead><tr><th>Contrato</th><th>Quadra/Lote</th><th>Titular</th><th>Andamento</th><th>Situação</th></tr></thead><tbody id="tb"></tbody></table></div>`;
+  const desenha=()=>{const t=$('#bus').value.toLowerCase();
+    $('#tb').innerHTML=LISTA.filter(c=>!t||(c.numero+' q'+c.quadra+' l'+c.lote+' '+(c.titular||'')).toLowerCase().includes(t)).map(c=>{
+      const pc=c.vencidas?Math.round(100*c.conferidas/c.vencidas):0;
+      return `<tr class="lk" onclick="location.hash='c/${c.numero}'"><td><b>${c.numero}</b></td><td>Q${c.quadra||'?'} L${c.lote||'?'}</td><td>${esc(c.titular)}</td>
+      <td><div class="bar"><i style="width:${pc}%"></i></div><span class="mut">${c.conferidas}/${c.vencidas} vencidas</span></td>
+      <td>${c.fechado_em?`<span class="tag ok">Fechado ${dbr(c.fechado_em)}</span>`:''} ${c.n_alertas?`<span class="tag al">${c.n_alertas} alerta(s)</span>`:''}</td></tr>`}).join('')};
+  $('#bus').oninput=desenha;desenha();
+}
+
+/* ---------- CONTRATO: cálculos ---------- */
+function valorAno(t){
+  if(t.grupo!=='mensal'&&t.grupo!=='anual')return Number(t.valor_face||0);
+  const cs=C.correcoes.filter(c=>c.grupo===t.grupo&&c.a_partir<=t.numero).sort((a,b)=>a.a_partir-b.a_partir);
+  return cs.length?Number(cs[cs.length-1].novo_valor):Number(t.valor_face||0);
+}
+function estado(t){
+  const hoje=C.hoje, pags=C.pagamentos.filter(p=>p.titulo_id==t.id), sit=C.situacoes.find(s=>s.titulo_id==t.id);
+  const enc=C.eventos.find(e=>e.tipo==='encerramento'&&t.grupo!=='acordo'&&(()=>{const t0=C.titulos.find(x=>x.id==e.a_partir_titulo);return t0&&t.vencimento&&t.vencimento>=t0.vencimento})());
+  if(sit&&sit.situacao==='cancelada'||enc)return 'cancelada';
+  if(pags.length)return 'paga';
+  const ac=C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)));
+  if(ac){const pago=C.titulos.some(x=>x.acordo_id==ac.id&&C.pagamentos.some(p=>p.titulo_id==x.id));return pago?'quitada_acordo':'em_acordo'}
+  if(sit&&sit.situacao==='em_atraso')return 'em_atraso';
+  if(t.vencimento&&t.vencimento<=hoje)return 'vencida';
+  return 'futura';
+}
+const NOMES={paga:'Paga',quitada_acordo:'Quitada por acordo',em_acordo:'Em acordo (sem pagamento ainda)',cancelada:'Cancelada',em_atraso:'Em atraso (conferido)',vencida:'Vencida sem nada lançado',futura:'A vencer'};
+function totais(){
+  let qv=0,esp=0,qok=0,rec=0,pend=0;
+  for(const t of C.titulos){const e=estado(t);const venc=t.vencimento&&t.vencimento<=C.hoje;
+    if(e==='cancelada'||e==='quitada_acordo'||e==='em_acordo')continue;
+    if(venc){qv++;esp+=valorAno(t);if(e==='paga'||e==='em_atraso')qok++;else pend++}}
+  for(const p of C.pagamentos)rec+=Number(p.valor_pago||0);
+  return {qv,esp,qok,rec,pend,dif:rec-esp};
+}
+
+/* ---------- CONTRATO: tela ---------- */
+async function abrirContrato(n){
+  app.innerHTML='<div class="card">Carregando…</div>';
+  C=await api('contrato/'+n);SEL.clear();SELMODO=false;desenhaContrato();
+}
+function btn(t){
+  const e=estado(t),conf=C.pagamentos.filter(p=>p.titulo_id==t.id).length||C.situacoes.find(s=>s.titulo_id==t.id);
+  const lab=t.grupo==='mensal'?'M '+t.numero:t.grupo==='anual'?'A '+t.numero:t.grupo==='entrada'?'E '+t.numero:t.grupo==='acordo'?'Ac '+t.numero:'P '+t.numero;
+  return `<button class="pc ${e} ${t.grupo==='anual'?'anual':''} ${SEL.has(t.id)?'sel':''}" title="${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${NOMES[e]}" onclick="clicaTitulo(${t.id})">
+  ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${brl(valorAno(t)).replace('R$','').trim()}</small></button>`;
+}
+function desenhaContrato(){
+  const c=C.contrato,tt=totais(),T=C.titulos,base=T.filter(t=>t.grupo!=='acordo');
+  const ent=base.filter(t=>t.grupo==='entrada'),men=base.filter(t=>t.grupo==='mensal'),anu=base.filter(t=>t.grupo==='anual'),out=base.filter(t=>t.grupo==='outra');
+  let linhas='';
+  if(ent.length)linhas+=`<div class="lin"><span class="rot">Entrada</span>${ent.map(btn).join('')}</div>`;
+  const anos=Math.max(Math.ceil(men.length/12),anu.length);
+  for(let a=0;a<anos;a++){const ms=men.slice(a*12,a*12+12),an=anu[a];
+    linhas+=`<div class="lin"><span class="rot">Ano ${a+1}</span>${ms.map(btn).join('')}${an?'<span style="width:10px"></span>'+btn(an):''}</div>`}
+  if(out.length)linhas+=`<div class="lin"><span class="rot">Outras</span>${out.map(btn).join('')}</div>`;
+  const comp=(c.compradores||[]).map(x=>esc(x.nome)+(x.cpf?' <span class="mut">('+esc(x.cpf)+')</span>':'')).join('<br>')||esc(c.nome_planilha);
+  const ac=C.acordos.map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);const orig=(a.titulos_origem||[]).map(id=>T.find(t=>t.id==id)?.rotulo||'?').join(', ');
+    return `<div class="card" style="margin:8px 0"><div class="bt" style="align-items:center"><b style="flex:1">Acordo de ${dbr(a.data_acordo)} — ${brl(a.valor_acordado)}</b>
+    <button onclick="modalAcordo(${a.id})">Editar</button><button class="per" onclick="apagar('acordo',${a.id})">Apagar</button></div>
+    <div class="mut">Englobou: ${esc(orig)}</div><div class="mut">Principal ${brl(a.principal)} · Multa ${brl(a.multa)} · Juros ${brl(a.juros)} · Custo de cobrança ${brl(a.honorarios)} ${Number(a.desconto_encargos)?'· Desconto nos encargos '+brl(a.desconto_encargos):''}</div>
+    <div class="lin" style="margin-top:6px">${ts.map(btn).join('')}</div></div>`}).join('')||'<div class="mut">Nenhum acordo lançado.</div>';
+  const co=C.correcoes.map(k=>`<div class="pgl"><b>${k.grupo==='mensal'?'Mensal':'Anual'} a partir da ${k.a_partir}</b><span>${dbr(k.data)}</span><span>IGPM ${k.igpm_pct??'—'}% · Juros ${k.juros_pct??'—'}%</span><b>${brl(k.novo_valor)}</b><span class="mut">lançada ${new Date(k.salvo_em).toLocaleString('pt-BR')}</span><button class="per" onclick="apagar('correcao',${k.id})">Apagar</button></div>`).join('')||'<div class="mut">Nenhuma correção lançada.</div>';
+  const ev=C.eventos.map(e=>`<div class="pgl"><b>${e.tipo==='encerramento'?'Encerramento':'Cessão'}</b><span>${esc(e.motivo||'')}</span><span>a partir de ${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo||'?')}</span><span>${dbr(e.data)}</span><span>${esc(e.dados?.novos_titulares||'')}</span><span class="mut">${esc(e.obs||'')}</span><button class="per" onclick="apagar('evento',${e.id})">Apagar</button></div>`).join('')||'<div class="mut">Nenhum evento.</div>';
+  const itens=(c.itens||[]).map(i=>`<li>${esc(i.texto)}</li>`).join('');
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Contratos</button></div>
+  <div class="card"><div class="bt" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">Contrato ${c.numero} · Q${c.quadra} L${c.lote}</h2>
+  <div>${comp}</div><div class="mut">Assinado em ${dbr(c.data_assinatura)} · Imóvel ${brl(c.valor_imovel)} · Fonte: ${esc(c.fonte)} "${esc(c.arquivo)}"</div></div>
+  ${C.fechamento?`<span class="tag ok">Conferência fechada em ${new Date(C.fechamento.fechado_em).toLocaleString('pt-BR')}</span>`:''}</div>
+  ${(c.alertas||[]).length?`<div class="aviso"><b>Pontos de atenção do contrato:</b><ul style="margin:4px 0 0 18px;padding:0">${c.alertas.map(a=>'<li>'+esc(a)+'</li>').join('')}</ul></div>`:''}
+  <details><summary>Condições de pagamento (texto do contrato)</summary><ul>${itens}</ul></details></div>
+  <div class="card"><div class="tot">
+   <div><span class="mut">Parcelas vencidas</span><b>${tt.qv}</b></div><div><span class="mut">Deveria ter entrado</span><b>${brl(tt.esp)}</b></div>
+   <div><span class="mut">Parcelas conferidas</span><b>${tt.qok} / ${tt.qv}</b></div><div><span class="mut">Recebido lançado</span><b>${brl(tt.rec)}</b></div>
+   <div class="${tt.dif<-0.009?'neg':''}"><span class="mut">Diferença</span><b>${brl(tt.dif)}</b></div><div class="${tt.pend?'neg':''}"><span class="mut">Vencidas sem nada</span><b>${tt.pend}</b></div></div></div>
+  <div class="card"><div class="bt">
+   <button id="bsel" onclick="modoSel()">${SELMODO?'Cancelar seleção':'Selecionar parcelas para acordo'}</button>
+   <button class="pri" ${SELMODO&&SEL.size?'':'disabled'} onclick="modalAcordo()">Adicionar acordo (${SEL.size})</button>
+   <button onclick="modalCorrecao()">Adicionar correção</button><button onclick="modalEvento('encerramento')">Encerrar contrato</button>
+   <button onclick="modalEvento('cessao')">Cessão</button><span style="flex:1"></span>
+   ${C.fechamento?`<button onclick="reabrir()">Reabrir conferência</button>`:`<button class="pri" onclick="fechar()">Fechar conferência do contrato</button>`}</div>
+   ${SELMODO?'<div class="info">Clique nas parcelas que entraram no acordo e depois em "Adicionar acordo".</div>':''}
+   <br><div class="grid">${linhas}</div><br>
+   <div class="leg">${Object.entries({paga:'var(--pg)',quitada_acordo:'var(--ac)',em_acordo:'#fff',cancelada:'var(--ca)',em_atraso:'var(--at)',vencida:'var(--ve)',futura:'var(--fu)'}).map(([k,v])=>`<span style="--c:${v}">${NOMES[k]}</span>`).join('')}<span>✓ = conferida · borda tracejada = anual</span></div>
+   <details open><summary>Acordos (${C.acordos.length})</summary>${ac}</details>
+   <details><summary>Correções (${C.correcoes.length})</summary>${co}</details>
+   <details><summary>Encerramento e cessão (${C.eventos.length})</summary>${ev}</details></div>`;
+}
+function modoSel(){SELMODO=!SELMODO;SEL.clear();desenhaContrato()}
+function clicaTitulo(id){
+  if(SELMODO){SEL.has(id)?SEL.delete(id):SEL.add(id);desenhaContrato();return}
+  modalTitulo(id);
+}
+async function recarrega(){C=await api('contrato/'+C.contrato.numero);desenhaContrato()}
+async function apagar(tipo,id){if(!confirm('Apagar?'))return;await api(tipo+'/'+id,{method:'DELETE'});fechaModal();recarrega()}
+async function fechar(){
+  const pend=C.titulos.filter(t=>estado(t)==='vencida');
+  if(pend.length){alert('Ainda há parcelas vencidas sem nada lançado: '+pend.map(t=>t.rotulo).join(', ')+'\n\nLance o pagamento ou marque "em atraso (conferido)".');return}
+  await api('fechar',{method:'POST',body:{contrato:C.contrato.numero}});recarrega();
+}
+async function reabrir(){await api('fechar/'+C.contrato.numero,{method:'DELETE'});recarrega()}
+
+/* ---------- MODAIS ---------- */
+function abreModal(h){$('#modal').innerHTML=`<div class="modal" onclick="if(event.target===this)fechaModal()"><div class="card">${h}</div></div>`}
+function fechaModal(){$('#modal').innerHTML=''}
+const CAMPOS=[['fatura','Número da fatura'],['situacao_asaas','Situação no Asaas'],['forma','Forma de pagamento','sel'],['valor_cobranca','Valor da cobrança','num'],['valor_pago','Valor pago','num'],
+ ['criada_em','Criada em','date'],['vencimento_boleto','Vencimento do boleto','date'],['confirmada_em','Confirmada em (dinheiro entrou)','date'],['saque_em','Saque disponível em','date'],['cliente_asaas','Cliente no Asaas']];
+const FORMAS=['Boleto Bancário','Pix','Cartão de crédito','Pagamento à construtora','Transferência bancária','Dinheiro','Cheque','Veículo (dação)','Outro'];
+let PRINT=null;
+function lerDescricao(t){
+  const r={};const m=t.match(/Beira\s*Rio\s*-\s*(\d{3,4})/i)||t.match(/Contrato\s*n?[º°o]?\s*(\d{3,4})/i);if(m)r.contrato=m[1].padStart(4,'0');
+  const ql=t.match(/Q(?:d|uadra)?\.?\s*0?(\d{1,2})\s*L(?:t|ote)?\.?\s*0?(\d{1,2})/i);if(ql){r.quadra=ql[1].padStart(2,'0');r.lote=ql[2].padStart(2,'0')}
+  r.parcelas=[...t.matchAll(/(\d{1,3})\s*\/\s*(\d{1,3})/g)].map(x=>x[0]);return r;
+}
+function formPag(p,t){
+  return `<div class="f2">${CAMPOS.map(([k,l,tp])=>`<div><label>${l}</label>${tp==='sel'?`<select id="f_${k}">${FORMAS.map(f=>`<option ${p[k]===f?'selected':''}>${f}</option>`).join('')}</select>`
+  :`<input id="f_${k}" type="${tp==='date'?'date':'text'}" ${tp==='num'?'inputmode="decimal"':''} value="${esc(tp==='date'?(p[k]||'').slice(0,10):p[k]??'')}">`}</div>`).join('')}</div>
+  <label style="margin-top:8px">Descrição completa (copie e cole do Asaas)</label><textarea id="f_descricao">${esc(p.descricao||'')}</textarea><div id="descInfo"></div>
+  <label>Observação</label><input id="f_obs" value="${esc(p.obs||'')}">`;
+}
+const numBR=s=>{s=String(s??'').replace(/[^\d.,-]/g,'');if(!s)return null;if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=Number(s);return isNaN(n)?null:n};
+function pegaForm(){const o={};for(const [k,,tp] of CAMPOS){let v=$('#f_'+k).value.trim();if(tp==='num')v=numBR(v);o[k]=v===''?null:v}
+  o.descricao=$('#f_descricao').value;o.obs=$('#f_obs').value;return o}
+function checaDesc(){const d=lerDescricao($('#f_descricao').value);const n=C.contrato.numero;let h='';
+  if(d.contrato&&d.contrato!==n)h+=`<div class="aviso">A descrição fala do contrato <b>${d.contrato}</b>, mas você está no contrato <b>${n}</b>.</div>`;
+  if(d.quadra&&(d.quadra!==C.contrato.quadra||d.lote!==C.contrato.lote))h+=`<div class="aviso">A descrição fala de Q${d.quadra} L${d.lote}; este contrato é Q${C.contrato.quadra} L${C.contrato.lote}.</div>`;
+  if(d.contrato||d.parcelas.length)h+=`<div class="info">Lido na descrição: ${d.contrato?'contrato '+d.contrato:''} ${d.quadra?'· Q'+d.quadra+' L'+d.lote:''} ${d.parcelas.length?'· parcelas '+d.parcelas.join(', '):''}</div>`;
+  $('#descInfo').innerHTML=h}
+function modalTitulo(id,editId){
+  const t=C.titulos.find(x=>x.id==id),pags=C.pagamentos.filter(p=>p.titulo_id==id),sit=C.situacoes.find(s=>s.titulo_id==id);
+  const ed=editId?pags.find(p=>p.id==editId):null;PRINT=null;
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="mut">Situação atual: <b>${NOMES[estado(t)]}</b>${sit?' · marcada em '+new Date(sit.salvo_em).toLocaleString('pt-BR'):''}</div>
+  ${pags.map(p=>`<div class="pgl"><b>${brl(p.valor_pago)}</b><span>fatura ${esc(p.fatura||'—')}</span><span>entrou ${dbr(p.confirmada_em)}</span><span>${esc(p.forma||'')}</span>
+    <span class="mut">salvo ${new Date(p.salvo_em).toLocaleString('pt-BR')}</span>${p.tem_print?`<button onclick="verPrint(${p.id})">Ver print</button>`:''}
+    <button onclick="modalTitulo(${id},${p.id})">Editar</button><button class="per" onclick="apagar('pagamento',${p.id})">Apagar</button></div>`).join('')}
+  <h4 style="margin:12px 0 6px">${ed?'Editar pagamento':'Lançar pagamento'}</h4>
+  ${EU==='luis'?`<div class="drop" id="drop" tabindex="0">Clique aqui e cole o print (Ctrl+V)<div id="pv"></div></div>
+   <div class="bt" style="margin:8px 0"><button class="pri" id="bia" onclick="lerIA()">Ler print e descrição com IA</button><span id="iast" class="mut"></span></div>`:''}
+  ${formPag(ed||{forma:'Boleto Bancário'},t)}
+  <div class="bt" style="margin-top:12px"><button class="pri" onclick="salvaPag(${id},${ed?ed.id:'null'})">Salvar</button>
+   <span style="flex:1"></span><button onclick="marca(${id},'em_atraso')">Em atraso (conferido)</button><button onclick="marca(${id},'cancelada')">Marcar cancelada</button>
+   ${sit&&sit.situacao!=='paga'?`<button onclick="marca(${id},null)">Limpar marcação</button>`:''}</div>`);
+  $('#f_descricao').oninput=checaDesc;checaDesc();
+  const dz=$('#drop');if(dz){dz.onpaste=colaPrint;dz.onclick=()=>dz.focus();document.onpaste=e=>{if($('#drop'))colaPrint(e)}}
+}
+function colaPrint(e){const it=[...(e.clipboardData||{}).items||[]].find(i=>i.type.startsWith('image/'));if(!it)return;e.preventDefault();
+  const img=new Image();img.onload=()=>{const k=Math.min(1,1600/img.width);const cv=document.createElement('canvas');cv.width=img.width*k;cv.height=img.height*k;
+   cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);PRINT=cv.toDataURL('image/jpeg',.8);$('#pv').innerHTML=`<img src="${PRINT}">`};
+  img.src=URL.createObjectURL(it.getAsFile())}
+async function lerIA(){
+  if(!PRINT&&!$('#f_descricao').value.trim())return alert('Cole o print ou a descrição primeiro.');
+  $('#iast').textContent='Lendo…';$('#bia').disabled=true;
+  try{const d=await api('ler-print',{method:'POST',body:{imagem:PRINT,descricao:$('#f_descricao').value}});
+    for(const [k,,tp] of CAMPOS){if(d[k]!=null&&d[k]!==''){if(k==='forma'){const f=FORMAS.find(x=>x.toLowerCase().startsWith(String(d[k]).toLowerCase().slice(0,5)));if(f)$('#f_forma').value=f}else $('#f_'+k).value=tp==='num'?String(d[k]).replace('.',','):d[k]}}
+    if(d.descricao&&!$('#f_descricao').value.trim())$('#f_descricao').value=d.descricao;checaDesc();
+    $('#iast').textContent='Pronto. Confira os campos antes de salvar.';
+  }catch(e){$('#iast').textContent=''}$('#bia').disabled=false}
+async function salvaPag(tid,pid){
+  const o=pegaForm();o.titulo_id=tid;if(PRINT)o.print=PRINT;
+  if(!o.valor_pago)return alert('Informe o valor pago.');if(!o.confirmada_em)return alert('Informe a data em que o dinheiro entrou (Confirmada em).');
+  const dup=o.fatura&&C.pagamentos.find(p=>p.fatura===o.fatura&&p.id!=pid);
+  if(dup&&!confirm('Essa fatura já foi lançada em outra parcela deste contrato. Salvar mesmo assim?'))return;
+  await api(pid?'pagamento/'+pid:'pagamento',{method:pid?'PUT':'POST',body:o});fechaModal();recarrega();
+}
+async function marca(tid,sit){let obs=null;if(sit)obs=prompt('Observação (opcional):')??null;await api('situacao',{method:'POST',body:{titulo_id:tid,situacao:sit,obs}});fechaModal();recarrega()}
+async function verPrint(id){const d=await api('print/'+id);const w=window.open('');w.document.write(`<img src="${d.conteudo}" style="max-width:100%">`)}
+
+/* acordo */
+function calcAcordo(ids,data){
+  let pr=0,mu=0,ju=0,maxd=0;
+  for(const id of ids){const t=C.titulos.find(x=>x.id==id);const v=valorAno(t);pr+=v;
+    const dias=Math.max(0,Math.round((new Date(data)-new Date(t.vencimento))/864e5));maxd=Math.max(maxd,dias);
+    if(dias>0){mu+=v*.02;ju+=v*.01*dias/30}}
+  const ho=maxd>30?(pr+mu+ju)*.10:0;return {principal:r2(pr),multa:r2(mu),juros:r2(ju),honorarios:r2(ho),total:r2(pr+mu+ju+ho)};
+}
+function modalAcordo(aid){
+  const a=aid?C.acordos.find(x=>x.id==aid):null;
+  const ids=a?a.titulos_origem.map(Number):[...SEL];if(!ids.length)return;
+  const pars=a?C.titulos.filter(t=>t.acordo_id==a.id).map(t=>({valor:t.valor_face,vencimento:t.vencimento})):[];
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${a?'Editar acordo':'Novo acordo'}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="info">Parcelas no acordo: ${ids.map(id=>esc(C.titulos.find(t=>t.id==id)?.rotulo)).join(', ')}</div>
+  <div class="f2"><div><label>Data do acordo</label><input type="date" id="a_data" value="${a?a.data_acordo.slice(0,10):C.hoje}"></div>
+  <div><label>Valor calculado (sugestão)</label><input id="a_calc" disabled></div>
+  <div><label>Valor acordado (pode editar)</label><input id="a_val" inputmode="decimal"></div>
+  <div><label>Forma</label><select id="a_forma"><option value="1">Pagamento único</option><option value="n">Parcelado</option></select></div>
+  <div><label>Quantas parcelas</label><input id="a_qtd" type="number" min="1" value="${pars.length||1}"></div></div>
+  <div id="a_quebra" class="mut" style="margin:8px 0"></div><div id="a_av"></div>
+  <table><thead><tr><th>#</th><th>Vencimento</th><th>Valor</th></tr></thead><tbody id="a_pars"></tbody></table><div id="a_soma" class="mut"></div>
+  <label style="margin-top:8px">Observação</label><input id="a_obs" value="${esc(a?.obs||'')}">
+  <div class="bt" style="margin-top:12px"><button class="pri" onclick="salvaAcordo(${aid||'null'})">Salvar acordo</button></div>`);
+  let P=pars.slice();const num=s=>numBR(s)||0;
+  const atual=()=>{const c=calcAcordo(ids,$('#a_data').value);$('#a_calc').value=brl(c.total);return c};
+  const refazPars=()=>{const q=Math.max(1,Number($('#a_qtd').value)||1),v=num($('#a_val').value),base=r2(v/q);const d0=$('#a_data').value;
+    P=Array.from({length:q},(_,i)=>{const d=new Date(d0+'T12:00');d.setMonth(d.getMonth()+i);return {valor:i===q-1?r2(v-base*(q-1)):base,vencimento:d.toISOString().slice(0,10)}});desPars()};
+  const desPars=()=>{window._P=P;$('#a_pars').innerHTML=P.map((p,i)=>`<tr><td>${i+1}</td><td><input type="date" data-i="${i}" data-k="vencimento" value="${p.vencimento}"></td><td><input data-i="${i}" data-k="valor" value="${String(p.valor).replace('.',',')}"></td></tr>`).join('');
+    $('#a_pars').oninput=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;if(i==null)return;P[i][k]=k==='valor'?num(e.target.value):e.target.value;soma()};soma()};
+  const soma=()=>{const s=r2(P.reduce((a,p)=>a+Number(p.valor||0),0)),v=num($('#a_val').value);$('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> ${Math.abs(s-v)>0.009?'<span style="color:var(--at)">— diferente do valor acordado</span>':''}`;quebra()};
+  const quebra=()=>{const c=atual(),v=num($('#a_val').value),enc=c.multa+c.juros+c.honorarios;let h='';
+    if(v<c.principal-0.009)h=`<div class="aviso">O valor acordado é menor que o principal (${brl(c.principal)}). Isso é desconto na dívida — confirme antes de salvar.</div>`;
+    $('#a_av').innerHTML=h;const f=enc?Math.max(0,(v-c.principal))/enc:0;
+    $('#a_quebra').innerHTML=`Principal ${brl(c.principal)} · Multa ${brl(c.multa*f)} · Juros ${brl(c.juros*f)} · Custo de cobrança ${brl(c.honorarios*f)} ${Math.abs(v-c.total)>0.009?'· '+(v<c.total?'Desconto nos encargos ':'Acréscimo ')+brl(Math.abs(c.total-v)):''}`};
+  window._soma=soma;
+  $('#a_val').value=a?String(a.valor_acordado).replace('.',','):String(atual().total).replace('.',',');
+  $('#a_forma').value=(pars.length>1)?'n':'1';
+  $('#a_data').onchange=()=>{if(!a)$('#a_val').value=String(atual().total).replace('.',',');refazPars()};
+  $('#a_val').oninput=refazPars;$('#a_qtd').oninput=refazPars;$('#a_forma').onchange=()=>{if($('#a_forma').value==='1')$('#a_qtd').value=1;refazPars()};
+  if(P.length)desPars();else refazPars();
+  window._salvaAcordoDados=()=>{const c=atual(),v=num($('#a_val').value),enc=c.multa+c.juros+c.honorarios,f=enc?Math.max(0,v-c.principal)/enc:0;
+    return {contrato:C.contrato.numero,data_acordo:$('#a_data').value,titulos_origem:ids,principal:c.principal,multa:r2(c.multa*f),juros:r2(c.juros*f),honorarios:r2(c.honorarios*f),
+      valor_calculado:c.total,valor_acordado:v,desconto_encargos:r2(c.total-v),parcelas:window._P,obs:$('#a_obs').value}};
+}
+async function salvaAcordo(aid){const b=window._salvaAcordoDados();
+  const s=r2(b.parcelas.reduce((a,p)=>a+Number(p.valor||0),0));if(Math.abs(s-b.valor_acordado)>0.009)return alert('A soma das parcelas precisa ser igual ao valor acordado.');
+  if(b.valor_acordado<b.principal-0.009&&!confirm('Valor acordado menor que o principal. Confirmar desconto na dívida?'))return;
+  await api(aid?'acordo/'+aid:'acordo',{method:aid?'PUT':'POST',body:b});SEL.clear();SELMODO=false;fechaModal();recarrega()}
+
+/* correção */
+function modalCorrecao(){
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Adicionar correção</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="f2"><div><label>Tipo de parcela</label><select id="k_g"><option value="mensal">Mensal</option><option value="anual">Anual</option></select></div>
+  <div><label>A partir da parcela nº</label><input id="k_n" type="number" min="1"></div><div><label>Data da correção</label><input id="k_d" type="date"></div>
+  <div><label>IGPM aplicado (%)</label><input id="k_i" inputmode="decimal"></div><div><label>Juros aplicado (%)</label><input id="k_j" inputmode="decimal" value="0"></div>
+  <div><label>Valor anterior</label><input id="k_ant" disabled></div><div><label>Novo valor da parcela</label><input id="k_v" inputmode="decimal"></div></div>
+  <label style="margin-top:8px">Observação</label><input id="k_o"><div class="info">Todas as parcelas desse tipo, dessa em diante, passam a valer o novo valor (até a próxima correção).</div>
+  <div class="bt"><button class="pri" onclick="salvaCorrecao()">Salvar correção</button></div>`);
+  const num=s=>numBR(s)||0;
+  const ant=()=>{const g=$('#k_g').value,n=Number($('#k_n').value)||1;const t=C.titulos.find(x=>x.grupo===g&&x.numero===n-1)||C.titulos.find(x=>x.grupo===g&&x.numero===n);return t?valorAno(t):0};
+  const upd=()=>{const a=ant();$('#k_ant').value=brl(a);const i=num($('#k_i').value),j=num($('#k_j').value);if($('#k_i').value)$('#k_v').value=String(r2(a*(1+i/100)*(1+j/100))).replace('.',',');
+    const t=C.titulos.find(x=>x.grupo===$('#k_g').value&&x.numero===(Number($('#k_n').value)||0));if(t&&!$('#k_d').value)$('#k_d').value=t.vencimento};
+  ['k_g','k_n','k_i','k_j'].forEach(i=>$('#'+i).oninput=upd);
+  window._k=()=>({contrato:C.contrato.numero,grupo:$('#k_g').value,a_partir:Number($('#k_n').value),data:$('#k_d').value,igpm_pct:$('#k_i').value?num($('#k_i').value):null,juros_pct:num($('#k_j').value),novo_valor:num($('#k_v').value),obs:$('#k_o').value});
+}
+async function salvaCorrecao(){const b=window._k();if(!b.a_partir||!b.novo_valor)return alert('Informe a parcela e o novo valor.');await api('correcao',{method:'POST',body:b});fechaModal();recarrega()}
+
+/* encerramento / cessão */
+function modalEvento(tipo){
+  const ops=C.titulos.filter(t=>t.grupo!=='acordo').map(t=>`<option value="${t.id}">${esc(t.rotulo)} — ${dbr(t.vencimento)}</option>`).join('');
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${tipo==='encerramento'?'Encerrar contrato':'Cessão de direitos'}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="f2">${tipo==='encerramento'?`<div><label>Motivo</label><select id="e_m"><option>Distrato</option><option>Retomada</option><option>Quitação antecipada</option><option>Outro</option></select></div>`:''}
+  <div><label>${tipo==='encerramento'?'Encerrado a partir de qual parcela':'Novo titular a partir de qual parcela'}</label><select id="e_t">${ops}</select></div>
+  <div><label>Data</label><input id="e_d" type="date"></div></div>
+  ${tipo==='cessao'?'<label style="margin-top:8px">Novo(s) titular(es)</label><input id="e_n">':''}
+  <label style="margin-top:8px">Observação</label><input id="e_o">
+  ${tipo==='encerramento'?'<div class="info">Da parcela escolhida em diante, tudo fica cancelado.</div>':''}
+  <div class="bt"><button class="pri" onclick="salvaEvento('${tipo}')">Salvar</button></div>`);
+}
+async function salvaEvento(tipo){await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo,motivo:$('#e_m')?.value,a_partir_titulo:Number($('#e_t').value),data:$('#e_d').value,dados:{novos_titulares:$('#e_n')?.value||null},obs:$('#e_o').value}});fechaModal();recarrega()}
+
+iniciar();
+</script>
+</body>
+</html>

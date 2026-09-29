@@ -1,0 +1,6 @@
+[build]
+  publish = "public"
+  command = "npm install --omit=dev"
+
+[functions]
+  node_bundler = "esbuild"
