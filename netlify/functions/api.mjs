@@ -62,9 +62,9 @@ Devolva SOMENTE um JSON, sem texto antes ou depois, com estas chaves (null quand
 fatura (número da fatura, só dígitos), situacao_asaas (ex.: Recebida, Confirmada, Recebida em dinheiro, Vencida, Cancelada),
 valor_cobranca (valor original da cobrança, número), valor_pago (número), criada_em, vencimento_boleto, confirmada_em, saque_em (datas no formato AAAA-MM-DD),
 forma (Boleto Bancário, Pix, Cartão, etc.), cliente_asaas (nome), descricao (texto completo da descrição),
-valor_liquido (valor líquido, se aparecer), vencimento_original (se aparecer), pago_cliente_em (data de pagamento pelo cliente, se aparecer),
-juros_mes_pct (juros ao mês %), multa_pct (valor percentual da multa), desconto_valor (valor fixo do desconto),
-nosso_numero, linha_digitavel (linha digitável do boleto, só dígitos), link_fatura (link "asaas.com/i/..." se aparecer),
+juros_mes_pct (juros ao mês %), multa_pct (valor percentual da multa), desconto_valor (valor fixo do desconto).
+Datas: "Confirmada em" vai em confirmada_em; "Saque disponível em" ou "Recebida e disponível para saque em" vai em saque_em
+(se só existir "Recebida e disponível para saque em", repita a mesma data em confirmada_em).
 contrato (número de 4 dígitos do contrato citado na descrição, ex. "Condomínio Beira Rio - 0099" => "0099"),
 quadra, lote (2 dígitos cada, ex. "Q05 L03" => "05","03"),
 parcelas_citadas (lista de textos das parcelas citadas na descrição, ex. ["Mensal 34/120"]).

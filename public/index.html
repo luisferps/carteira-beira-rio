@@ -211,10 +211,9 @@ async function reabrir(){await api('fechar/'+C.contrato.numero,{method:'DELETE'}
 function abreModal(h){$('#modal').innerHTML=`<div class="modal" onclick="if(event.target===this)fechaModal()"><div class="card">${h}</div></div>`}
 function fechaModal(){$('#modal').innerHTML=''}
 const GRUPOS=[
- ['Identificação no Asaas',[['fatura','Número da fatura'],['link_fatura','Link da fatura (Visualizar fatura)'],['id_asaas','ID do pagamento (pay_…)'],['situacao_asaas','Situação no Asaas'],['forma','Forma de pagamento','sel'],['cliente_asaas','Cliente no Asaas']]],
- ['Valores',[['valor_cobranca','Valor da cobrança','num'],['valor_pago','Valor pago','num'],['valor_liquido','Valor líquido (caiu na conta)','num']]],
- ['Datas',[['criada_em','Criada em','date'],['vencimento_original','Vencimento original','date'],['vencimento_boleto','Vencimento do boleto','date'],['pago_cliente_em','Cliente pagou em','date'],['confirmada_em','Confirmada em (dinheiro entrou)','date'],['saque_em','Saque disponível em','date']]],
- ['Boleto',[['nosso_numero','Nosso número'],['linha_digitavel','Linha digitável / código de barras']]],
+ ['Identificação no Asaas',[['fatura','Número da fatura'],['situacao_asaas','Situação no Asaas'],['forma','Forma de pagamento','sel'],['cliente_asaas','Cliente no Asaas']]],
+ ['Valores',[['valor_cobranca','Valor da cobrança','num'],['valor_pago','Valor pago','num']]],
+ ['Datas',[['criada_em','Criada em','date'],['vencimento_original','Vencimento original (da parcela)','date'],['vencimento_boleto','Vencimento do boleto','date'],['confirmada_em','Confirmada / recebida em (dinheiro entrou)','date'],['saque_em','Saque disponível em','date']]],
  ['Juros, multa e desconto configurados',[['juros_mes_pct','Juros ao mês (%)','num'],['multa_pct','Multa (%)','num'],['desconto_valor','Desconto (R$)','num']]]];
 const CAMPOS=GRUPOS.flatMap(g=>g[1]);
 const FORMAS=['Boleto Bancário','Pix','Cartão de crédito','Pagamento à construtora','Transferência bancária','Dinheiro','Cheque','Veículo (dação)','Outro'];
@@ -228,7 +227,7 @@ function formPag(p,t){
   const campo=([k,l,tp])=>`<div><label>${l}</label>${tp==='sel'?`<select id="f_${k}">${FORMAS.map(f=>`<option ${p[k]===f?'selected':''}>${f}</option>`).join('')}</select>`
    :`<input id="f_${k}" type="${tp==='date'?'date':'text'}" ${tp==='num'?'inputmode="decimal"':''} value="${esc(tp==='date'?(p[k]||'').slice(0,10):(tp==='num'&&p[k]!=null?String(p[k]).replace('.',','):p[k]??''))}">`}</div>`;
   return GRUPOS.map(([g,cs])=>`<div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">${g}</div><div class="f2">${cs.map(campo).join('')}</div>`).join('')+`
-  <label style="margin-top:10px">Descrição completa (copie e cole do Asaas)</label><textarea id="f_descricao">${esc(p.descricao||'')}</textarea><div id="descInfo"></div>
+  <label style="margin-top:10px">Descrição completa — cole do Asaas (lá: clique na descrição, Ctrl+A, Ctrl+C)</label><textarea id="f_descricao">${esc(p.descricao||'')}</textarea><div id="descInfo"></div>
   <label>Observação</label><input id="f_obs" value="${esc(p.obs||'')}">`;
 }
 function ligaLink(){const l=$('#f_link_fatura');if(!l)return;l.oninput=()=>{const m=l.value.match(/asaas\.com\/i\/([A-Za-z0-9]+)/);if(m&&!$('#f_id_asaas').value)$('#f_id_asaas').value='pay_'+m[1]}}
@@ -251,7 +250,7 @@ function modalTitulo(id,editId){
   <h4 style="margin:12px 0 6px">${ed?'Editar pagamento':'Lançar pagamento'}</h4>
   <div class="drop" id="drop" tabindex="0">Clique aqui e cole o print (Ctrl+V)<div id="pv"></div></div>
    <div class="bt" style="margin:8px 0"><button class="pri" id="bia" onclick="lerIA()">Ler print e descrição com IA</button><span id="iast" class="mut"></span></div>
-  ${formPag(ed||{forma:'Boleto Bancário'},t)}
+  ${formPag(ed||{forma:'Boleto Bancário',vencimento_original:t.vencimento},t)}
   <div class="bt" style="margin-top:12px"><button class="pri" onclick="salvaPag(${id},${ed?ed.id:'null'})">Salvar</button>
    <span style="flex:1"></span><button onclick="marca(${id},'em_atraso')">Em atraso (conferido)</button><button onclick="marca(${id},'cancelada')">Marcar cancelada</button>
    ${sit&&sit.situacao!=='paga'?`<button onclick="marca(${id},null)">Limpar marcação</button>`:''}</div>`);
@@ -266,8 +265,9 @@ async function lerIA(){
   if(!PRINT&&!$('#f_descricao').value.trim())return alert('Cole o print ou a descrição primeiro.');
   $('#iast').textContent='Lendo…';$('#bia').disabled=true;
   try{const d=await api('ler-print',{method:'POST',body:{imagem:PRINT,descricao:$('#f_descricao').value}});
-    for(const [k,,tp] of CAMPOS){if(d[k]!=null&&d[k]!==''){if(k==='forma'){const f=FORMAS.find(x=>x.toLowerCase().startsWith(String(d[k]).toLowerCase().slice(0,5)));if(f)$('#f_forma').value=f}else $('#f_'+k).value=tp==='num'?String(d[k]).replace('.',','):d[k]}}
-    if(d.descricao&&!$('#f_descricao').value.trim())$('#f_descricao').value=d.descricao;
+    for(const [k,,tp] of CAMPOS){if(k==='vencimento_original')continue;if(d[k]!=null&&d[k]!==''){if(k==='forma'){const f=FORMAS.find(x=>x.toLowerCase().startsWith(String(d[k]).toLowerCase().slice(0,5)));if(f)$('#f_forma').value=f}else $('#f_'+k).value=tp==='num'?String(d[k]).replace('.',','):d[k]}}
+    if(!$('#f_confirmada_em').value&&d.saque_em)$('#f_confirmada_em').value=d.saque_em;
+    if(!$('#f_descricao').value.trim())alert('Cole a descrição completa do Asaas na caixa "Descrição" (lá no Asaas: clique na descrição, Ctrl+A, Ctrl+C; aqui: Ctrl+V). O print mostra só o começo dela.');
     if(d.link_fatura){const m=String(d.link_fatura).match(/\/i\/([A-Za-z0-9]+)/);if(m&&!$('#f_id_asaas').value)$('#f_id_asaas').value='pay_'+m[1]}checaDesc();
     $('#iast').textContent='Pronto. Confira os campos antes de salvar.';
   }catch(e){$('#iast').textContent=''}$('#bia').disabled=false}
