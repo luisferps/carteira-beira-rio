@@ -246,6 +246,9 @@ const numBR=s=>{s=String(s??'').replace(/[^\d.,-]/g,'');if(!s)return null;if(s.i
 function pegaForm(){const o={};for(const [k,,tp] of CAMPOS){let v=$('#f_'+k).value.trim();if(tp==='num')v=numBR(v);o[k]=v===''?null:v}
   o.descricao=$('#f_descricao').value;o.obs=$('#f_obs').value;return o}
 function checaDesc(){const d=lerDescricao($('#f_descricao').value);const n=C.contrato.numero;let h='';
+  const ia=window._IA||{};
+  if(ia.contrato&&ia.contrato!==n)h+=`<div class="aviso">O <b>print</b> é do contrato <b>${ia.contrato}</b>, mas você está no contrato <b>${n}</b>.</div>`;
+  if(ia.quadra&&ia.lote&&(ia.quadra!==C.contrato.quadra||ia.lote!==C.contrato.lote))h+=`<div class="aviso">O <b>print</b> fala de Q${ia.quadra} L${ia.lote}; este contrato é Q${C.contrato.quadra} L${C.contrato.lote}.</div>`;
   if(d.contrato&&d.contrato!==n)h+=`<div class="aviso">A descrição fala do contrato <b>${d.contrato}</b>, mas você está no contrato <b>${n}</b>.</div>`;
   if(d.quadra&&(d.quadra!==C.contrato.quadra||d.lote!==C.contrato.lote))h+=`<div class="aviso">A descrição fala de Q${d.quadra} L${d.lote}; este contrato é Q${C.contrato.quadra} L${C.contrato.lote}.</div>`;
   const T0=window._TIT;if(T0&&T0.grupo!=='acordo'&&d.parcelas.length&&!d.parcelas.some(p=>p.n===T0.numero&&p.tot===T0.total))h+=`<div class="aviso">A descrição cita a parcela ${d.parcelas.map(p=>p.txt).join(', ')}, mas você está na <b>${esc(T0.rotulo)}</b>.</div>`;
@@ -266,7 +269,7 @@ function modalTitulo(id,editId){
   <div class="bt" style="margin-top:12px"><button class="pri" onclick="conferePag(${id},${ed?ed.id:'null'})">Conferir e salvar</button><span id="confBox" style="flex-basis:100%"></span>
    <span style="flex:1"></span><button title="Use quando você olhou no Asaas e confirmou que esta parcela NÃO foi paga. Assim ela sai de 'não conferida' e o contrato pode ser fechado." onclick="marca(${id},'em_atraso')">Não foi paga (conferido)</button><button onclick="marca(${id},'cancelada')">Marcar cancelada</button>
    ${sit&&sit.situacao!=='paga'?`<button onclick="marca(${id},null)">Limpar marcação</button>`:''}</div>`);
-  window._TIT=t;$('#f_descricao').oninput=checaDesc;checaDesc();ligaLink();
+  window._TIT=t;window._IA=null;$('#f_descricao').oninput=checaDesc;checaDesc();ligaLink();
   ['valor_cobranca','valor_pago','confirmada_em','vencimento_original'].forEach(k=>$('#f_'+k).addEventListener('change',calcEncargos));
   document.onpaste=e=>{if(!$('#drop'))return;const its=[...(e.clipboardData||{}).items||[]];
     if(its.some(i=>i.type.startsWith('image/'))){colaPrint(e,true);return}
@@ -282,9 +285,10 @@ async function lerIA(){
   try{const d=await api('ler-print',{method:'POST',body:{imagem:PRINT,descricao:$('#f_descricao').value}});
     for(const [k,,tp] of CAMPOS){if(['vencimento_original','valor_cobranca','multa_paga','juros_pago','honorarios_pago','desconto_dado'].includes(k))continue;if(d[k]!=null&&d[k]!==''){if(k==='forma'){const f=FORMAS.find(x=>x.toLowerCase().startsWith(String(d[k]).toLowerCase().slice(0,5)));if(f)$('#f_forma').value=f}else $('#f_'+k).value=tp==='num'?String(d[k]).replace('.',','):d[k]}}
     if(!$('#f_confirmada_em').value&&d.saque_em)$('#f_confirmada_em').value=d.saque_em;
+    window._IA={contrato:d.contrato?String(d.contrato).padStart(4,'0'):null,quadra:d.quadra?String(d.quadra).padStart(2,'0'):null,lote:d.lote?String(d.lote).padStart(2,'0'):null};
     calcEncargos();
     if(d.link_fatura){const m=String(d.link_fatura).match(/\/i\/([A-Za-z0-9]+)/);if(m&&!$('#f_id_asaas').value)$('#f_id_asaas').value='pay_'+m[1]}checaDesc();
-    $('#iast').innerHTML='Print lido. '+($('#f_descricao').value.trim()?'Confira os campos e clique em Conferir e salvar.':'<b>Agora copie a descrição no Asaas e aperte Ctrl+V aqui.</b>');
+    checaDesc();$('#iast').innerHTML='Print lido. '+($('#f_descricao').value.trim()?'Confira os campos e clique em Conferir e salvar.':'<b>Agora copie a descrição no Asaas e aperte Ctrl+V aqui.</b>');
   }catch(e){$('#iast').textContent=''}$('#bia').disabled=false}
 function conferePag(tid,pid){
   document.querySelectorAll('.modal input,.modal select,.modal textarea').forEach(e=>e.style.borderColor='');
