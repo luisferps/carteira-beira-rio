@@ -195,7 +195,7 @@ function desenhaContrato(){
   const ac=C.acordos.length?'<div class="lin">'+[...C.acordos].sort((x,y)=>numAc(x)-numAc(y)).map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);
     return `${ts.length?ts.map(btn).join(''):`<button class="pc ev evac" onclick="verAcordo(${a.id})"><b>Acordo ${numAc(a)}</b><small>${dbr(a.data_acordo).slice(0,5)}</small><small>sem parcelas</small></button>`}`}).join('')+'</div>':'<div class="mut">Nenhum acordo lançado.</div>';
   const co=C.correcoes.length?`<div class="lin">${C.correcoes.map(k=>`<button class="pc ev evco" onclick="verCorrecao(${k.id})"><b>Corr. ${k.grupo==='mensal'?'M':'A'} ${k.a_partir}</b><small>${k.data?dbr(k.data).slice(0,5)+'/'+String(k.data).slice(2,4):'—'}</small><small>${brl(k.novo_valor).replace('R$','').trim()}</small></button>`).join('')}</div>`:'<div class="mut">Nenhuma correção lançada.</div>';
-  const ev=C.eventos.length?`<div class="lin">${C.eventos.map(e=>`<button class="pc ev evev" onclick="verEvento(${e.id})"><b>${e.tipo==='encerramento'?'Encerr.':'Cessão'}</b><small>${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo.replace(/^(Mensal|Anual|Entrada) /,(m,g)=>g[0]+' ').replace(/\/\d+$/,'')||'?')}</small><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small></button>`).join('')}</div>`:'<div class="mut">Nenhum evento.</div>';
+  const ev=C.eventos.length?`<div class="lin">${C.eventos.map(e=>`<button class="pc ev evev" onclick="verEvento(${e.id})"><b>${e.tipo==='encerramento'?'Encerr.':'Cessão'}</b><small>${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo.replace(/^(Mensal|Anual|Entrada) /,(m,g)=>g[0]+' ').replace(/\/\d+$/,'')||'?')}</small><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small>${e.tipo==='cessao'&&e.dados?.taxa_cessao!=null?`<small style="font-weight:700">${brl(e.dados.taxa_cessao).replace('R$','').trim()} ${e.dados.pago_em?'✓':'✗'}</small>`:''}</button>`).join('')}</div>`:'<div class="mut">Nenhum evento.</div>';
   const itens=(c.itens||[]).map(i=>`<li>${esc(i.texto)}</li>`).join('');
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='${COMO?'x/'+c.numero:''}'">${COMO?'← Voltar ao cruzamento':'← Contratos'}</button></div>
   ${COMO?'<div class="aviso" style="background:#eff6ff;color:#1e3a8a;border-color:#bfdbfe"><b>Você está editando a VERSÃO FINAL</b> (a verdade do sistema). Tudo o que salvar aqui vai para a versão final.</div>':''}
@@ -207,7 +207,8 @@ function desenhaContrato(){
   <div class="card"><div class="tot">
    <div><span class="mut">Parcelas vencidas</span><b>${tt.qv}</b></div><div><span class="mut">Deveria ter entrado</span><b>${brl(tt.esp)}</b></div>
    <div><span class="mut">Recebido (tudo o que pagou)</span><b>${brl(tt.rec)}</b></div><div class="${tt.at.tot>0.009?'neg':''}"><span class="mut">Em atraso hoje (${tt.at.q} parcela${tt.at.q==1?'':'s'})</span><b>${brl(tt.at.tot)}</b></div>
-   ${tt.pend?`<div class="neg"><span class="mut">Vencidas sem nada lançado</span><b>${tt.pend}</b></div>`:''}</div>
+   ${tt.pend?`<div class="neg"><span class="mut">Vencidas sem nada lançado</span><b>${tt.pend}</b></div>`:''}
+   ${(()=>{const ce=C.eventos.filter(e=>e.tipo==='cessao'&&e.dados?.taxa_cessao!=null);if(!ce.length)return'';const pg=ce.filter(e=>e.dados.pago_em).reduce((a,e)=>a+Number(e.dados.valor_pago??e.dados.taxa_cessao),0);return `<div><span class="mut">Despesas acessórias pagas (cessão de direitos)</span><b>${brl(pg)}</b><small class="mut">fora do recebido; não gera dívida</small></div>`})()}</div>
    <div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">Do que já pagou</div>
    <div class="tot"><div><span class="mut">Principal</span><b>${brl(tt.pg.pr)}</b></div><div><span class="mut">Multa</span><b>${brl(tt.pg.mu)}</b></div><div><span class="mut">Juros</span><b>${brl(tt.pg.ju)}</b></div><div><span class="mut">Custo de cobrança</span><b>${brl(tt.pg.ho)}</b></div></div>
    <div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">Do que está em atraso (calculado até hoje)</div>
@@ -235,11 +236,13 @@ function verCorrecao(id){const k=C.correcoes.find(x=>x.id==id);
   <div>Data: <b>${dbr(k.data)}</b> · IGPM <b>${k.igpm_pct??'—'}%</b> · Juros <b>${k.juros_pct??'—'}%</b></div><div style="margin:6px 0">Novo valor: <b>${brl(k.novo_valor)}</b></div>
   ${k.obs?`<div class="mut">Obs.: ${esc(k.obs)}</div>`:''}<div class="mut">Lançada ${new Date(k.salvo_em).toLocaleString('pt-BR')}</div>
   <div class="bt" style="margin-top:10px"><button class="per" onclick="apagar('correcao',${k.id})">Apagar</button></div>`)}
-function verEvento(id){const e=C.eventos.find(x=>x.id==id);
-  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${e.tipo==='encerramento'?'Encerramento':'Cessão'}</h3><button onclick="fechaModal()">Fechar</button></div>
-  ${e.motivo?`<div>Motivo: <b>${esc(e.motivo)}</b></div>`:''}<div>A partir de: <b>${esc(C.titulos.find(t=>t.id==e.a_partir_titulo)?.rotulo||'?')}</b> · Data: <b>${dbr(e.data)}</b></div>
-  ${e.dados?.novos_titulares?`<div>Novo(s) titular(es): <b>${esc(e.dados.novos_titulares)}</b></div>`:''}${e.obs?`<div class="mut">Obs.: ${esc(e.obs)}</div>`:''}
-  <div class="mut">Lançado ${new Date(e.salvo_em).toLocaleString('pt-BR')}</div><div class="bt" style="margin-top:10px"><button class="per" onclick="apagar('evento',${e.id})">Apagar</button></div>`)}
+function verEvento(id){const e=C.eventos.find(x=>x.id==id),d=e.dados||{};const dd=(l,v)=>`<div class="dado"><span>${l}</span><b>${v||'—'}</b></div>`;
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${e.tipo==='encerramento'?'Encerramento':'Cessão de direitos'}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="f2">${e.motivo?dd('Motivo',esc(e.motivo)):''}${dd('A partir de',esc(C.titulos.find(t=>t.id==e.a_partir_titulo)?.rotulo||'?'))}${dd('Data',dbr(e.data))}${d.novos_titulares?dd('Novo(s) titular(es)',esc(nome(d.novos_titulares))):''}${d.antes?dd('Titular anterior',esc(nome(d.antes))):''}</div>
+  ${e.tipo==='cessao'?`<div class="ficha" style="${d.pago_em?'':'border-left-color:#dc2626;background:rgba(220,38,38,.05)'}"><b style="font-size:15px">Boleto da taxa de cessão — ${d.pago_em?'pago':'<span style="color:#dc2626">não pago</span>'}</b>
+   <div class="f2" style="margin-top:8px">${dd('Valor da taxa',d.taxa_cessao!=null?brl(d.taxa_cessao):'')}${dd('Número da fatura',esc(d.fatura||''))}${dd('Vencimento',dbr(d.vencimento))}${dd('Forma',esc(d.forma||''))}${dd('Pago em',dbr(d.pago_em))}${dd('Valor pago',d.valor_pago!=null?brl(d.valor_pago):(d.pago_em&&d.taxa_cessao!=null?brl(d.taxa_cessao):''))}</div></div>`:''}
+  ${e.obs?`<div class="desc" style="margin-top:8px">${esc(e.obs)}</div>`:''}
+  <div class="mut">Lançado ${new Date(e.salvo_em).toLocaleString('pt-BR')}</div><div class="bt" style="margin-top:10px"><button class="pri" onclick="modalEvento('${e.tipo}',${e.id})">Editar</button><button class="per" onclick="apagar('evento',${e.id})">Apagar</button></div>`)}
 async function puxarDesc(){
   const r=await api('descricoes',{method:'POST',body:{contrato:C.contrato.numero}});
   alert(`Descrições atualizadas: ${r.preenchidas} (direto do Asaas: ${r.do_asaas})`+(r.sem_descricao.length?`\nSem descrição (${r.sem_descricao.length}): `+r.sem_descricao.map(x=>x.parcela).join(', '):'')+(r.erro_asaas?`\n\nAtenção: ${r.erro_asaas}`:''));
@@ -517,18 +520,30 @@ function modalCorrecao(){
 async function salvaCorrecao(){const b=window._k();if(!b.a_partir||!b.novo_valor)return alert('Informe a parcela e o novo valor.');await api('correcao',{method:'POST',body:b});fechaModal();recarrega()}
 
 /* encerramento / cessão */
-function modalEvento(tipo){
-  const ops=C.titulos.filter(t=>t.grupo!=='acordo').map(t=>`<option value="${t.id}">${esc(t.rotulo)} — ${dbr(t.vencimento)}</option>`).join('');
-  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${tipo==='encerramento'?'Encerrar contrato':'Cessão de direitos'}</h3><button onclick="fechaModal()">Fechar</button></div>
-  <div class="f2">${tipo==='encerramento'?`<div><label>Motivo</label><select id="e_m"><option>Distrato</option><option>Retomada</option><option>Quitação antecipada</option><option>Outro</option></select></div>`:''}
+function modalEvento(tipo,eid){
+  const e=eid?C.eventos.find(x=>x.id==eid):null,d=e?.dados||{};
+  const ops=C.titulos.filter(t=>t.grupo!=='acordo').map(t=>`<option value="${t.id}" ${e&&+e.a_partir_titulo===+t.id?'selected':''}>${esc(t.rotulo)} — ${dbr(t.vencimento)}</option>`).join('');
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${tipo==='encerramento'?'Encerrar contrato':'Cessão de direitos'}${e?' — editar':''}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="f2">${tipo==='encerramento'?`<div><label>Motivo</label><select id="e_m">${['Distrato','Retomada','Quitação antecipada','Outro'].map(o=>`<option ${e?.motivo===o?'selected':''}>${o}</option>`).join('')}</select></div>`:''}
   <div><label>${tipo==='encerramento'?'Encerrado a partir de qual parcela':'Novo titular a partir de qual parcela'}</label><select id="e_t">${ops}</select></div>
-  <div><label>Data</label><input id="e_d" type="date"></div></div>
-  ${tipo==='cessao'?'<label style="margin-top:8px">Novo(s) titular(es)</label><input id="e_n">':''}
-  <label style="margin-top:8px">Observação</label><input id="e_o">
+  <div><label>Data</label><input id="e_d" type="date" value="${e?.data?String(e.data).slice(0,10):''}"></div></div>
+  ${tipo==='cessao'?`<label style="margin-top:8px">Novo(s) titular(es)</label><input id="e_n" value="${esc(d.novos_titulares||'')}">
+   <div class="mut" style="margin:12px 0 4px;font-weight:600;color:var(--tx)">Boleto da taxa de cessão</div>
+   <div class="f2"><div><label>Valor da taxa</label><input id="e_tx" inputmode="decimal" value="${d.taxa_cessao!=null?brl(d.taxa_cessao):''}"></div>
+   <div><label>Número da fatura</label><input id="e_fat" value="${esc(d.fatura||'')}"></div>
+   <div><label>Vencimento do boleto</label><input id="e_venc" type="date" value="${esc(d.vencimento||'')}"></div>
+   <div><label>Forma de pagamento</label><select id="e_forma">${FORMAS.map(f=>`<option ${(d.forma||'Boleto Bancário')===f?'selected':''}>${f}</option>`).join('')}</select></div>
+   <div><label>Pago em (vazio = não pago)</label><input id="e_pg" type="date" value="${esc(d.pago_em||'')}"></div>
+   <div><label>Valor pago</label><input id="e_vp" inputmode="decimal" value="${d.valor_pago!=null?brl(d.valor_pago):(d.pago_em&&d.taxa_cessao!=null?brl(d.taxa_cessao):'')}"></div></div>`:''}
+  <label style="margin-top:8px">Observação</label><input id="e_o" value="${esc(e?.obs||'')}">
   ${tipo==='encerramento'?'<div class="info">Da parcela escolhida em diante, tudo fica cancelado.</div>':''}
-  <div class="bt"><button class="pri" onclick="salvaEvento('${tipo}')">Salvar</button></div>`);
+  <div class="bt"><button class="pri" onclick="salvaEvento('${tipo}',${eid||'null'})">Salvar</button></div>`);
 }
-async function salvaEvento(tipo){await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo,motivo:$('#e_m')?.value,a_partir_titulo:Number($('#e_t').value),data:$('#e_d').value,dados:{novos_titulares:$('#e_n')?.value||null},obs:$('#e_o').value}});fechaModal();recarrega()}
+
+async function salvaEvento(tipo,eid){const old=eid?C.eventos.find(x=>x.id==eid)?.dados||{}:{};
+  const dados=tipo==='cessao'?{...old,novos_titulares:$('#e_n')?.value||null,taxa_cessao:numBR($('#e_tx').value),fatura:$('#e_fat').value.trim()||null,vencimento:$('#e_venc').value||null,forma:$('#e_forma').value,pago_em:$('#e_pg').value||null,valor_pago:numBR($('#e_vp').value)}:{...old};
+  const body={contrato:C.contrato.numero,tipo,motivo:$('#e_m')?.value,a_partir_titulo:Number($('#e_t').value),data:$('#e_d').value,dados,obs:$('#e_o').value};
+  await api(eid?'evento/'+eid:'evento',{method:eid?'PUT':'POST',body});fechaModal();recarrega()}
 
 
 /* ---------- CRUZAMENTO (só administrador) ---------- */

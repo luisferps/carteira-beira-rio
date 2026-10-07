@@ -582,6 +582,14 @@ export default async (req) => {
       return json(r);
     }
 
+    if (p[0] === 'evento' && p[1] && m === 'PUT') {
+      const b = body;
+      await q(`update carteira.eventos set motivo=$3, a_partir_titulo=$4, data=$5, dados=$6, obs=$7, salvo_em=now() where id=$1 and conferente=$2`,
+        [p[1], conf, limpa(b.motivo), b.a_partir_titulo, limpa(b.data), b.dados || {}, limpa(b.obs)]);
+      await log(conf, 'evento_alterado', { id: p[1], ...b });
+      return json({ ok: true });
+    }
+
     if (p[0] === 'evento' && p[1] && m === 'DELETE') {
       const [r] = await q('delete from carteira.eventos where id=$1 and conferente=$2 returning *', [p[1], conf]);
       await log(conf, 'evento_apagado', r || {});
