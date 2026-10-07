@@ -312,6 +312,18 @@ export default async (req) => {
   try {
     if (p[0] === 'eu') return json({ conferente: real });
 
+    if (p[0] === 'fatura-legado' && p[1]) {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      const f = String(p[1]).replace(/\D/g, '');
+      const tabs = await q(`select table_name from information_schema.tables where table_schema='public' and table_name ilike 'lote%'`);
+      const out = [];
+      for (const t of tabs) {
+        const r = await q(`select row_to_json(x) j from public."${t.table_name}" x where row_to_json(x)::text ~ $1 limit 3`, ['(^|[^0-9])' + f + '([^0-9]|$)']).catch(() => []);
+        r.forEach(x => out.push({ tabela: t.table_name, linha: x.j }));
+      }
+      return json(out);
+    }
+
     if (p[0] === 'descricoes' && m === 'POST') {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
       const r = await puxarDescricoes(body.contrato, body.todos ? ['luis', 'secretaria', 'final'] : [conf]);
