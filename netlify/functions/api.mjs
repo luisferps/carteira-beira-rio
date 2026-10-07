@@ -372,6 +372,17 @@ export default async (req) => {
       return json({ clientes, nomes, pagamentos: out });
     }
 
+    if (p[0] === 'legado-contrato' && p[1]) {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      const [c] = await q('select quadra, lote from carteira.contratos where numero=$1', [p[1]]);
+      const parcelas = await q(`select tipo, numero, data_vencimento, valor_previsto, situacao, valor_pago, data_pagamento, quitada_via, numero_fatura, observacao
+                                from public.lote_parcelas where contrato_codigo=$1 order by tipo, numero`, [p[1]]).catch(e => [{ erro: e.message }]);
+      const receb = await q(`select numero_fatura, asaas_payment_id, cliente_asaas_id, cliente_nome, contrato_codigo, quadra, lote, descricao, situacao, data_vencimento, data_pagamento, valor, valor_pago
+                             from public.lote_recebimentos_legado_20260911 where contrato_codigo=$1 or (quadra=$2 and lote=$3) order by data_vencimento`, [p[1], c?.quadra, c?.lote]).catch(async () =>
+        q(`select row_to_json(x) j from public.lote_recebimentos_legado_20260911 x where contrato_codigo=$1 or (quadra=$2 and lote=$3)`, [p[1], c?.quadra, c?.lote]));
+      return json({ parcelas, receb });
+    }
+
     if (p[0] === 'fatura-legado' && p[1]) {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
       const f = String(p[1]).replace(/\D/g, '');
