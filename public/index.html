@@ -216,7 +216,7 @@ function desenhaContrato(){
   <div class="card"><div class="bt">
    <button id="bsel" onclick="modoSel()">${SELMODO?'Cancelar seleção':'Selecionar parcelas para acordo'}</button>
    <button class="pri" ${SELMODO&&SEL.size?'':'disabled'} onclick="modalAcordo()">Adicionar acordo (${SEL.size})</button>
-   <button onclick="modalCorrecao()">Adicionar correção</button><button onclick="modalEvento('encerramento')">Encerrar contrato</button>
+   <button onclick="modalCorrecao()">Adicionar correção</button><button onclick="modalEvento('encerramento')">Encerrar contrato</button><button onclick="modalEvento('encerramento',null,'cancelado')">Cancelar contrato</button>
    <button onclick="modalEvento('cessao')">Cessão</button>${EU==='luis'?'<button onclick="puxarDesc()">Puxar descrições do Asaas</button>':''}<span style="flex:1"></span>
    ${C.fechamento?`<button onclick="reabrir()">Reabrir conferência</button>`:`<button class="pri" onclick="fechar()">Fechar conferência do contrato</button>`}</div>
    ${SELMODO?`<div class="info">Clique nas parcelas em atraso que entraram no acordo e depois em "Adicionar acordo". Só as parcelas em atraso ficam disponíveis.<br><b>Selecionadas (${SEL.size}):</b> ${[...SEL].map(i=>C.titulos.find(t=>t.id==i)).filter(Boolean).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).map(t=>codTit(t)).join(', ')||'nenhuma'}</div>`:''}
@@ -520,11 +520,11 @@ function modalCorrecao(){
 async function salvaCorrecao(){const b=window._k();if(!b.a_partir||!b.novo_valor)return alert('Informe a parcela e o novo valor.');await api('correcao',{method:'POST',body:b});fechaModal();recarrega()}
 
 /* encerramento / cessão */
-function modalEvento(tipo,eid){
+function modalEvento(tipo,eid,modo){
   const e=eid?C.eventos.find(x=>x.id==eid):null,d=e?.dados||{};
   const ops=C.titulos.filter(t=>t.grupo!=='acordo').map(t=>`<option value="${t.id}" ${e&&+e.a_partir_titulo===+t.id?'selected':''}>${esc(t.rotulo)} — ${dbr(t.vencimento)}</option>`).join('');
-  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${tipo==='encerramento'?'Encerrar contrato':'Cessão de direitos'}${e?' — editar':''}</h3><button onclick="fechaModal()">Fechar</button></div>
-  <div class="f2">${tipo==='encerramento'?`<div><label>Motivo</label><select id="e_m">${['Distrato','Retomada','Quitação antecipada','Outro'].map(o=>`<option ${e?.motivo===o?'selected':''}>${o}</option>`).join('')}</select></div>`:''}
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${tipo==='encerramento'?(modo==='cancelado'?'Cancelar contrato':'Encerrar contrato'):'Cessão de direitos'}${e?' — editar':''}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="f2">${tipo==='encerramento'?`<div><label>Motivo</label><select id="e_m">${['Cancelado antes da assinatura','Distrato','Retomada','Quitação antecipada','Outro'].map(o=>`<option ${(e?.motivo===o)||(!e&&modo==='cancelado'&&o==='Cancelado antes da assinatura')?'selected':''}>${o}</option>`).join('')}</select></div>`:''}
   <div><label>${tipo==='encerramento'?'Encerrado a partir de qual parcela':'Novo titular a partir de qual parcela'}</label><select id="e_t">${ops}</select></div>
   <div><label>Data</label><input id="e_d" type="date" value="${e?.data?String(e.data).slice(0,10):''}"></div></div>
   ${tipo==='cessao'?`<label style="margin-top:8px">Novo(s) titular(es)</label><input id="e_n" value="${esc(d.novos_titulares||'')}">
@@ -536,8 +536,9 @@ function modalEvento(tipo,eid){
    <div><label>Pago em (vazio = não pago)</label><input id="e_pg" type="date" value="${esc(d.pago_em||'')}"></div>
    <div><label>Valor pago</label><input id="e_vp" inputmode="decimal" value="${d.valor_pago!=null?brl(d.valor_pago):(d.pago_em&&d.taxa_cessao!=null?brl(d.taxa_cessao):'')}"></div></div>`:''}
   <label style="margin-top:8px">Observação</label><input id="e_o" value="${esc(e?.obs||'')}">
-  ${tipo==='encerramento'?'<div class="info">Da parcela escolhida em diante, tudo fica cancelado.</div>':''}
+  ${tipo==='encerramento'?`<div class="info">${modo==='cancelado'?'Contrato cancelado antes de valer: todas as parcelas ficam canceladas e nada fica em atraso.':'Da parcela escolhida em diante, tudo fica cancelado.'}</div>`:''}
   <div class="bt"><button class="pri" onclick="salvaEvento('${tipo}',${eid||'null'})">Salvar</button></div>`);
+  if(!e&&modo==='cancelado'){const t0=C.titulos.filter(t=>t.grupo!=='acordo').sort((x,y)=>String(x.vencimento).localeCompare(String(y.vencimento))||x.id-y.id)[0];if(t0)$('#e_t').value=t0.id;$('#e_d').value=String(C.contrato.data_assinatura||'').slice(0,10)}
 }
 
 async function salvaEvento(tipo,eid){const old=eid?C.eventos.find(x=>x.id==eid)?.dados||{}:{};

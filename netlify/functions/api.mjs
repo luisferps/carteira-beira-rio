@@ -355,7 +355,13 @@ export default async (req) => {
       const n = p[1];
       const cl = await q(`select distinct cliente_asaas_id c from public.lote_recebimentos_legado_20260911 where contrato_codigo=$1 and cliente_asaas_id like 'cus_%'`, [n]).catch(() => []);
       const extra = (url.searchParams.get('clientes') || '').split(',').filter(x => x.startsWith('cus_'));
-      const clientes = [...new Set([...cl.map(x => x.c), ...extra])];
+      const [ct] = await q('select compradores from carteira.contratos where numero=$1', [n]);
+      const porCpf = [];
+      for (const cp of (ct?.compradores || [])) {
+        const doc = String(cp.cpf || '').replace(/\D/g, '');
+        if (doc.length >= 11) { const r = await asaas('/customers?cpfCnpj=' + doc + '&limit=20').catch(() => null); (r?.data || []).forEach(c => porCpf.push(c.id)); }
+      }
+      const clientes = [...new Set([...cl.map(x => x.c), ...extra, ...porCpf])];
       const out = [], nomes = {};
       for (const c of clientes) {
         const cu = await asaas('/customers/' + c).catch(() => null); nomes[c] = cu?.name || null;
