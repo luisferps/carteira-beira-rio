@@ -439,13 +439,14 @@ export default async (req) => {
     if (p[0] === 'contratos' && m === 'GET') {
       const rows = await q(`
         select c.numero, c.quadra, c.lote, c.valor_imovel, c.data_assinatura,
-               coalesce(c.compradores->0->>'nome', c.nome_planilha) as titular,
+               coalesce((select e.dados->>'novos_titulares' from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='cessao' and coalesce(e.dados->>'novos_titulares','')<>'' order by e.data desc nulls last, e.id desc limit 1), c.compradores->0->>'nome', c.nome_planilha) as titular,
                jsonb_array_length(c.alertas) as n_alertas,
                (select count(*) from carteira.titulos t where t.contrato=c.numero and t.conferente is null and t.vencimento <= current_date) as vencidas,
                (select count(distinct t.id) from carteira.titulos t
                   where t.contrato=c.numero and t.conferente is null and t.vencimento <= current_date
                     and (exists(select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente=$1)
-                      or exists(select 1 from carteira.conferencia_titulo ct where ct.titulo_id=t.id and ct.conferente=$1))) as conferidas,
+                      or exists(select 1 from carteira.conferencia_titulo ct where ct.titulo_id=t.id and ct.conferente=$1)
+                      or exists(select 1 from carteira.acordos a where a.contrato=c.numero and a.conferente=$1 and t.id = any(a.titulos_origem)))) as conferidas,
                (select fechado_em from carteira.fechamentos f where f.contrato=c.numero and f.conferente=$1) as fechado_em
         from carteira.contratos c order by c.numero`, [conf]);
       return json(rows);
