@@ -312,16 +312,16 @@ function modalTitulo(id,editId,novo){
       const orig=a.titulos_origem.map(x=>C.titulos.find(t=>t.id==x)).filter(Boolean),peso=orig.reduce((s,x)=>s+valorAno(x),0)||1;
       const totPago=pa.reduce((s,p)=>s+Number(p.valor_pago||0),0),parte=r2(totPago*valorAno(t)/peso),ult=pa.slice().sort((x,y)=>String(y.confirmada_em).localeCompare(String(x.confirmada_em)))[0]||{};
       const fats=pa.map(p=>p.fatura).filter(Boolean);
-      const desc=`Quitada pelo Acordo ${N}`+(fats.length?` — paga pelo boleto fatura ${fats.join(', ')}`:' — acordo ainda sem pagamento')+(orig.length>1?` (acordo englobou: ${orig.map(x=>x.rotulo).join(', ')})`:'');
+      const desc=`Quitada pelo Acordo ${N}`+(fats.length?` — fatura ${fats.join(', ')}`:'')+(orig.length>1?` (o acordo englobou: ${orig.map(x=>x.rotulo).join(', ')})`:'')+`. O valor está no Acordo ${N}.`;
       const d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v||'—'}</b></div>`;
       return `<div class="ficha">
-       <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">Quitada pelo Acordo ${N}${pa.length?' em '+dbr(ult.confirmada_em):''}</b><button onclick="verAcordo(${a.id})">Abrir o Acordo ${N}</button></div>
+       <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">Quitada pelo Acordo ${N} — recebido R$ 0,00</b><button onclick="verAcordo(${a.id})">Abrir o Acordo ${N}</button></div>
        <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Identificação no Asaas</div>
        <div class="f2">${d('Número da fatura (do acordo)',esc(fats.join(', ')))}${d('Situação','Quitada por acordo')}${d('Forma de pagamento',esc(ult.forma||''))}${d('Cliente no Asaas',esc(ult.cliente_asaas||''))}</div>
        <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Valores</div>
-       <div class="f2">${d('Valor da cobrança',brl(valorAno(t)))}${d(orig.length>1?'Valor pago (parte desta parcela no acordo)':'Valor pago no acordo',pa.length?brl(orig.length>1?parte:totPago):'')}</div>
+       <div class="f2">${d('Valor da cobrança',brl(valorAno(t)))}${d('Valor pago','R$ 0,00')}</div>
        <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Datas</div>
-       <div class="f2">${d('Data do acordo',dbr(a.data_acordo))}${d('Vencimento original',dbr(t.vencimento))}${d('Vencimento do boleto do acordo',dbr(ult.vencimento_boleto))}${d('Confirmada / recebida em',dbr(ult.confirmada_em))}</div>
+       <div class="f2">${d('Vencimento original',dbr(t.vencimento))}${d('Quitada em (data do acordo)',dbr(a.data_acordo))}</div>
        <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Descrição completa</div>
        <div class="desc">${esc(desc)}</div></div>`}).join(''));
     return;
