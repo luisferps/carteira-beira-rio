@@ -470,17 +470,21 @@ function modalAcordo(aid){
   const peloValor=()=>{const c=calc(),v=num($('#a_val').value),q=repartir({principal:B.pr,multa:c.multa,juros:c.juros},v);B={pr:B.pr,mu:q.multa,ju:q.juros,ho:q.honorarios,de:q.desconto}};
   const refazPars=()=>{const q=Math.max(1,Number($('#a_qtd').value)||1),v=num($('#a_val').value),base=r2(v/q);const d0=$('#a_data').value;
     P=Array.from({length:q},(_,i)=>{const d=new Date(d0+'T12:00');d.setMonth(d.getMonth()+i);return {valor:i===q-1?r2(v-base*(q-1)):base,vencimento:d.toISOString().slice(0,10)}});desPars()};
-  const desPars=()=>{window._P=P;$('#a_pars').innerHTML=P.map((p,i)=>`<tr><td>${i+1}</td><td><input type="date" data-i="${i}" data-k="vencimento" value="${p.vencimento}"></td><td><input data-i="${i}" data-k="valor" value="${brl(p.valor)}"></td></tr>`).join('');
-    $('#a_pars').oninput=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;if(i==null)return;P[i][k]=k==='valor'?num(e.target.value):e.target.value;soma()};soma()};
+  const desPars=()=>{window._P=P;$('#a_pars').innerHTML=P.map((p,i)=>`<tr><td>${i+1}</td><td><input type="date" data-i="${i}" data-k="vencimento" value="${p.vencimento}"></td><td><input data-i="${i}" data-k="valor" inputmode="decimal" value="${brl(p.valor)}"></td></tr>`).join('');
+    window._travaAcordo&&window._travaAcordo();$('#a_pars').oninput=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;if(i==null)return;P[i][k]=k==='valor'?num(e.target.value):e.target.value;if(k==='valor'){$('#a_val').value=brl(r2(P.reduce((a,p)=>a+Number(p.valor||0),0)));peloValor();mostraB()}soma()};soma()};
   const soma=()=>{const s=r2(P.reduce((a,p)=>a+Number(p.valor||0),0)),v=num($('#a_val').value);$('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> ${Math.abs(s-v)>0.009?'<span style="color:var(--at)">— diferente do valor acordado</span>':''}`};
   if(a){B={pr:Number(a.principal||0),mu:Number(a.multa||0),ju:Number(a.juros||0),ho:Number(a.honorarios||0),de:Number(a.desconto_encargos||0)};$('#a_val').value=brl(a.valor_acordado)}else deCalc();
   $('#a_forma').value=(pars.length>1)?'n':'1';
   $('#a_data').onchange=()=>{const y=+$('#a_data').value.slice(0,4);if(y<2000||y>2099)return;deCalc();mostraB();refazPars()};
   $('#a_val').oninput=()=>{peloValor();mostraB();refazPars()};
   for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])$('#'+id).oninput=e=>{B[k]=num(e.target.value);$('#a_val').value=brl(r2(B.pr+B.mu+B.ju+B.ho-B.de));mostraB(id);refazPars()};
-  $('#a_qtd').oninput=refazPars;$('#a_forma').onchange=()=>{if($('#a_forma').value==='1')$('#a_qtd').value=1;refazPars()};
-  mostraB();if(P.length)desPars();else refazPars();
-  if(EU!=='luis'){for(const id of ['a_val','a_pr','a_mu','a_ju','a_ho','a_de'])$('#'+id).readOnly=true;$('#a_av').insertAdjacentHTML('beforebegin','<div class="mut" style="font-size:12px">Só o administrador pode alterar o valor acordado e a composição.</div>')}
+  $('#a_qtd').oninput=()=>{$('#a_forma').value=(+$('#a_qtd').value>1)?'n':'1';refazPars()};$('#a_forma').onchange=()=>{if($('#a_forma').value==='1')$('#a_qtd').value=1;refazPars()};
+  let LIVRE=false;const trava=()=>{for(const id of ['a_val','a_pr','a_mu','a_ju','a_ho','a_de'])$('#'+id).readOnly=!LIVRE;document.querySelectorAll('#a_pars input[data-k=valor]').forEach(i=>i.readOnly=!LIVRE);
+    const bt=$('#a_edit');if(bt)bt.style.display=LIVRE?'none':'';const av=$('#a_livre');if(av)av.style.display=LIVRE?'':'none'};
+  window._travaAcordo=trava;
+  $('#a_pr').closest('.f2').insertAdjacentHTML('beforebegin',EU==='luis'?'<div style="margin:4px 0 8px"><button id="a_edit">Editar valores do acordo</button><span id="a_livre" class="mut" style="display:none">Valores liberados para edição.</span></div>':'');
+  if($('#a_edit'))$('#a_edit').onclick=()=>{LIVRE=true;trava()};
+  mostraB();if(P.length)desPars();else refazPars();trava();
   window._salvaAcordoDados=()=>({contrato:C.contrato.numero,data_acordo:$('#a_data').value,titulos_origem:ids,principal:r2(B.pr),multa:r2(B.mu),juros:r2(B.ju),honorarios:r2(B.ho),
       valor_calculado:calc().total,valor_acordado:num($('#a_val').value),desconto_encargos:r2(B.de),parcelas:window._P,obs:$('#a_obs').value});
 }
