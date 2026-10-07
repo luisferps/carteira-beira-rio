@@ -58,6 +58,7 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .dado span{font-size:12px;color:#777}.dado b{font-size:14px;word-break:break-word}
 .desc{white-space:pre-wrap;word-break:break-word;border:1px solid var(--ln);border-radius:8px;padding:10px;background:var(--card);line-height:1.45}
 #f_descricao{overflow:hidden;resize:vertical;min-height:80px}
+.pc.corr{outline:3px solid #7c3aed;outline-offset:2px}
 </style>
 </head>
 <body>
@@ -168,7 +169,8 @@ async function abrirContrato(n){
 function btn(t){
   const e=estado(t),conf=C.pagamentos.filter(p=>p.titulo_id==t.id).length||C.situacoes.find(s=>s.titulo_id==t.id);
   const lab=t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?'Acordo '+numAc(C.acordos.find(a=>a.id==t.acordo_id))+(t.total>1?' · '+t.numero+'/'+t.total:''):t.grupo==='mensal'?'M '+t.numero:t.grupo==='anual'?'A '+t.numero:t.grupo==='entrada'?'E '+t.numero:t.grupo==='acordo'?'Ac '+t.numero:'P '+t.numero;
-  return `<button class="pc ${e} ${t.grupo==='anual'?'anual':''} ${SEL.has(t.id)?'sel':''}" title="${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${NOMES[e]}" onclick="clicaTitulo(${t.id})">
+  const corr=t.grupo!=='acordo'&&C.correcoes.some(k=>k.grupo===t.grupo&&+k.a_partir===+t.numero);
+  return `<button class="pc ${e} ${t.grupo==='anual'?'anual':''} ${SEL.has(t.id)?'sel':''} ${corr?'corr':''}" title="${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${NOMES[e]}${corr?' — começa correção aqui':''}" onclick="clicaTitulo(${t.id})">
   ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo')&&acordoDe(t)?'Acordo '+numAc(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small>${t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?`<small style="font-weight:700">${esc(origensAc(C.acordos.find(a=>a.id==t.acordo_id)))}</small>`:''}</button>`;
 }
 function desenhaContrato(){
@@ -209,7 +211,7 @@ function desenhaContrato(){
    ${C.fechamento?`<button onclick="reabrir()">Reabrir conferência</button>`:`<button class="pri" onclick="fechar()">Fechar conferência do contrato</button>`}</div>
    ${SELMODO?'<div class="info">Clique nas parcelas que entraram no acordo e depois em "Adicionar acordo".</div>':''}
    <br><div class="grid">${linhas}</div><br>
-   <div class="leg">${Object.entries({paga:'var(--pg)',paga_atraso:'var(--pa)',quitada_acordo:'var(--ac)',em_acordo:'#fff',cancelada:'var(--ca)',em_atraso:'var(--at)',vencida:'var(--ve)',futura:'var(--fu)'}).map(([k,v])=>`<span style="--c:${v}">${NOMES[k]}</span>`).join('')}<span>✓ = conferida · borda tracejada = anual</span></div>
+   <div class="leg">${Object.entries({paga:'var(--pg)',paga_atraso:'var(--pa)',quitada_acordo:'var(--ac)',em_acordo:'#fff',cancelada:'var(--ca)',em_atraso:'var(--at)',vencida:'var(--ve)',futura:'var(--fu)'}).map(([k,v])=>`<span style="--c:${v}">${NOMES[k]}</span>`).join('')}<span>✓ = conferida · borda tracejada = anual · <b style="color:#7c3aed">contorno roxo</b> = começa correção aqui</span></div>
    <details open><summary>Acordos (${C.acordos.length})</summary>${ac}</details>
    <details open><summary>Correções (${C.correcoes.length})</summary>${co}</details>
    <details open><summary>Encerramento e cessão (${C.eventos.length})</summary>${ev}</details></div>`;
