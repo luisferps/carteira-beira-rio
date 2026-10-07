@@ -59,6 +59,8 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .desc{white-space:pre-wrap;word-break:break-word;border:1px solid var(--ln);border-radius:8px;padding:10px;background:var(--card);line-height:1.45}
 #f_descricao{overflow:hidden;resize:vertical;min-height:80px}
 .pc.corr{outline:3px solid #7c3aed;outline-offset:2px}
+.pc.ces{box-shadow:0 0 0 3px #fff,0 0 0 6px #ea580c}
+.pc.corr.ces{outline:3px solid #7c3aed;box-shadow:0 0 0 6px #ea580c}
 </style>
 </head>
 <body>
@@ -69,6 +71,8 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 const $=s=>document.querySelector(s), app=$('#app');
 let PIN=''; try{PIN=localStorage.getItem('cbr_pin')||''}catch(e){}
 let EU='', COMO='', LISTA=[], C=null, SEL=new Set(), SELMODO=false, X=null;
+const NOME_MIN=new Set(['da','de','do','das','dos','e','di','du']);
+const nome=v=>String(v??'').toLowerCase().replace(/\s+/g,' ').trim().split(' ').map((w,i)=>i&&NOME_MIN.has(w)?w:w.charAt(0).toUpperCase()+w.slice(1)).join(' ');
 const brl=v=>v==null||isNaN(v)?'—':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const dbr=d=>d?String(d).slice(0,10).split('-').reverse().join('/'):'—';
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -114,7 +118,7 @@ async function telaLista(){
       const pc=c.vencidas?Math.round(100*c.conferidas/c.vencidas):0;
       return `<button class="cb ${c.fechado_em?'fech':''} ${c.n_alertas?'alt':''}" onclick="location.hash='c/${c.numero}'">
       <div class="cbt"><b>${c.numero}</b><span>Q${c.quadra||'?'} L${c.lote||'?'}</span></div>
-      <div class="cbn">${esc(c.titular)}</div>
+      <div class="cbn">${esc(nome(c.titular))}</div>
       <div class="bar"><i style="width:${pc}%"></i></div><div class="mut">${c.conferidas}/${c.vencidas} vencidas conferidas</div>
       <div>${c.fechado_em?`<span class="tag ok">Fechado ${dbr(c.fechado_em)}</span>`:''} ${c.n_alertas?`<span class="tag al">${c.n_alertas} alerta(s)</span>`:''}</div></button>`}).join('')};
   $('#bus').oninput=desenha;desenha();
@@ -170,7 +174,8 @@ function btn(t){
   const e=estado(t),conf=C.pagamentos.filter(p=>p.titulo_id==t.id).length||C.situacoes.find(s=>s.titulo_id==t.id);
   const lab=t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?'Acordo '+numAc(C.acordos.find(a=>a.id==t.acordo_id))+(t.total>1?' · '+t.numero+'/'+t.total:''):t.grupo==='mensal'?'M '+t.numero:t.grupo==='anual'?'A '+t.numero:t.grupo==='entrada'?'E '+t.numero:t.grupo==='acordo'?'Ac '+t.numero:'P '+t.numero;
   const corr=t.grupo!=='acordo'&&C.correcoes.some(k=>k.grupo===t.grupo&&+k.a_partir===+t.numero);
-  return `<button class="pc ${e} ${t.grupo==='anual'?'anual':''} ${SEL.has(t.id)?'sel':''} ${corr?'corr':''}" title="${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${NOMES[e]}${corr?' — começa correção aqui':''}" onclick="clicaTitulo(${t.id})">
+  const ces=C.eventos.some(e=>e.tipo==='cessao'&&+e.a_partir_titulo===+t.id);
+  return `<button class="pc ${e} ${t.grupo==='anual'?'anual':''} ${SEL.has(t.id)?'sel':''} ${corr?'corr':''} ${ces?'ces':''}" title="${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${NOMES[e]}${corr?' — começa correção aqui':''}${ces?' — primeira parcela do novo titular (cessão)':''}" onclick="clicaTitulo(${t.id})">
   ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo')&&acordoDe(t)?'Acordo '+numAc(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small>${t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?`<small style="font-weight:700">${esc(origensAc(C.acordos.find(a=>a.id==t.acordo_id)))}</small>`:''}</button>`;
 }
 function desenhaContrato(){
@@ -182,9 +187,9 @@ function desenhaContrato(){
   for(let a=0;a<anos;a++){const ms=men.slice(a*12,a*12+12),an=anu[a];
     linhas+=`<div class="lin"><span class="rot">Ano ${a+1}</span>${ms.map(btn).join('')}${an?'<span style="width:10px"></span>'+btn(an):''}</div>`}
   if(out.length)linhas+=`<div class="lin"><span class="rot">Outras</span>${out.map(btn).join('')}</div>`;
-  const comp=(c.compradores||[]).map(x=>esc(x.nome)+(x.cpf?' <span class="mut">('+esc(x.cpf)+')</span>':'')).join('<br>')||esc(c.nome_planilha);
+  const comp=(c.compradores||[]).map(x=>esc(nome(x.nome))+(x.cpf?' <span class="mut">('+esc(x.cpf)+')</span>':'')).join('<br>')||esc(nome(c.nome_planilha));
   const ces=C.eventos.filter(e=>e.tipo==='cessao'&&e.dados?.novos_titulares).sort((x,y)=>String(x.data).localeCompare(String(y.data)));
-  const tit=ces.length?`<b>${esc(ces[ces.length-1].dados.novos_titulares)}</b> <span class="mut">(titular atual, por cessão em ${dbr(ces[ces.length-1].data)})</span><div class="mut" style="font-size:12px">Comprador original: ${(c.compradores||[]).map(x=>esc(x.nome)).join(', ')||esc(c.nome_planilha)}${ces.length>1?' · cessões anteriores: '+ces.slice(0,-1).map(e=>esc(e.dados.novos_titulares)+' ('+dbr(e.data)+')').join(', '):''}</div>`:comp;
+  const tit=ces.length?`<b>${esc(nome(ces[ces.length-1].dados.novos_titulares))}</b> <span class="mut">(titular atual, por cessão em ${dbr(ces[ces.length-1].data)})</span><div class="mut" style="font-size:12px">Comprador original: ${(c.compradores||[]).map(x=>esc(nome(x.nome))).join(', ')||esc(nome(c.nome_planilha))}${ces.length>1?' · cessões anteriores: '+ces.slice(0,-1).map(e=>esc(nome(e.dados.novos_titulares))+' ('+dbr(e.data)+')').join(', '):''}</div>`:comp;
   const ac=C.acordos.length?'<div class="lin">'+[...C.acordos].sort((x,y)=>numAc(x)-numAc(y)).map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);
     return `${ts.length?ts.map(btn).join(''):`<button class="pc ev evac" onclick="verAcordo(${a.id})"><b>Acordo ${numAc(a)}</b><small>${dbr(a.data_acordo).slice(0,5)}</small><small>sem parcelas</small></button>`}`}).join('')+'</div>':'<div class="mut">Nenhum acordo lançado.</div>';
   const co=C.correcoes.length?`<div class="lin">${C.correcoes.map(k=>`<button class="pc ev evco" onclick="verCorrecao(${k.id})"><b>Corr. ${k.grupo==='mensal'?'M':'A'} ${k.a_partir}</b><small>${k.data?dbr(k.data).slice(0,5)+'/'+String(k.data).slice(2,4):'—'}</small><small>${brl(k.novo_valor).replace('R$','').trim()}</small></button>`).join('')}</div>`:'<div class="mut">Nenhuma correção lançada.</div>';
@@ -213,7 +218,7 @@ function desenhaContrato(){
    ${C.fechamento?`<button onclick="reabrir()">Reabrir conferência</button>`:`<button class="pri" onclick="fechar()">Fechar conferência do contrato</button>`}</div>
    ${SELMODO?'<div class="info">Clique nas parcelas que entraram no acordo e depois em "Adicionar acordo".</div>':''}
    <br><div class="grid">${linhas}</div><br>
-   <div class="leg">${Object.entries({paga:'var(--pg)',paga_atraso:'var(--pa)',quitada_acordo:'var(--ac)',em_acordo:'#fff',cancelada:'var(--ca)',em_atraso:'var(--at)',vencida:'var(--ve)',futura:'var(--fu)'}).map(([k,v])=>`<span style="--c:${v}">${NOMES[k]}</span>`).join('')}<span>✓ = conferida · borda tracejada = anual · <b style="color:#7c3aed">contorno roxo</b> = começa correção aqui</span></div>
+   <div class="leg">${Object.entries({paga:'var(--pg)',paga_atraso:'var(--pa)',quitada_acordo:'var(--ac)',em_acordo:'#fff',cancelada:'var(--ca)',em_atraso:'var(--at)',vencida:'var(--ve)',futura:'var(--fu)'}).map(([k,v])=>`<span style="--c:${v}">${NOMES[k]}</span>`).join('')}<span>✓ = conferida · borda tracejada = anual · <b style="color:#7c3aed">contorno roxo</b> = começa correção aqui · <b style="color:#ea580c">contorno laranja</b> = primeira parcela do novo titular (cessão)</span></div>
    <details open><summary>Acordos (${C.acordos.length})</summary>${ac}</details>
    <details open><summary>Correções (${C.correcoes.length})</summary>${co}</details>
    <details open><summary>Encerramento e cessão (${C.eventos.length})</summary>${ev}</details></div>`;
@@ -517,7 +522,7 @@ async function telaCruzamento(todos){
    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" style="width:auto" ${todos?'checked':''} onchange="telaCruzamento(this.checked)"> mostrar todos (não só os fechados pelos dois)</label></div>
    <div class="mut" style="margin-top:6px">Aparecem os contratos já fechados pela sua conferência e pela da secretária. Verde = tudo igual. Amarelo = tem divergência para decidir.</div></div>
    <div class="cgrid">${L.map(c=>`<button class="cb ${c.resolvido||!c.pendentes?'fech':'alt'}" onclick="location.hash='x/${c.numero}'">
-    <div class="cbt"><b>${c.numero}</b><span>Q${c.quadra} L${c.lote}</span></div><div class="cbn">${esc(c.titular)}</div>
+    <div class="cbt"><b>${c.numero}</b><span>Q${c.quadra} L${c.lote}</span></div><div class="cbn">${esc(nome(c.titular))}</div>
     <div class="mut">Comparando: ${c.confs.map(x=>NOMECONF[x]).join(' × ')||'—'}</div>
     <div>${c.divergencias?`<span class="tag al">${c.pendentes} de ${c.divergencias} divergência(s) pendentes</span>`:'<span class="tag ok">Tudo igual</span>'} ${c.resolvido?'<span class="tag ok">Resolvido</span>':''}</div></button>`).join('')||'<div class="card">Nenhum contrato fechado pelos dois ainda.</div>'}</div>`;
 }
