@@ -303,6 +303,21 @@ function modalTitulo(id,editId,novo){
   const ed=editId?pags.find(p=>p.id==editId):null;PRINT=null;
   const cab=`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
   <div class="mut">Situação atual: <b>${NOMES[estado(t)]}</b>${sit?' · marcada em '+new Date(sit.salvo_em).toLocaleString('pt-BR'):''}${sit?.obs?' · '+esc(sit.obs):''}</div>`;
+  const acs=(C.acordos||[]).filter(a=>a.titulos_origem.map(Number).includes(+id));
+  if(acs.length&&!pags.length&&!ed&&!novo){
+    document.onpaste=null;
+    abreModal(cab+acs.map(a=>{const ts=C.titulos.filter(x=>x.acordo_id==a.id);const pa=C.pagamentos.filter(p=>ts.some(x=>x.id==p.titulo_id));
+      return `<div class="ficha" style="border-left-color:#c79a00;background:rgba(199,154,0,.06)">
+       <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">Esta parcela entrou no acordo de ${dbr(a.data_acordo)}</b>${typeof verAcordo==='function'?`<button onclick="verAcordo(${a.id})">Abrir o acordo</button>`:''}</div>
+       <div class="f2"><div class="dado"><span>Parcelas no acordo</span><b>${a.titulos_origem.map(x=>esc(C.titulos.find(t=>t.id==x)?.rotulo||'')).join(', ')}</b></div>
+        <div class="dado"><span>Valor acordado</span><b>${brl(a.valor_acordado)}</b></div>
+        <div class="dado"><span>Valor calculado</span><b>${brl(a.valor_calculado)}</b></div>
+        <div class="dado"><span>Títulos do acordo</span><b>${ts.length}</b></div></div>
+       ${a.obs?`<div class="desc" style="margin-top:8px">${esc(a.obs)}</div>`:''}
+       ${pa.length?pa.map(p=>fichaPag(p,p.titulo_id)).join(''):'<div class="aviso" style="margin-top:8px">O acordo ainda não tem pagamento lançado.</div>'}</div>`}).join('')+
+     `<div class="bt" style="margin-top:12px"><button onclick="modalTitulo(${id},null,1)">Lançar pagamento direto nesta parcela</button></div>`);
+    return;
+  }
   if(pags.length&&!ed&&!novo){
     document.onpaste=null;
     abreModal(cab+pags.map(p=>fichaPag(p,id)).join('')+`<div class="bt" style="margin-top:12px"><button onclick="modalTitulo(${id},null,1)">Lançar outro pagamento nesta parcela</button><span style="flex:1"></span>
