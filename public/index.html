@@ -405,7 +405,7 @@ function calcAcordo(ids,data){
   let pr=0,mu=0,ju=0,maxd=0;
   for(const id of ids){const t=C.titulos.find(x=>x.id==id);const v=valorAno(t);pr+=v;
     const dias=Math.max(0,Math.round((new Date(data)-new Date(t.vencimento))/864e5));maxd=Math.max(maxd,dias);
-    if(dias>0){mu+=v*.02;ju+=v*.01*dias/30}}
+    if(dias>0){mu+=v*.02;ju+=v*(Math.pow(1.01,dias/30)-1)}}
   const ho=maxd>30?(pr+mu+ju)*.10:0;return {principal:r2(pr),multa:r2(mu),juros:r2(ju),honorarios:r2(ho),total:r2(pr+mu+ju+ho)};
 }
 function modalAcordo(aid){
@@ -440,10 +440,14 @@ function modalAcordo(aid){
   $('#a_data').onchange=()=>{if(!a)$('#a_val').value=String(atual().total).replace('.',',');refazPars()};
   $('#a_val').oninput=refazPars;$('#a_qtd').oninput=refazPars;$('#a_forma').onchange=()=>{if($('#a_forma').value==='1')$('#a_qtd').value=1;refazPars()};
   if(P.length)desPars();else refazPars();
-  window._salvaAcordoDados=()=>{const c=atual(),v=num($('#a_val').value),enc=c.multa+c.juros+c.honorarios,f=enc?Math.max(0,v-c.principal)/enc:0;
-    return {contrato:C.contrato.numero,data_acordo:$('#a_data').value,titulos_origem:ids,principal:c.principal,multa:r2(c.multa*f),juros:r2(c.juros*f),honorarios:r2(c.honorarios*f),
-      valor_calculado:c.total,valor_acordado:v,desconto_encargos:r2(c.total-v),parcelas:window._P,obs:$('#a_obs').value}};
+  window._salvaAcordoDados=()=>{const c=atual(),v=num($('#a_val').value),q=repartir(c,v);
+    return {contrato:C.contrato.numero,data_acordo:$('#a_data').value,titulos_origem:ids,principal:c.principal,multa:q.multa,juros:q.juros,honorarios:q.honorarios,
+      valor_calculado:c.total,valor_acordado:v,desconto_encargos:q.desconto,parcelas:window._P,obs:$('#a_obs').value}};
 }
+/* regra: principal, multa e juros calculados; o que sobrar é o custo de cobrança. Se não der, o que faltar sai dos juros e depois da multa (desconto). */
+function repartir(c,v){let mu=c.multa,ju=c.juros,ho=r2(v-c.principal-mu-ju),de=0;
+  if(ho<0){let falta=-ho;ho=0;const dj=Math.min(ju,falta);ju=r2(ju-dj);falta=r2(falta-dj);const dm=Math.min(mu,falta);mu=r2(mu-dm);falta=r2(falta-dm);de=r2(-(v-c.principal-c.multa-c.juros))}
+  return {multa:r2(mu),juros:r2(ju),honorarios:r2(ho),desconto:de}}
 async function salvaAcordo(aid){const b=window._salvaAcordoDados();
   const s=r2(b.parcelas.reduce((a,p)=>a+Number(p.valor||0),0));if(Math.abs(s-b.valor_acordado)>0.009)return alert('A soma das parcelas precisa ser igual ao valor acordado.');
   if(b.valor_acordado<b.principal-0.009&&!confirm('Valor acordado menor que o principal. Confirmar desconto na dívida?'))return;
