@@ -213,7 +213,7 @@ function verEvento(id){const e=C.eventos.find(x=>x.id==id);
   <div class="mut">Lançado ${new Date(e.salvo_em).toLocaleString('pt-BR')}</div><div class="bt" style="margin-top:10px"><button class="per" onclick="apagar('evento',${e.id})">Apagar</button></div>`)}
 async function puxarDesc(){
   const r=await api('descricoes',{method:'POST',body:{contrato:C.contrato.numero}});
-  alert(`Descrições preenchidas: ${r.preenchidas}`+(r.sem_descricao.length?`\nNão encontradas (${r.sem_descricao.length}): `+r.sem_descricao.map(x=>x.parcela+' (fatura '+x.fatura+')').join(', '):'')+(!r.preenchidas&&!r.sem_descricao.length?'\nNenhum pagamento com fatura e sem descrição neste contrato.':'')+`\nTabelas consultadas: ${r.tabelas_procuradas.join(', ')||'nenhuma'}`);
+  alert(`Descrições atualizadas: ${r.preenchidas} (direto do Asaas: ${r.do_asaas})`+(r.sem_descricao.length?`\nSem descrição (${r.sem_descricao.length}): `+r.sem_descricao.map(x=>x.parcela).join(', '):'')+(r.erro_asaas?`\n\nAtenção: ${r.erro_asaas}`:''));
   recarrega();
 }
 function modoSel(){SELMODO=!SELMODO;SEL.clear();desenhaContrato()}

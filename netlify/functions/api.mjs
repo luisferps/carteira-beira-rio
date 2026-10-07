@@ -269,25 +269,56 @@ function acharDescricao(o) {
   };
   walk(o); return best;
 }
+async function asaas(path) {
+  const key = (process.env.ASAAS_API_KEY || '').trim();
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch('https://api.asaas.com/v3' + path, { headers: { access_token: key, 'User-Agent': 'carteira-beira-rio', accept: 'application/json' } });
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error('Asaas respondeu ' + r.status + ': ' + (await r.text()).slice(0, 200));
+      return await r.json();
+    } catch (e) { if (i === 2) throw e; await new Promise(x => setTimeout(x, 800)); }
+  }
+}
+async function descricoesAsaas(contrato, faturas) {
+  const mapa = {};
+  if (!process.env.ASAAS_API_KEY) return { mapa, erro: 'sem_chave' };
+  const cli = await q(`select distinct cliente_asaas_id c from public.lote_recebimentos_legado_20260911 where contrato_codigo=$1 and cliente_asaas_id is not null`, [contrato]).catch(() => []);
+  const cli2 = await q(`select distinct id_cliente_asaas c from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato=$1 and id_cliente_asaas like 'cus_%'`, [contrato]).catch(() => []);
+  const clientes = [...new Set([...cli, ...cli2].map(x => x.c))];
+  for (const c of clientes) {
+    for (let off = 0; off < 2000; off += 100) {
+      const r = await asaas(`/payments?customer=${c}&limit=100&offset=${off}`);
+      for (const pg of r?.data || []) if (pg.invoiceNumber) mapa[String(pg.invoiceNumber)] = { desc: pg.description || '', id: pg.id };
+      if (!r?.hasMore) break;
+    }
+  }
+  const falta = faturas.filter(f => !mapa[f]);
+  for (const f of falta) {
+    const l = await q(`select coalesce(asaas_payment_real_id, asaas_payment_id) id from public.lote_recebimentos_legado_20260911 where numero_fatura=$1 limit 1`, [f]).catch(() => []);
+    if (l[0]?.id) { const pg = await asaas('/payments/' + l[0].id); if (pg?.description != null) mapa[f] = { desc: pg.description, id: pg.id }; }
+  }
+  return { mapa, clientes };
+}
 async function puxarDescricoes(contrato, conferentes) {
-  const tabs = await q(`select table_name from information_schema.tables where table_schema='public'
-                        and (table_name ilike '%receb%' or table_name ilike '%boleto%' or table_name ilike '%asaas%' or table_name ilike '%pagament%' or table_name ilike '%cobran%')`);
-  const pags = await q(`select g.id, g.fatura, g.conferente, t.rotulo from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
-                        where t.contrato=$1 and g.conferente = any($2) and coalesce(g.fatura,'')<>'' and coalesce(trim(g.descricao),'')=''`, [contrato, conferentes]);
+  const pags = await q(`select g.id, g.fatura, g.conferente, g.descricao, t.rotulo from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
+                        where t.contrato=$1 and g.conferente = any($2) and coalesce(g.fatura,'')<>''`, [contrato, conferentes]);
+  const fat = [...new Set(pags.map(g => String(g.fatura).replace(/\D/g, '')).filter(f => f.length >= 6))];
+  let A = { mapa: {} }, erroAsaas = null;
+  try { A = await descricoesAsaas(contrato, fat); } catch (e) { erroAsaas = String(e.message || e); }
   const ok = [], sem = [];
   for (const g of pags) {
     const f = String(g.fatura).replace(/\D/g, '');
-    let desc = null, onde = null;
-    if (f.length < 6) { sem.push({ parcela: g.rotulo, fatura: g.fatura }); continue; }
-    for (const t of tabs) {
-      const r = await q(`select row_to_json(x) j from public."${t.table_name}" x where row_to_json(x)::text ~ $1 limit 5`, ['(^|[^0-9])' + f + '([^0-9]|$)']).catch(() => []);
-      for (const row of r) { const d = acharDescricao(row.j); if (d && (!desc || d.length > desc.length)) { desc = d; onde = t.table_name; } }
-      if (desc) break;
+    const atual = (g.descricao || '').trim();
+    let desc = A.mapa[f]?.desc?.trim() ? A.mapa[f].desc : null, onde = desc ? 'Asaas' : null;
+    if (!desc && !atual && f.length >= 6) {
+      const r = await q(`select descricao from public.lote_recebimentos_legado_20260911 where numero_fatura=$1 and coalesce(descricao,'')<>'' limit 1`, [f]).catch(() => []);
+      if (r[0]) { desc = r[0].descricao; onde = 'banco antigo (resumida)'; }
     }
-    if (desc) { await q('update carteira.pagamentos set descricao=$2 where id=$1', [g.id, desc]); ok.push({ parcela: g.rotulo, fatura: f, tabela: onde }); }
-    else sem.push({ parcela: g.rotulo, fatura: f });
+    if (desc && desc.trim() !== atual) { await q('update carteira.pagamentos set descricao=$2 where id=$1', [g.id, desc]); ok.push({ parcela: g.rotulo, fatura: f, fonte: onde }); }
+    else if (!desc && !atual) sem.push({ parcela: g.rotulo, fatura: f });
   }
-  return { tabelas_procuradas: tabs.map(t => t.table_name), preenchidas: ok.length, sem_descricao: sem, detalhes: ok };
+  return { preenchidas: ok.length, do_asaas: ok.filter(x => x.fonte === 'Asaas').length, sem_descricao: sem, erro_asaas: erroAsaas || (A.erro === 'sem_chave' ? 'Falta a chave do Asaas no Netlify' : null), detalhes: ok };
 }
 
 export default async (req) => {
