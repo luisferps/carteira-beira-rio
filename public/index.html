@@ -30,7 +30,7 @@ th{font-size:12px;color:var(--mut);font-weight:600}tr.lk{cursor:pointer}tr.lk:ho
 .pc small{font-size:10px;opacity:.9}
 .pc.paga{background:var(--pg)}.pc.paga_atraso{background:var(--pa);color:#0f3d1f}.pc.quitada_acordo{background:var(--ac);color:#3a2c00}.pc.em_acordo{background:#fff;color:#3a2c00;border-color:var(--ac)}
 .pc.cancelada{background:var(--ca)}.pc.em_atraso{background:var(--at)}.pc.vencida{background:var(--ve)}.pc.futura{background:var(--fu);color:#333}
-.pc.anual{outline:2px dashed #333;outline-offset:1px}.grid.selmodo .pc{opacity:.35;filter:grayscale(.4)}.grid.selmodo .pc.sel{opacity:1;filter:none;transform:scale(1.08);box-shadow:0 0 0 4px #fff,0 0 0 8px #2563eb,0 6px 14px rgba(0,0,0,.35);z-index:2;position:relative}
+.pc.anual{outline:2px dashed #333;outline-offset:1px}.pc.sel{opacity:.45;filter:blur(1.2px) saturate(.5);outline:3px solid #2563eb;outline-offset:2px}
 .pc.sel::after{content:'✔';position:absolute;left:4px;top:2px;background:#2563eb;color:#fff;border-radius:50%;width:16px;height:16px;font-size:11px;line-height:16px;text-align:center}.pc{position:relative}
 .pc .cf{position:absolute;top:2px;right:4px;font-size:10px}
 .leg{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--mut)}.leg span:before{content:"";display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:4px;vertical-align:-2px;background:var(--c)}
@@ -176,7 +176,7 @@ function btn(t){
   const lab=t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?'Acordo '+numAc(C.acordos.find(a=>a.id==t.acordo_id))+(t.total>1?' · '+t.numero+'/'+t.total:''):t.grupo==='mensal'?'M '+t.numero:t.grupo==='anual'?'A '+t.numero:t.grupo==='entrada'?'E '+t.numero:t.grupo==='acordo'?'Ac '+t.numero:'P '+t.numero;
   const corr=t.grupo!=='acordo'&&C.correcoes.some(k=>k.grupo===t.grupo&&+k.a_partir===+t.numero);
   const ces=C.eventos.some(e=>e.tipo==='cessao'&&+e.a_partir_titulo===+t.id);
-  return `<button class="pc ${e} ${t.grupo==='anual'?'anual':''} ${SEL.has(t.id)?'sel':''} ${corr?'corr':''} ${ces?'ces':''}" title="${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${NOMES[e]}${corr?' — começa correção aqui':''}${ces?' — primeira parcela do novo titular (cessão)':''}" onclick="clicaTitulo(${t.id})">
+  return `<button class="pc ${e} ${t.grupo==='anual'?'anual':''} ${SEL.has(+t.id)?'sel':''} ${corr?'corr':''} ${ces?'ces':''}" title="${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${NOMES[e]}${corr?' — começa correção aqui':''}${ces?' — primeira parcela do novo titular (cessão)':''}" onclick="clicaTitulo(${t.id})">
   ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo')&&acordoDe(t)?'Acordo '+numAc(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small>${t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?`<small style="font-weight:700">${esc(origensAc(C.acordos.find(a=>a.id==t.acordo_id)))}</small>`:''}</button>`;
 }
 function desenhaContrato(){
@@ -218,7 +218,7 @@ function desenhaContrato(){
    <button onclick="modalEvento('cessao')">Cessão</button>${EU==='luis'?'<button onclick="puxarDesc()">Puxar descrições do Asaas</button>':''}<span style="flex:1"></span>
    ${C.fechamento?`<button onclick="reabrir()">Reabrir conferência</button>`:`<button class="pri" onclick="fechar()">Fechar conferência do contrato</button>`}</div>
    ${SELMODO?`<div class="info">Clique nas parcelas que entraram no acordo e depois em "Adicionar acordo".<br><b>Selecionadas (${SEL.size}):</b> ${[...SEL].map(i=>C.titulos.find(t=>t.id==i)).filter(Boolean).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).map(t=>codTit(t)).join(', ')||'nenhuma'}</div>`:''}
-   <br><div class="grid ${SELMODO?'selmodo':''}">${linhas}</div><br>
+   <br><div class="grid">${linhas}</div><br>
    <div class="leg">${Object.entries({paga:'var(--pg)',paga_atraso:'var(--pa)',quitada_acordo:'var(--ac)',em_acordo:'#fff',cancelada:'var(--ca)',em_atraso:'var(--at)',vencida:'var(--ve)',futura:'var(--fu)'}).map(([k,v])=>`<span style="--c:${v}">${NOMES[k]}</span>`).join('')}<span>✓ = conferida · borda tracejada = anual · <b style="color:#7c3aed">contorno roxo</b> = começa correção aqui · <b style="color:#ea580c">contorno laranja</b> = primeira parcela do novo titular (cessão)</span></div>
    <details open><summary>Acordos (${C.acordos.length})</summary>${ac}</details>
    <details open><summary>Correções (${C.correcoes.length})</summary>${co}</details>
@@ -246,7 +246,7 @@ async function puxarDesc(){
 }
 function modoSel(){SELMODO=!SELMODO;SEL.clear();desenhaContrato()}
 function clicaTitulo(id){
-  if(SELMODO){SEL.has(id)?SEL.delete(id):SEL.add(id);desenhaContrato();return}
+  if(SELMODO){id=+id;SEL.has(id)?SEL.delete(id):SEL.add(id);desenhaContrato();return}
   modalTitulo(id);
 }
 async function recarrega(){C=await api('contrato/'+C.contrato.numero);desenhaContrato()}
