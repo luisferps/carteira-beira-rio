@@ -136,6 +136,9 @@ function estado(t){
   if(t.vencimento&&t.vencimento<=hoje)return 'vencida';
   return 'futura';
 }
+function codTit(t){if(!t)return'?';if(t.grupo==='acordo'){const a=C.acordos.find(x=>x.id==t.acordo_id);return 'R'+(a?numAc(a):'')+(t.total>1?'.'+t.numero:'')}
+  return ({mensal:'M',anual:'A',entrada:'E'}[t.grupo]||'P')+t.numero}
+function origensAc(a){return (a.titulos_origem||[]).map(i=>codTit(C.titulos.find(t=>t.id==i))).join('+')}
 function numAc(a){const l=[...C.acordos].sort((x,y)=>String(x.data_acordo).localeCompare(String(y.data_acordo))||x.id-y.id);return l.findIndex(x=>x.id==a.id)+1}
 function acordoDe(t){return C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)))}
 const NOMES={paga:'Paga em dia',paga_atraso:'Paga com atraso',quitada_acordo:'Paga em cobrança (acordo)',em_acordo:'Em acordo (sem pagamento ainda)',cancelada:'Cancelada',em_atraso:'Não paga (conferido)',vencida:'Vencida sem nada lançado',futura:'A vencer'};
@@ -157,7 +160,7 @@ function btn(t){
   const e=estado(t),conf=C.pagamentos.filter(p=>p.titulo_id==t.id).length||C.situacoes.find(s=>s.titulo_id==t.id);
   const lab=t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?'Acordo '+numAc(C.acordos.find(a=>a.id==t.acordo_id))+(t.total>1?' · '+t.numero+'/'+t.total:''):t.grupo==='mensal'?'M '+t.numero:t.grupo==='anual'?'A '+t.numero:t.grupo==='entrada'?'E '+t.numero:t.grupo==='acordo'?'Ac '+t.numero:'P '+t.numero;
   return `<button class="pc ${e} ${t.grupo==='anual'?'anual':''} ${SEL.has(t.id)?'sel':''}" title="${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${NOMES[e]}" onclick="clicaTitulo(${t.id})">
-  ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo')&&acordoDe(t)?'Acordo '+numAc(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small></button>`;
+  ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo')&&acordoDe(t)?'Acordo '+numAc(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small>${t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?`<small style="font-weight:700">${esc(origensAc(C.acordos.find(a=>a.id==t.acordo_id)))}</small>`:''}</button>`;
 }
 function desenhaContrato(){
   const c=C.contrato,tt=totais(),T=C.titulos,base=T.filter(t=>t.grupo!=='acordo');
@@ -169,8 +172,8 @@ function desenhaContrato(){
     linhas+=`<div class="lin"><span class="rot">Ano ${a+1}</span>${ms.map(btn).join('')}${an?'<span style="width:10px"></span>'+btn(an):''}</div>`}
   if(out.length)linhas+=`<div class="lin"><span class="rot">Outras</span>${out.map(btn).join('')}</div>`;
   const comp=(c.compradores||[]).map(x=>esc(x.nome)+(x.cpf?' <span class="mut">('+esc(x.cpf)+')</span>':'')).join('<br>')||esc(c.nome_planilha);
-  const ac=C.acordos.map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);
-    return `<div class="lin">${ts.length?ts.map(btn).join(''):`<button class="pc ev evac" onclick="verAcordo(${a.id})"><b>Acordo ${numAc(a)}</b><small>${dbr(a.data_acordo).slice(0,5)}</small><small>sem parcelas</small></button>`}</div>`}).join('')||'<div class="mut">Nenhum acordo lançado.</div>';
+  const ac=C.acordos.length?'<div class="lin">'+[...C.acordos].sort((x,y)=>numAc(x)-numAc(y)).map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);
+    return `${ts.length?ts.map(btn).join(''):`<button class="pc ev evac" onclick="verAcordo(${a.id})"><b>Acordo ${numAc(a)}</b><small>${dbr(a.data_acordo).slice(0,5)}</small><small>sem parcelas</small></button>`}`}).join('')+'</div>':'<div class="mut">Nenhum acordo lançado.</div>';
   const co=C.correcoes.length?`<div class="lin">${C.correcoes.map(k=>`<button class="pc ev evco" onclick="verCorrecao(${k.id})"><b>Corr. ${k.grupo==='mensal'?'M':'A'} ${k.a_partir}</b><small>${k.data?dbr(k.data).slice(0,5)+'/'+String(k.data).slice(2,4):'—'}</small><small>${brl(k.novo_valor).replace('R$','').trim()}</small></button>`).join('')}</div>`:'<div class="mut">Nenhuma correção lançada.</div>';
   const ev=C.eventos.length?`<div class="lin">${C.eventos.map(e=>`<button class="pc ev evev" onclick="verEvento(${e.id})"><b>${e.tipo==='encerramento'?'Encerr.':'Cessão'}</b><small>${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo.replace(/^(Mensal|Anual|Entrada) /,(m,g)=>g[0]+' ').replace(/\/\d+$/,'')||'?')}</small><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small></button>`).join('')}</div>`:'<div class="mut">Nenhum evento.</div>';
   const itens=(c.itens||[]).map(i=>`<li>${esc(i.texto)}</li>`).join('');
