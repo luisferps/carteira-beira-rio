@@ -288,11 +288,12 @@ function modalTitulo(id,editId){
   <div class="drop" id="drop">Aperte <b>Ctrl+V</b> com o print copiado — a leitura começa sozinha. Depois cole a descrição (Ctrl+V de novo).<div id="pv"></div></div>
    <div class="bt" style="margin:8px 0;align-items:center"><span id="iast" class="mut"></span><span style="flex:1"></span><button id="bia" onclick="lerIA()" style="font-size:12px;padding:4px 10px">Ler de novo</button></div>
   ${formPag(ed||{forma:'Boleto Bancário',vencimento_original:t.vencimento,valor_cobranca:r2(valorAno(t))},t)}
-  <div class="bt" style="margin-top:12px"><button class="pri" onclick="conferePag(${id},${ed?ed.id:'null'})">Conferir e salvar</button><span id="confBox" style="flex-basis:100%"></span>
+  <div class="bt" style="margin-top:12px"><button onclick="conferePag(${id},${ed?ed.id:'null'})">Conferir de novo</button><span id="confBox" style="flex-basis:100%"></span>
    <span style="flex:1"></span><button title="Use quando você olhou no Asaas e confirmou que esta parcela NÃO foi paga. Assim ela sai de 'não conferida' e o contrato pode ser fechado." onclick="marca(${id},'em_atraso')">Não foi paga (conferido)</button><button onclick="marca(${id},'cancelada')">Marcar cancelada</button>
    ${sit&&sit.situacao!=='paga'?`<button onclick="marca(${id},null)">Limpar marcação</button>`:''}</div>`);
-  window._TIT=t;window._IA=null;$('#f_descricao').oninput=checaDesc;checaDesc();ligaLink();
+  window._TIT=t;window._IA=null;window._CONF=()=>conferePag(id,ed?ed.id:null);$('#f_descricao').oninput=checaDesc;checaDesc();ligaLink();
   ['valor_cobranca','valor_pago','confirmada_em','vencimento_original'].forEach(k=>$('#f_'+k).addEventListener('change',calcEncargos));
+  $('.modal').addEventListener('change',()=>{if($('#confBox')?.innerHTML)setTimeout(()=>window._CONF(),0)});
   document.onpaste=e=>{if(!$('#drop'))return;const its=[...(e.clipboardData||{}).items||[]];
     if(its.some(i=>i.type.startsWith('image/'))){colaPrint(e,true);return}
     const tg=e.target;if(!(tg&&/INPUT|TEXTAREA|SELECT/.test(tg.tagName))){const tx=e.clipboardData.getData('text');if(tx){e.preventDefault();$('#f_descricao').value=tx;checaDesc()}}};
@@ -310,7 +311,7 @@ async function lerIA(){
     window._IA={parcelas:(d.parcelas_citadas||[]).map(x=>{const m=String(x).match(/(\d{1,3})\s*\/\s*(\d{1,3})/);return m?{txt:+m[1]+'/'+m[2],n:+m[1],tot:+m[2]}:null}).filter(Boolean),contrato:d.contrato?String(d.contrato).padStart(4,'0'):null,quadra:d.quadra?String(d.quadra).padStart(2,'0'):null,lote:d.lote?String(d.lote).padStart(2,'0'):null};
     calcEncargos();
     if(d.link_fatura){const m=String(d.link_fatura).match(/\/i\/([A-Za-z0-9]+)/);if(m&&!$('#f_id_asaas').value)$('#f_id_asaas').value='pay_'+m[1]}checaDesc();
-    checaDesc();$('#iast').innerHTML='Print lido. Confira e clique em Conferir e salvar.';
+    checaDesc();$('#iast').innerHTML='Print lido.';window._CONF&&window._CONF();
   }catch(e){$('#iast').textContent=''}$('#bia').disabled=false}
 function conferePag(tid,pid){
   document.querySelectorAll('.modal input,.modal select,.modal textarea').forEach(e=>e.style.borderColor='');
@@ -324,7 +325,7 @@ function conferePag(tid,pid){
    <div style="font-size:16px"><b>${esc(t.rotulo)}</b> — valor pago <b>${brl(o.valor_pago)}</b></div>
    ${falta.length?`<div class="aviso">Falta preencher: ${falta.join(', ')}</div>`:''}
    ${av.length?av.map(a=>`<div class="aviso">Divergência: ${esc(a)}</div>`).join(''):(falta.length?'':'<div style="color:var(--pg);font-weight:600;margin-top:6px">✓ Sem divergências</div>')}
-   <div class="bt" style="margin-top:8px">${falta.length?'':`<button class="pri" onclick="salvaPag(${tid},${pid})">${av.length?'Salvar mesmo assim':'Está certo — salvar'}</button>`}<button onclick="$('#confBox').innerHTML=''">Voltar e corrigir</button></div></div>`;
+   <div class="bt" style="margin-top:8px">${falta.length?'':`<button class="pri" onclick="salvaPag(${tid},${pid})">${av.length?'Salvar mesmo assim':'Está certo — salvar'}</button>`}</div></div>`;
   $('#confBox').scrollIntoView({behavior:'smooth',block:'center'});
 }
 async function salvaPag(tid,pid){
