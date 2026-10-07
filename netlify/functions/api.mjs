@@ -71,11 +71,16 @@ quadra, lote (2 dígitos cada, ex. "Q05 L03" => "05","03"),
 parcelas_citadas (lista de textos das parcelas citadas na descrição, ex. ["Mensal 34/120"]).
 Números com ponto decimal (967.68). Descrição colada pelo usuário: """${body.descricao || ''}"""`,
   });
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
+  const req = { method: 'POST',
     headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5', max_tokens: 1200, messages: [{ role: 'user', content }] }),
-  });
+    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5', max_tokens: 1200, messages: [{ role: 'user', content }] }) };
+  let r, ultimo;
+  for (let t = 0; t < 3; t++) {
+    try { r = await fetch('https://api.anthropic.com/v1/messages', req); if (r.status < 500 && r.status !== 429) break; ultimo = 'servidor da IA respondeu ' + r.status; }
+    catch (e) { ultimo = (e.cause && (e.cause.code || e.cause.message)) || e.message; r = null; }
+    await new Promise(ok => setTimeout(ok, 800 * (t + 1)));
+  }
+  if (!r) return { erro: 'Não consegui falar com a IA (' + ultimo + '). Clique em "Ler de novo".' };
   const d = await r.json();
   if (!r.ok) return { erro: d.error?.message || 'Falha ao ler o print' };
   const txt = (d.content || []).map(c => c.text || '').join('');
