@@ -350,6 +350,28 @@ export default async (req) => {
       return json({ id: l[0]?.id || null, invoiceNumber: pg?.invoiceNumber, description: pg?.description, status: pg?.status });
     }
 
+    if (p[0] === 'asaas-contrato' && p[1]) {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      const n = p[1];
+      const cl = await q(`select distinct cliente_asaas_id c from public.lote_recebimentos_legado_20260911 where contrato_codigo=$1 and cliente_asaas_id like 'cus_%'`, [n]).catch(() => []);
+      const extra = (url.searchParams.get('clientes') || '').split(',').filter(x => x.startsWith('cus_'));
+      const clientes = [...new Set([...cl.map(x => x.c), ...extra])];
+      const out = [], nomes = {};
+      for (const c of clientes) {
+        const cu = await asaas('/customers/' + c).catch(() => null); nomes[c] = cu?.name || null;
+        for (let off = 0; off < 3000; off += 100) {
+          const r = await asaas(`/payments?customer=${c}&limit=100&offset=${off}`);
+          for (const g of r?.data || []) out.push({
+            id: g.id, fatura: g.invoiceNumber, status: g.status, valor: g.value, liquido: g.netValue, original: g.originalValue,
+            criada: g.dateCreated, venc: g.dueDate, venc_original: g.originalDueDate, pago_em: g.paymentDate, cliente_pagou: g.clientPaymentDate,
+            confirmada: g.confirmedDate, credito: g.creditDate, forma: g.billingType, descricao: g.description, cliente: c, nome: nomes[c],
+            parcelamento: g.installment, juros: g.interest?.value, multa: g.fine?.value, desconto: g.discount?.value, deletado: g.deleted, ext: g.externalReference });
+          if (!r?.hasMore) break;
+        }
+      }
+      return json({ clientes, nomes, pagamentos: out });
+    }
+
     if (p[0] === 'fatura-legado' && p[1]) {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
       const f = String(p[1]).replace(/\D/g, '');
