@@ -261,6 +261,9 @@ async function fechar(){
 async function reabrir(){await api('fechar/'+C.contrato.numero,{method:'DELETE'});recarrega()}
 
 /* ---------- MODAIS ---------- */
+new MutationObserver(()=>document.querySelectorAll('input[type=date]:not([max])').forEach(i=>{i.min='2000-01-01';i.max='2099-12-31';
+  i.addEventListener('change',()=>{const y=+(i.value||'').slice(0,4);const ok=!i.value||(y>=2000&&y<=2099);i.style.borderColor=ok?'':'#dc2626';i.title=ok?'':'Ano inválido';if(!ok){i.value=''}})})).observe(document.body,{childList:true,subtree:true});
+document.addEventListener('focusin',e=>{const i=e.target;if(i.tagName==='INPUT'&&i.inputMode==='decimal')setTimeout(()=>i.select(),0)});
 let PILHA=[];
 function vaiPara(nova,atual){PILHA.push(atual);nova()}
 function voltar(){const f=PILHA.pop();if(f)f()}
@@ -454,8 +457,13 @@ function modalAcordo(aid){
   <details style="margin-top:6px"><summary class="mut">Ver a conta parcela por parcela</summary><div id="a_det" class="mut" style="font-size:12px"></div></details>
   <div id="a_av"></div>
   <table style="margin-top:8px"><thead><tr><th>#</th><th>Vencimento</th><th>Valor</th></tr></thead><tbody id="a_pars"></tbody></table><div id="a_soma" class="mut"></div>
+  ${a?'':`<div class="ficha" style="margin-top:10px"><label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="a_pg" style="width:auto"> Este acordo já foi pago (lançar o pagamento junto)</label>
+   <div class="f2" id="a_pgcampos" style="margin-top:8px;display:none"><div><label>Forma de pagamento</label><select id="a_pgforma">${FORMAS.map(f=>`<option ${f==='Pagamento à construtora'?'selected':''}>${f}</option>`).join('')}</select></div>
+   <div><label>Pago em</label><input type="date" id="a_pgdata"></div><div><label>Valor pago</label><input id="a_pgval" inputmode="decimal"></div><div><label>Número da fatura (se for Asaas)</label><input id="a_pgfat"></div></div>
+   <div class="mut" style="font-size:12px;margin-top:4px">Para acordo parcelado, o pagamento entra na 1ª parcela; as outras você lança depois, clicando em cada uma.</div></div>`}
   <label style="margin-top:8px">Observação</label><input id="a_obs" value="${esc(a?.obs||'')}">
   <div class="bt" style="margin-top:12px"><button class="pri" onclick="salvaAcordo(${aid||'null'})">Salvar acordo</button></div>`);
+  if(!a){$('#a_pg').onchange=()=>{$('#a_pgcampos').style.display=$('#a_pg').checked?'grid':'none';if($('#a_pg').checked){if(!$('#a_pgdata').value)$('#a_pgdata').value=$('#a_data').value;$('#a_pgval').value=brl(window._P?.[0]?.valor||0)}}}
   let P=pars.slice();const num=s=>numBR(s)||0;let B;
   const calc=()=>calcAcordo(ids,$('#a_data').value);
   const mostraB=(skip)=>{for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])if(id!==skip)$('#'+id).value=brl(B[k]);
@@ -487,7 +495,12 @@ function repartir(c,v){let mu=c.multa,ju=c.juros,ho=r2(v-c.principal-mu-ju),de=0
 async function salvaAcordo(aid){const b=window._salvaAcordoDados();
   const s=r2(b.parcelas.reduce((a,p)=>a+Number(p.valor||0),0));if(Math.abs(s-b.valor_acordado)>0.009)return alert('A soma das parcelas precisa ser igual ao valor acordado.');
   if(b.valor_acordado<b.principal-0.009&&!confirm('Valor acordado menor que o principal. Confirmar desconto na dívida?'))return;
-  await api(aid?'acordo/'+aid:'acordo',{method:aid?'PUT':'POST',body:b});SEL.clear();SELMODO=false;fechaModal();recarrega()}
+  const pg=!aid&&$('#a_pg')?.checked?{forma:$('#a_pgforma').value,data:$('#a_pgdata').value,valor:numBR($('#a_pgval').value),fatura:$('#a_pgfat').value.trim()||null}:null;
+  if(pg&&(!pg.data||!pg.valor))return alert('Preencha a data e o valor do pagamento do acordo.');
+  const r=await api(aid?'acordo/'+aid:'acordo',{method:aid?'PUT':'POST',body:b});
+  if(pg&&r?.id){C=await api('contrato/'+C.contrato.numero);const t=C.titulos.filter(x=>x.acordo_id==r.id).sort((x,y)=>x.numero-y.numero)[0];
+    if(t)await api('pagamento',{method:'POST',body:{titulo_id:t.id,forma:pg.forma,fatura:pg.fatura,valor_cobranca:Number(t.valor_face),valor_pago:pg.valor,criada_em:b.data_acordo,vencimento_original:t.vencimento,vencimento_boleto:t.vencimento,confirmada_em:pg.data,saque_em:pg.data,multa_paga:0,juros_pago:0,honorarios_pago:0,desconto_dado:0,descricao:pg.forma==='Pagamento à construtora'?'Acordo pago direto à construtora':null}})}
+  SEL.clear();SELMODO=false;fechaModal();recarrega()}
 
 /* correção */
 function modalCorrecao(){
