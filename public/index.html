@@ -30,7 +30,8 @@ th{font-size:12px;color:var(--mut);font-weight:600}tr.lk{cursor:pointer}tr.lk:ho
 .pc small{font-size:10px;opacity:.9}
 .pc.paga{background:var(--pg)}.pc.paga_atraso{background:var(--pa);color:#0f3d1f}.pc.quitada_acordo{background:var(--ac);color:#3a2c00}.pc.em_acordo{background:#fff;color:#3a2c00;border-color:var(--ac)}
 .pc.cancelada{background:var(--ca)}.pc.em_atraso{background:var(--at)}.pc.vencida{background:var(--ve)}.pc.futura{background:var(--fu);color:#333}
-.pc.anual{outline:2px dashed #333;outline-offset:1px}.pc.sel{box-shadow:0 0 0 3px #111}
+.pc.anual{outline:2px dashed #333;outline-offset:1px}.grid.selmodo .pc{opacity:.35;filter:grayscale(.4)}.grid.selmodo .pc.sel{opacity:1;filter:none;transform:scale(1.08);box-shadow:0 0 0 4px #fff,0 0 0 8px #2563eb,0 6px 14px rgba(0,0,0,.35);z-index:2;position:relative}
+.pc.sel::after{content:'✔';position:absolute;left:4px;top:2px;background:#2563eb;color:#fff;border-radius:50%;width:16px;height:16px;font-size:11px;line-height:16px;text-align:center}.pc{position:relative}
 .pc .cf{position:absolute;top:2px;right:4px;font-size:10px}
 .leg{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--mut)}.leg span:before{content:"";display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:4px;vertical-align:-2px;background:var(--c)}
 .tot{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}.tot div{background:#f8fafc;border:1px solid var(--ln);border-radius:9px;padding:9px}
@@ -216,8 +217,8 @@ function desenhaContrato(){
    <button onclick="modalCorrecao()">Adicionar correção</button><button onclick="modalEvento('encerramento')">Encerrar contrato</button>
    <button onclick="modalEvento('cessao')">Cessão</button>${EU==='luis'?'<button onclick="puxarDesc()">Puxar descrições do Asaas</button>':''}<span style="flex:1"></span>
    ${C.fechamento?`<button onclick="reabrir()">Reabrir conferência</button>`:`<button class="pri" onclick="fechar()">Fechar conferência do contrato</button>`}</div>
-   ${SELMODO?'<div class="info">Clique nas parcelas que entraram no acordo e depois em "Adicionar acordo".</div>':''}
-   <br><div class="grid">${linhas}</div><br>
+   ${SELMODO?`<div class="info">Clique nas parcelas que entraram no acordo e depois em "Adicionar acordo".<br><b>Selecionadas (${SEL.size}):</b> ${[...SEL].map(i=>C.titulos.find(t=>t.id==i)).filter(Boolean).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).map(t=>codTit(t)).join(', ')||'nenhuma'}</div>`:''}
+   <br><div class="grid ${SELMODO?'selmodo':''}">${linhas}</div><br>
    <div class="leg">${Object.entries({paga:'var(--pg)',paga_atraso:'var(--pa)',quitada_acordo:'var(--ac)',em_acordo:'#fff',cancelada:'var(--ca)',em_atraso:'var(--at)',vencida:'var(--ve)',futura:'var(--fu)'}).map(([k,v])=>`<span style="--c:${v}">${NOMES[k]}</span>`).join('')}<span>✓ = conferida · borda tracejada = anual · <b style="color:#7c3aed">contorno roxo</b> = começa correção aqui · <b style="color:#ea580c">contorno laranja</b> = primeira parcela do novo titular (cessão)</span></div>
    <details open><summary>Acordos (${C.acordos.length})</summary>${ac}</details>
    <details open><summary>Correções (${C.correcoes.length})</summary>${co}</details>
@@ -436,38 +437,46 @@ function calcAcordo(ids,data){
 function modalAcordo(aid){
   const a=aid?C.acordos.find(x=>x.id==aid):null;
   const ids=a?a.titulos_origem.map(Number):[...SEL];if(!ids.length)return;
-  const pars=a?C.titulos.filter(t=>t.acordo_id==a.id).map(t=>({valor:t.valor_face,vencimento:t.vencimento})):[];
-  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${a?'Editar acordo':'Novo acordo'}</h3><button onclick="fechaModal()">Fechar</button></div>
-  <div class="info">Parcelas no acordo: ${ids.map(id=>esc(C.titulos.find(t=>t.id==id)?.rotulo)).join(', ')}</div>
+  const pars=a?C.titulos.filter(t=>t.acordo_id==a.id).map(t=>({valor:Number(t.valor_face),vencimento:t.vencimento})):[];
+  const orig=ids.map(id=>C.titulos.find(t=>t.id==id)).filter(Boolean).sort((x,y)=>String(x.vencimento).localeCompare(String(y.vencimento)));
+  const campo=(id,l)=>`<div class="dado"><span>${l}</span><input id="${id}" inputmode="decimal" style="font-weight:700"></div>`;
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${a?'Editar acordo '+numAc(a):'Novo acordo'}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="info">Parcelas no acordo: <b>${orig.map(codTit).join(' + ')}</b> <span class="mut">(${orig.map(t=>esc(t.rotulo)).join(', ')})</span></div>
   <div class="f2"><div><label>Data do acordo</label><input type="date" id="a_data" value="${a?a.data_acordo.slice(0,10):C.hoje}"></div>
-  <div><label>Valor calculado (sugestão)</label><input id="a_calc" disabled></div>
-  <div><label>Valor acordado (pode editar)</label><input id="a_val" inputmode="decimal"></div>
+  <div><label>Valor acordado</label><input id="a_val" inputmode="decimal" style="font-weight:700"></div>
   <div><label>Forma</label><select id="a_forma"><option value="1">Pagamento único</option><option value="n">Parcelado</option></select></div>
   <div><label>Quantas parcelas</label><input id="a_qtd" type="number" min="1" value="${pars.length||1}"></div></div>
-  <div id="a_quebra" class="mut" style="margin:8px 0"></div><div id="a_av"></div>
-  <table><thead><tr><th>#</th><th>Vencimento</th><th>Valor</th></tr></thead><tbody id="a_pars"></tbody></table><div id="a_soma" class="mut"></div>
+  <div class="mut" style="margin:12px 0 4px;font-weight:600;color:var(--tx)">Como o valor foi formado <span class="mut" id="a_ate" style="font-weight:400"></span></div>
+  <div class="f2">${campo('a_pr','Principal (valor original)')}${campo('a_mu','Multa (2%)')}${campo('a_ju','Juros (1% ao mês, ao dia)')}${campo('a_ho','Custo de cobrança')}</div>
+  <div class="f2" style="margin-top:8px">${campo('a_de','Desconto')}<div class="dado"><span>Valor calculado pelo sistema</span><b id="a_calc"></b></div><div class="dado"><span>Soma (principal + encargos − desconto)</span><b id="a_som2"></b></div></div>
+  <details style="margin-top:6px"><summary class="mut">Ver a conta parcela por parcela</summary><div id="a_det" class="mut" style="font-size:12px"></div></details>
+  <div id="a_av"></div>
+  <table style="margin-top:8px"><thead><tr><th>#</th><th>Vencimento</th><th>Valor</th></tr></thead><tbody id="a_pars"></tbody></table><div id="a_soma" class="mut"></div>
   <label style="margin-top:8px">Observação</label><input id="a_obs" value="${esc(a?.obs||'')}">
   <div class="bt" style="margin-top:12px"><button class="pri" onclick="salvaAcordo(${aid||'null'})">Salvar acordo</button></div>`);
-  let P=pars.slice();const num=s=>numBR(s)||0;
-  const atual=()=>{const c=calcAcordo(ids,$('#a_data').value);$('#a_calc').value=brl(c.total);return c};
+  let P=pars.slice();const num=s=>numBR(s)||0;let B;
+  const calc=()=>calcAcordo(ids,$('#a_data').value);
+  const mostraB=(skip)=>{for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])if(id!==skip)$('#'+id).value=brl(B[k]);
+    const c=calc();$('#a_calc').textContent=brl(c.total);$('#a_som2').textContent=brl(r2(B.pr+B.mu+B.ju+B.ho-B.de));
+    $('#a_ate').textContent=`— multa e juros calculados até ${dbr($('#a_data').value)}, a data do acordo`;
+    $('#a_det').innerHTML=orig.map(t=>{const v=valorAno(t),d=Math.max(0,Math.round((new Date($('#a_data').value)-new Date(t.vencimento))/864e5));return `${esc(t.rotulo)}: ${brl(v)} · venceu ${dbr(t.vencimento)} · ${d} dia(s) de atraso · multa ${brl(d?v*.02:0)} · juros ${brl(d?v*(Math.pow(1.01,d/30)-1):0)}`}).join('<br>');
+    $('#a_av').innerHTML=num($('#a_val').value)<B.pr-0.009?`<div class="aviso">O valor acordado é menor que o principal (${brl(B.pr)}). Isso é desconto na dívida — confirme antes de salvar.</div>`:''};
+  const deCalc=()=>{const c=calc();B={pr:c.principal,mu:c.multa,ju:c.juros,ho:c.honorarios,de:0};$('#a_val').value=brl(c.total)};
+  const peloValor=()=>{const c=calc(),v=num($('#a_val').value),q=repartir({principal:B.pr,multa:c.multa,juros:c.juros},v);B={pr:B.pr,mu:q.multa,ju:q.juros,ho:q.honorarios,de:q.desconto}};
   const refazPars=()=>{const q=Math.max(1,Number($('#a_qtd').value)||1),v=num($('#a_val').value),base=r2(v/q);const d0=$('#a_data').value;
     P=Array.from({length:q},(_,i)=>{const d=new Date(d0+'T12:00');d.setMonth(d.getMonth()+i);return {valor:i===q-1?r2(v-base*(q-1)):base,vencimento:d.toISOString().slice(0,10)}});desPars()};
   const desPars=()=>{window._P=P;$('#a_pars').innerHTML=P.map((p,i)=>`<tr><td>${i+1}</td><td><input type="date" data-i="${i}" data-k="vencimento" value="${p.vencimento}"></td><td><input data-i="${i}" data-k="valor" value="${brl(p.valor)}"></td></tr>`).join('');
     $('#a_pars').oninput=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;if(i==null)return;P[i][k]=k==='valor'?num(e.target.value):e.target.value;soma()};soma()};
-  const soma=()=>{const s=r2(P.reduce((a,p)=>a+Number(p.valor||0),0)),v=num($('#a_val').value);$('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> ${Math.abs(s-v)>0.009?'<span style="color:var(--at)">— diferente do valor acordado</span>':''}`;quebra()};
-  const quebra=()=>{const c=atual(),v=num($('#a_val').value),enc=c.multa+c.juros+c.honorarios;let h='';
-    if(v<c.principal-0.009)h=`<div class="aviso">O valor acordado é menor que o principal (${brl(c.principal)}). Isso é desconto na dívida — confirme antes de salvar.</div>`;
-    $('#a_av').innerHTML=h;const f=enc?Math.max(0,(v-c.principal))/enc:0;
-    $('#a_quebra').innerHTML=`Principal ${brl(c.principal)} · Multa ${brl(c.multa*f)} · Juros ${brl(c.juros*f)} · Custo de cobrança ${brl(c.honorarios*f)} ${Math.abs(v-c.total)>0.009?'· '+(v<c.total?'Desconto nos encargos ':'Acréscimo ')+brl(Math.abs(c.total-v)):''}`};
-  window._soma=soma;
-  $('#a_val').value=a?brl(a.valor_acordado):brl(atual().total);
+  const soma=()=>{const s=r2(P.reduce((a,p)=>a+Number(p.valor||0),0)),v=num($('#a_val').value);$('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> ${Math.abs(s-v)>0.009?'<span style="color:var(--at)">— diferente do valor acordado</span>':''}`};
+  if(a){B={pr:Number(a.principal||0),mu:Number(a.multa||0),ju:Number(a.juros||0),ho:Number(a.honorarios||0),de:Number(a.desconto_encargos||0)};$('#a_val').value=brl(a.valor_acordado)}else deCalc();
   $('#a_forma').value=(pars.length>1)?'n':'1';
-  $('#a_data').onchange=()=>{if(!a)$('#a_val').value=brl(atual().total);refazPars()};
-  $('#a_val').oninput=refazPars;$('#a_qtd').oninput=refazPars;$('#a_forma').onchange=()=>{if($('#a_forma').value==='1')$('#a_qtd').value=1;refazPars()};
-  if(P.length)desPars();else refazPars();
-  window._salvaAcordoDados=()=>{const c=atual(),v=num($('#a_val').value),q=repartir(c,v);
-    return {contrato:C.contrato.numero,data_acordo:$('#a_data').value,titulos_origem:ids,principal:c.principal,multa:q.multa,juros:q.juros,honorarios:q.honorarios,
-      valor_calculado:c.total,valor_acordado:v,desconto_encargos:q.desconto,parcelas:window._P,obs:$('#a_obs').value}};
+  $('#a_data').onchange=()=>{deCalc();mostraB();refazPars()};
+  $('#a_val').oninput=()=>{peloValor();mostraB();refazPars()};
+  for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])$('#'+id).oninput=e=>{B[k]=num(e.target.value);$('#a_val').value=brl(r2(B.pr+B.mu+B.ju+B.ho-B.de));mostraB(id);refazPars()};
+  $('#a_qtd').oninput=refazPars;$('#a_forma').onchange=()=>{if($('#a_forma').value==='1')$('#a_qtd').value=1;refazPars()};
+  mostraB();if(P.length)desPars();else refazPars();
+  window._salvaAcordoDados=()=>({contrato:C.contrato.numero,data_acordo:$('#a_data').value,titulos_origem:ids,principal:r2(B.pr),multa:r2(B.mu),juros:r2(B.ju),honorarios:r2(B.ho),
+      valor_calculado:calc().total,valor_acordado:num($('#a_val').value),desconto_encargos:r2(B.de),parcelas:window._P,obs:$('#a_obs').value});
 }
 /* regra: principal, multa e juros calculados; o que sobrar é o custo de cobrança. Se não der, o que faltar sai dos juros e depois da multa (desconto). */
 function repartir(c,v){let mu=c.multa,ju=c.juros,ho=r2(v-c.principal-mu-ju),de=0;
