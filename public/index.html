@@ -233,9 +233,12 @@ async function fechar(){
 async function reabrir(){await api('fechar/'+C.contrato.numero,{method:'DELETE'});recarrega()}
 
 /* ---------- MODAIS ---------- */
-function abreModal(h){$('#modal').innerHTML=`<div class="modal" onclick="if(event.target===this)fechaModal()"><div class="card">${h}</div></div>`}
+let PILHA=[];
+function vaiPara(nova,atual){PILHA.push(atual);nova()}
+function voltar(){const f=PILHA.pop();if(f)f()}
+function abreModal(h){$('#modal').innerHTML=`<div class="modal" onclick="if(event.target===this)fechaModal()"><div class="card">${PILHA.length?'<div style="margin-bottom:8px"><button onclick="voltar()">← Voltar</button></div>':''}${h}</div></div>`}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#modal')?.innerHTML)fechaModal()});
-function fechaModal(){$('#modal').innerHTML='';if(C&&location.hash.match(/^#(c|f)\//))desenhaContrato()}
+function fechaModal(){PILHA=[];$('#modal').innerHTML='';if(C&&location.hash.match(/^#(c|f)\//))desenhaContrato()}
 const GRUPOS=[
  ['Identificação no Asaas (em pagamento fora do Asaas pode ficar em branco)',[['fatura','Número da fatura'],['situacao_asaas','Situação no Asaas'],['forma','Forma de pagamento','sel'],['cliente_asaas','Cliente no Asaas']]],
  ['Valores',[['valor_cobranca','Valor da cobrança (parcela do contrato + correção)','num'],['valor_pago','Valor pago','num']]],
@@ -304,6 +307,7 @@ function modalTitulo(id,editId,novo){
   const t=C.titulos.find(x=>x.id==id),pags=C.pagamentos.filter(p=>p.titulo_id==id),sit=C.situacoes.find(s=>s.titulo_id==id);
   const ed=editId?pags.find(p=>p.id==editId):null;PRINT=null;
   const cab=`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
+  ${t.grupo==='acordo'?(()=>{const ac=C.acordos.find(x=>x.id==t.acordo_id);if(!ac)return'';return `<div class="info" style="margin-bottom:6px">Parcela do <b>Acordo ${numAc(ac)}</b>. Quitou: ${ac.titulos_origem.map(o=>{const to=C.titulos.find(x=>x.id==o);return to?`<button style="margin:2px" onclick="vaiPara(()=>modalTitulo(${to.id}),()=>modalTitulo(${id}))">${esc(to.rotulo)}</button>`:''}).join('')} <button style="margin:2px" onclick="vaiPara(()=>verAcordo(${ac.id}),()=>modalTitulo(${id}))">Dados do Acordo ${numAc(ac)}</button></div>`})():''}
   <div class="mut">Situação atual: <b>${NOMES[estado(t)]}</b>${sit?' · marcada em '+new Date(sit.salvo_em).toLocaleString('pt-BR'):''}${sit?.obs?' · '+esc(sit.obs):''}</div>`;
   const acs=(C.acordos||[]).filter(a=>a.titulos_origem.map(Number).includes(+id));
   if(acs.length&&!pags.length&&!ed&&!novo){
@@ -315,7 +319,7 @@ function modalTitulo(id,editId,novo){
       const desc=`Quitada pelo Acordo ${N}`+(fats.length?` — fatura ${fats.join(', ')}`:'')+(orig.length>1?` (o acordo englobou: ${orig.map(x=>x.rotulo).join(', ')})`:'')+`. O valor está no Acordo ${N}.`;
       const d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v||'—'}</b></div>`;
       return `<div class="ficha">
-       <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">Quitada pelo Acordo ${N} — recebido R$ 0,00</b>${ts.map(x=>`<button class="pri" onclick="modalTitulo(${x.id})">Ver a parcela do Acordo ${N}${ts.length>1?' ('+x.numero+'/'+x.total+')':''}</button>`).join('')}<button onclick="verAcordo(${a.id})">Dados do Acordo ${N}</button></div>
+       <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">Quitada pelo Acordo ${N} — recebido R$ 0,00</b>${ts.map(x=>`<button class="pri" onclick="vaiPara(()=>modalTitulo(${x.id}),()=>modalTitulo(${id}))">Ver a parcela do Acordo ${N}${ts.length>1?' ('+x.numero+'/'+x.total+')':''}</button>`).join('')}<button onclick="vaiPara(()=>verAcordo(${a.id}),()=>modalTitulo(${id}))">Dados do Acordo ${N}</button></div>
        <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Identificação no Asaas</div>
        <div class="f2">${d('Número da fatura (do acordo)',esc(fats.join(', ')))}${d('Situação','Quitada por acordo')}${d('Forma de pagamento',esc(ult.forma||''))}${d('Cliente no Asaas',esc(ult.cliente_asaas||''))}</div>
        <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Valores</div>
