@@ -343,6 +343,13 @@ export default async (req) => {
   try {
     if (p[0] === 'eu') return json({ conferente: real });
 
+    if (p[0] === 'asaas-fatura' && p[1]) {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      const l = await q(`select coalesce(asaas_payment_real_id, asaas_payment_id) id from public.lote_recebimentos_legado_20260911 where numero_fatura=$1 limit 1`, [p[1]]);
+      const pg = l[0]?.id ? await asaas('/payments/' + l[0].id) : null;
+      return json({ id: l[0]?.id || null, invoiceNumber: pg?.invoiceNumber, description: pg?.description, status: pg?.status });
+    }
+
     if (p[0] === 'fatura-legado' && p[1]) {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
       const f = String(p[1]).replace(/\D/g, '');
