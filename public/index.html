@@ -28,7 +28,7 @@ th{font-size:12px;color:var(--mut);font-weight:600}tr.lk{cursor:pointer}tr.lk:ho
 .lin .rot{width:78px;font-size:12px;color:var(--mut)}
 .pc{width:74px;height:50px;border-radius:8px;border:2px solid transparent;font-size:11px;line-height:1.15;padding:3px;color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;position:relative}
 .pc small{font-size:10px;opacity:.9}
-.pc.paga{background:var(--pg)}.pc.quitada_acordo{background:var(--pg)}.pc.em_acordo{background:#fff;color:#3a2c00;border-color:var(--ac)}
+.pc.paga{background:var(--pg)}.pc.quitada_acordo{background:var(--ac);color:#3a2c00}.pc.em_acordo{background:#fff;color:#3a2c00;border-color:var(--ac)}
 .pc.cancelada{background:var(--ca)}.pc.em_atraso{background:var(--at)}.pc.vencida{background:var(--ve)}.pc.futura{background:var(--fu);color:#333}
 .pc.anual{outline:2px dashed #333;outline-offset:1px}.pc.sel{box-shadow:0 0 0 3px #111}
 .pc .cf{position:absolute;top:2px;right:4px;font-size:10px}
@@ -315,7 +315,7 @@ function modalTitulo(id,editId,novo){
       const desc=`Quitada pelo Acordo ${N}`+(fats.length?` — fatura ${fats.join(', ')}`:'')+(orig.length>1?` (o acordo englobou: ${orig.map(x=>x.rotulo).join(', ')})`:'')+`. O valor está no Acordo ${N}.`;
       const d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v||'—'}</b></div>`;
       return `<div class="ficha">
-       <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">Quitada pelo Acordo ${N} — recebido R$ 0,00</b><button onclick="verAcordo(${a.id})">Abrir o Acordo ${N}</button></div>
+       <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">Quitada pelo Acordo ${N} — recebido R$ 0,00</b>${ts.map(x=>`<button class="pri" onclick="modalTitulo(${x.id})">Ver a parcela do Acordo ${N}${ts.length>1?' ('+x.numero+'/'+x.total+')':''}</button>`).join('')}<button onclick="verAcordo(${a.id})">Dados do Acordo ${N}</button></div>
        <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Identificação no Asaas</div>
        <div class="f2">${d('Número da fatura (do acordo)',esc(fats.join(', ')))}${d('Situação','Quitada por acordo')}${d('Forma de pagamento',esc(ult.forma||''))}${d('Cliente no Asaas',esc(ult.cliente_asaas||''))}</div>
        <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Valores</div>
