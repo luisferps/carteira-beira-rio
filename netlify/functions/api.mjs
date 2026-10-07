@@ -256,6 +256,40 @@ async function decidir(n, item, de, conf) {
            on conflict (contrato, item) do update set de=excluded.de, por=excluded.por, em=now()`, [n, item, de, conf]);
 }
 
+/* ---------- puxar descrições do banco antigo pelo número da fatura ---------- */
+function acharDescricao(o) {
+  let best = null;
+  const walk = (x) => {
+    if (!x || typeof x !== 'object') return;
+    for (const [k, v] of Object.entries(x)) {
+      if (typeof v === 'string' && /^(descri|description)/i.test(k) && (!best || v.length > best.length)) best = v;
+      else if (v && typeof v === 'object') walk(v);
+      else if (typeof v === 'string' && v.trim().startsWith('{')) { try { walk(JSON.parse(v)); } catch {} }
+    }
+  };
+  walk(o); return best;
+}
+async function puxarDescricoes(contrato, conferentes) {
+  const tabs = await q(`select table_name from information_schema.tables where table_schema='public'
+                        and (table_name ilike '%receb%' or table_name ilike '%boleto%' or table_name ilike '%asaas%' or table_name ilike '%pagament%' or table_name ilike '%cobran%')`);
+  const pags = await q(`select g.id, g.fatura, g.conferente, t.rotulo from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
+                        where t.contrato=$1 and g.conferente = any($2) and coalesce(g.fatura,'')<>'' and coalesce(trim(g.descricao),'')=''`, [contrato, conferentes]);
+  const ok = [], sem = [];
+  for (const g of pags) {
+    const f = String(g.fatura).replace(/\D/g, '');
+    let desc = null, onde = null;
+    if (f.length < 6) { sem.push({ parcela: g.rotulo, fatura: g.fatura }); continue; }
+    for (const t of tabs) {
+      const r = await q(`select row_to_json(x) j from public."${t.table_name}" x where row_to_json(x)::text ~ $1 limit 5`, ['(^|[^0-9])' + f + '([^0-9]|$)']).catch(() => []);
+      for (const row of r) { const d = acharDescricao(row.j); if (d && (!desc || d.length > desc.length)) { desc = d; onde = t.table_name; } }
+      if (desc) break;
+    }
+    if (desc) { await q('update carteira.pagamentos set descricao=$2 where id=$1', [g.id, desc]); ok.push({ parcela: g.rotulo, fatura: f, tabela: onde }); }
+    else sem.push({ parcela: g.rotulo, fatura: f });
+  }
+  return { tabelas_procuradas: tabs.map(t => t.table_name), preenchidas: ok.length, sem_descricao: sem, detalhes: ok };
+}
+
 export default async (req) => {
   const url = new URL(req.url);
   const p = url.pathname.replace(/^\/(\.netlify\/functions\/api|api)/, '').split('/').filter(Boolean);
@@ -277,6 +311,13 @@ export default async (req) => {
 
   try {
     if (p[0] === 'eu') return json({ conferente: real });
+
+    if (p[0] === 'descricoes' && m === 'POST') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      const r = await puxarDescricoes(body.contrato, body.todos ? ['luis', 'secretaria', 'final'] : [conf]);
+      await log(real, 'puxar_descricoes', { contrato: body.contrato, ...r });
+      return json(r);
+    }
 
     if (p[0] === 'cruzamento') {
       if (real !== 'luis') return json({ erro: 'Só o administrador acessa o cruzamento' }, 403);
