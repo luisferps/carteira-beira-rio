@@ -262,7 +262,7 @@ async function reabrir(){await api('fechar/'+C.contrato.numero,{method:'DELETE'}
 
 /* ---------- MODAIS ---------- */
 new MutationObserver(()=>document.querySelectorAll('input[type=date]:not([max])').forEach(i=>{i.min='2000-01-01';i.max='2099-12-31';
-  i.addEventListener('change',()=>{const y=+(i.value||'').slice(0,4);const ok=!i.value||(y>=2000&&y<=2099);i.style.borderColor=ok?'':'#dc2626';i.title=ok?'':'Ano inválido';if(!ok){i.value=''}})})).observe(document.body,{childList:true,subtree:true});
+  i.addEventListener('blur',()=>{const y=+(i.value||'').slice(0,4);const ok=!i.value||(y>=2000&&y<=2099);i.style.borderColor=ok?'':'#dc2626';i.title=ok?'':'Ano inválido';if(!ok){i.value=''}})})).observe(document.body,{childList:true,subtree:true});
 document.addEventListener('focusin',e=>{const i=e.target;if(i.tagName==='INPUT'&&i.inputMode==='decimal')setTimeout(()=>i.select(),0)});
 let PILHA=[];
 function vaiPara(nova,atual){PILHA.push(atual);nova()}
@@ -475,7 +475,7 @@ function modalAcordo(aid){
   const soma=()=>{const s=r2(P.reduce((a,p)=>a+Number(p.valor||0),0)),v=num($('#a_val').value);$('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> ${Math.abs(s-v)>0.009?'<span style="color:var(--at)">— diferente do valor acordado</span>':''}`};
   if(a){B={pr:Number(a.principal||0),mu:Number(a.multa||0),ju:Number(a.juros||0),ho:Number(a.honorarios||0),de:Number(a.desconto_encargos||0)};$('#a_val').value=brl(a.valor_acordado)}else deCalc();
   $('#a_forma').value=(pars.length>1)?'n':'1';
-  $('#a_data').onchange=()=>{deCalc();mostraB();refazPars()};
+  $('#a_data').onchange=()=>{const y=+$('#a_data').value.slice(0,4);if(y<2000||y>2099)return;deCalc();mostraB();refazPars()};
   $('#a_val').oninput=()=>{peloValor();mostraB();refazPars()};
   for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])$('#'+id).oninput=e=>{B[k]=num(e.target.value);$('#a_val').value=brl(r2(B.pr+B.mu+B.ju+B.ho-B.de));mostraB(id);refazPars()};
   $('#a_qtd').oninput=refazPars;$('#a_forma').onchange=()=>{if($('#a_forma').value==='1')$('#a_qtd').value=1;refazPars()};
