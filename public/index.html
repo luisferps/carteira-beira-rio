@@ -155,7 +155,7 @@ async function abrirContrato(n){
 }
 function btn(t){
   const e=estado(t),conf=C.pagamentos.filter(p=>p.titulo_id==t.id).length||C.situacoes.find(s=>s.titulo_id==t.id);
-  const lab=t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?'Ac'+numAc(C.acordos.find(a=>a.id==t.acordo_id))+' '+t.numero+'/'+t.total:t.grupo==='mensal'?'M '+t.numero:t.grupo==='anual'?'A '+t.numero:t.grupo==='entrada'?'E '+t.numero:t.grupo==='acordo'?'Ac '+t.numero:'P '+t.numero;
+  const lab=t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?'Acordo '+numAc(C.acordos.find(a=>a.id==t.acordo_id))+(t.total>1?' · '+t.numero+'/'+t.total:''):t.grupo==='mensal'?'M '+t.numero:t.grupo==='anual'?'A '+t.numero:t.grupo==='entrada'?'E '+t.numero:t.grupo==='acordo'?'Ac '+t.numero:'P '+t.numero;
   return `<button class="pc ${e} ${t.grupo==='anual'?'anual':''} ${SEL.has(t.id)?'sel':''}" title="${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${NOMES[e]}" onclick="clicaTitulo(${t.id})">
   ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo')&&acordoDe(t)?'Acordo '+numAc(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small></button>`;
 }
@@ -170,7 +170,7 @@ function desenhaContrato(){
   if(out.length)linhas+=`<div class="lin"><span class="rot">Outras</span>${out.map(btn).join('')}</div>`;
   const comp=(c.compradores||[]).map(x=>esc(x.nome)+(x.cpf?' <span class="mut">('+esc(x.cpf)+')</span>':'')).join('<br>')||esc(c.nome_planilha);
   const ac=C.acordos.map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);
-    return `<div class="lin"><button class="pc ev evac" onclick="verAcordo(${a.id})"><b>Acordo ${numAc(a)}</b><small>${dbr(a.data_acordo).slice(0,5)}/${String(a.data_acordo).slice(2,4)}</small><small>${brl(a.valor_acordado).replace('R$','').trim()}</small></button>${ts.map(btn).join('')}</div>`}).join('')||'<div class="mut">Nenhum acordo lançado.</div>';
+    return `<div class="lin">${ts.length?ts.map(btn).join(''):`<button class="pc ev evac" onclick="verAcordo(${a.id})"><b>Acordo ${numAc(a)}</b><small>${dbr(a.data_acordo).slice(0,5)}</small><small>sem parcelas</small></button>`}</div>`}).join('')||'<div class="mut">Nenhum acordo lançado.</div>';
   const co=C.correcoes.length?`<div class="lin">${C.correcoes.map(k=>`<button class="pc ev evco" onclick="verCorrecao(${k.id})"><b>Corr. ${k.grupo==='mensal'?'M':'A'} ${k.a_partir}</b><small>${k.data?dbr(k.data).slice(0,5)+'/'+String(k.data).slice(2,4):'—'}</small><small>${brl(k.novo_valor).replace('R$','').trim()}</small></button>`).join('')}</div>`:'<div class="mut">Nenhuma correção lançada.</div>';
   const ev=C.eventos.length?`<div class="lin">${C.eventos.map(e=>`<button class="pc ev evev" onclick="verEvento(${e.id})"><b>${e.tipo==='encerramento'?'Encerr.':'Cessão'}</b><small>${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo.replace(/^(Mensal|Anual|Entrada) /,(m,g)=>g[0]+' ').replace(/\/\d+$/,'')||'?')}</small><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small></button>`).join('')}</div>`:'<div class="mut">Nenhum evento.</div>';
   const itens=(c.itens||[]).map(i=>`<li>${esc(i.texto)}</li>`).join('');
