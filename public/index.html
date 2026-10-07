@@ -272,7 +272,7 @@ function lerDescricao(t){
 }
 function formPag(p,t){
   const campo=([k,l,tp])=>`<div><label>${l}</label>${tp==='sel'?`<select id="f_${k}">${FORMAS.map(f=>`<option ${p[k]===f?'selected':''}>${f}</option>`).join('')}</select>`
-   :`<input id="f_${k}" type="${tp==='date'?'date':'text'}" ${tp==='num'?'inputmode="decimal"':''} value="${esc(tp==='date'?(p[k]||'').slice(0,10):(tp==='num'&&p[k]!=null?String(p[k]).replace('.',','):p[k]??''))}">`}</div>`;
+   :`<input id="f_${k}" type="${tp==='date'?'date':'text'}" ${tp==='num'?'inputmode="decimal"':''} value="${esc(tp==='date'?(p[k]||'').slice(0,10):(tp==='num'&&p[k]!=null&&p[k]!==''?brl(p[k]):p[k]??''))}">`}</div>`;
   return GRUPOS.map(([g,cs])=>`<div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">${g}</div><div class="f2">${cs.map(campo).join('')}</div>`).join('')+`
   <div id="encInfo"></div><label style="margin-top:10px">Descrição completa — cole do Asaas (lá: clique na descrição, Ctrl+A, Ctrl+C)</label><textarea id="f_descricao">${esc(p.descricao||'')}</textarea><div id="descInfo"></div>
   <label>Observação</label><input id="f_obs" value="${esc(p.obs||'')}">`;
@@ -285,7 +285,7 @@ function calcEncargos(){
   if(dif<0)de=-dif;
   else if(dif>0&&dias>0){mu=Math.min(dif,r2(cob*.02));const jEsp=r2(cob*(Math.pow(1.01,dias/30)-1));ju=Math.min(r2(dif-mu),jEsp);ho=r2(dif-mu-ju)}
   else if(dif>0)msg=`<div class="aviso">Pago <b>no prazo</b> e ${brl(dif)} acima da cobrança. Não é multa nem juros — provavelmente falta lançar a <b>correção anual</b> deste ano (botão "Adicionar correção" no contrato). Os encargos ficaram zerados. <button onclick="correcaoRapida()" style="margin-top:6px">Lançar correção agora: ${esc(window._TIT?.grupo==='anual'?'anual':'mensal')} a partir desta parcela = ${brl(pago)}</button></div>`;
-  const put=(k,v)=>{$('#f_'+k).value=v?String(r2(v)).replace('.',','):'0'};put('multa_paga',mu);put('juros_pago',ju);put('honorarios_pago',ho);put('desconto_dado',de);
+  const put=(k,v)=>{$('#f_'+k).value=brl(v||0)};put('multa_paga',mu);put('juros_pago',ju);put('honorarios_pago',ho);put('desconto_dado',de);
   $('#encInfo').innerHTML=msg||(dif?`<div class="info">Diferença de ${brl(dif)} em relação ao valor da cobrança${dias?` · pago ${dias} dia(s) depois do vencimento original`:''}. Multa 2%, juros 1% ao mês capitalizado ao dia; o que passar disso vai como custo de cobrança.</div>`:'');
 }
 async function correcaoRapida(){
@@ -294,7 +294,7 @@ async function correcaoRapida(){
   if(!confirm(`Lançar correção: ${t.grupo} a partir da ${t.numero}/${t.total}, de ${brl(antes)} para ${brl(novo)} (${((novo/antes-1)*100).toFixed(2).replace('.',',')}%)?`))return;
   await api('correcao',{method:'POST',body:{contrato:C.contrato.numero,grupo:t.grupo,a_partir:t.numero,data:t.vencimento,igpm_pct:r2((novo/antes-1)*100),juros_pct:0,novo_valor:novo,obs:'Lançada pela ficha do pagamento'}});
   C=await api('contrato/'+C.contrato.numero);
-  $('#f_valor_cobranca').value=String(r2(valorAno(t))).replace('.',',');calcEncargos();
+  $('#f_valor_cobranca').value=brl(valorAno(t));calcEncargos();
 }
 function ligaLink(){const l=$('#f_link_fatura');if(!l)return;l.oninput=()=>{const m=l.value.match(/asaas\.com\/i\/([A-Za-z0-9]+)/);if(m&&!$('#f_id_asaas').value)$('#f_id_asaas').value='pay_'+m[1]}}
 const numBR=s=>{s=String(s??'').replace(/[^\d.,-]/g,'');if(!s)return null;if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=Number(s);return isNaN(n)?null:n};
@@ -386,7 +386,7 @@ async function lerIA(){
   if(!PRINT&&!$('#f_descricao').value.trim()){$('#iast').textContent='Cole o print primeiro (Ctrl+V).';return}
   $('#iast').textContent='Lendo…';$('#bia').disabled=true;
   try{const d=await api('ler-print',{method:'POST',body:{imagem:PRINT,descricao:$('#f_descricao').value}});
-    for(const [k,,tp] of CAMPOS){if(['vencimento_original','valor_cobranca','multa_paga','juros_pago','honorarios_pago','desconto_dado'].includes(k))continue;if(d[k]!=null&&d[k]!==''){if(k==='forma'){const f=FORMAS.find(x=>x.toLowerCase().startsWith(String(d[k]).toLowerCase().slice(0,5)));if(f)$('#f_forma').value=f}else $('#f_'+k).value=tp==='num'?String(d[k]).replace('.',','):d[k]}}
+    for(const [k,,tp] of CAMPOS){if(['vencimento_original','valor_cobranca','multa_paga','juros_pago','honorarios_pago','desconto_dado'].includes(k))continue;if(d[k]!=null&&d[k]!==''){if(k==='forma'){const f=FORMAS.find(x=>x.toLowerCase().startsWith(String(d[k]).toLowerCase().slice(0,5)));if(f)$('#f_forma').value=f}else $('#f_'+k).value=tp==='num'?(numBR(d[k])!=null?brl(numBR(String(d[k]).includes(',')?d[k]:String(d[k]).replace('.',','))):d[k]):d[k]}}
     if(!$('#f_confirmada_em').value&&d.saque_em)$('#f_confirmada_em').value=d.saque_em;
     window._IA={parcelas:(d.parcelas_citadas||[]).map(x=>{const m=String(x).match(/(\d{1,3})\s*\/\s*(\d{1,3})/);return m?{txt:+m[1]+'/'+m[2],n:+m[1],tot:+m[2]}:null}).filter(Boolean),contrato:d.contrato?String(d.contrato).padStart(4,'0'):null,quadra:d.quadra?String(d.quadra).padStart(2,'0'):null,lote:d.lote?String(d.lote).padStart(2,'0'):null};
     calcEncargos();
@@ -445,7 +445,7 @@ function modalAcordo(aid){
   const atual=()=>{const c=calcAcordo(ids,$('#a_data').value);$('#a_calc').value=brl(c.total);return c};
   const refazPars=()=>{const q=Math.max(1,Number($('#a_qtd').value)||1),v=num($('#a_val').value),base=r2(v/q);const d0=$('#a_data').value;
     P=Array.from({length:q},(_,i)=>{const d=new Date(d0+'T12:00');d.setMonth(d.getMonth()+i);return {valor:i===q-1?r2(v-base*(q-1)):base,vencimento:d.toISOString().slice(0,10)}});desPars()};
-  const desPars=()=>{window._P=P;$('#a_pars').innerHTML=P.map((p,i)=>`<tr><td>${i+1}</td><td><input type="date" data-i="${i}" data-k="vencimento" value="${p.vencimento}"></td><td><input data-i="${i}" data-k="valor" value="${String(p.valor).replace('.',',')}"></td></tr>`).join('');
+  const desPars=()=>{window._P=P;$('#a_pars').innerHTML=P.map((p,i)=>`<tr><td>${i+1}</td><td><input type="date" data-i="${i}" data-k="vencimento" value="${p.vencimento}"></td><td><input data-i="${i}" data-k="valor" value="${brl(p.valor)}"></td></tr>`).join('');
     $('#a_pars').oninput=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;if(i==null)return;P[i][k]=k==='valor'?num(e.target.value):e.target.value;soma()};soma()};
   const soma=()=>{const s=r2(P.reduce((a,p)=>a+Number(p.valor||0),0)),v=num($('#a_val').value);$('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> ${Math.abs(s-v)>0.009?'<span style="color:var(--at)">— diferente do valor acordado</span>':''}`;quebra()};
   const quebra=()=>{const c=atual(),v=num($('#a_val').value),enc=c.multa+c.juros+c.honorarios;let h='';
@@ -453,9 +453,9 @@ function modalAcordo(aid){
     $('#a_av').innerHTML=h;const f=enc?Math.max(0,(v-c.principal))/enc:0;
     $('#a_quebra').innerHTML=`Principal ${brl(c.principal)} · Multa ${brl(c.multa*f)} · Juros ${brl(c.juros*f)} · Custo de cobrança ${brl(c.honorarios*f)} ${Math.abs(v-c.total)>0.009?'· '+(v<c.total?'Desconto nos encargos ':'Acréscimo ')+brl(Math.abs(c.total-v)):''}`};
   window._soma=soma;
-  $('#a_val').value=a?String(a.valor_acordado).replace('.',','):String(atual().total).replace('.',',');
+  $('#a_val').value=a?brl(a.valor_acordado):brl(atual().total);
   $('#a_forma').value=(pars.length>1)?'n':'1';
-  $('#a_data').onchange=()=>{if(!a)$('#a_val').value=String(atual().total).replace('.',',');refazPars()};
+  $('#a_data').onchange=()=>{if(!a)$('#a_val').value=brl(atual().total);refazPars()};
   $('#a_val').oninput=refazPars;$('#a_qtd').oninput=refazPars;$('#a_forma').onchange=()=>{if($('#a_forma').value==='1')$('#a_qtd').value=1;refazPars()};
   if(P.length)desPars();else refazPars();
   window._salvaAcordoDados=()=>{const c=atual(),v=num($('#a_val').value),q=repartir(c,v);
@@ -482,7 +482,7 @@ function modalCorrecao(){
   <div class="bt"><button class="pri" onclick="salvaCorrecao()">Salvar correção</button></div>`);
   const num=s=>numBR(s)||0;
   const ant=()=>{const g=$('#k_g').value,n=Number($('#k_n').value)||1;const t=C.titulos.find(x=>x.grupo===g&&x.numero===n-1)||C.titulos.find(x=>x.grupo===g&&x.numero===n);return t?valorAno(t):0};
-  const upd=()=>{const a=ant();$('#k_ant').value=brl(a);const i=num($('#k_i').value),j=num($('#k_j').value);if($('#k_i').value)$('#k_v').value=String(r2(a*(1+i/100)*(1+j/100))).replace('.',',');
+  const upd=()=>{const a=ant();$('#k_ant').value=brl(a);const i=num($('#k_i').value),j=num($('#k_j').value);if($('#k_i').value)$('#k_v').value=brl(r2(a*(1+i/100)*(1+j/100)));
     const t=C.titulos.find(x=>x.grupo===$('#k_g').value&&x.numero===(Number($('#k_n').value)||0));if(t&&!$('#k_d').value)$('#k_d').value=t.vencimento};
   ['k_g','k_n','k_i','k_j'].forEach(i=>$('#'+i).oninput=upd);
   window._k=()=>({contrato:C.contrato.numero,grupo:$('#k_g').value,a_partir:Number($('#k_n').value),data:$('#k_d').value,igpm_pct:$('#k_i').value?num($('#k_i').value):null,juros_pct:num($('#k_j').value),novo_valor:num($('#k_v').value),obs:$('#k_o').value});
