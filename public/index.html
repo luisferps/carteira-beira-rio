@@ -50,6 +50,7 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .cb:hover{border-color:var(--az);box-shadow:0 2px 10px rgba(0,0,0,.06)}.cb.alt{border-left-color:var(--ac)}.cb.fech{border-left-color:var(--pg)}
 .cbt{display:flex;justify-content:space-between;align-items:baseline}.cbt b{font-size:20px}.cbt span{font-weight:600;color:var(--azd)}
 .cbn{font-size:13px;line-height:1.25;min-height:32px}
+.pc.ev{color:#fff}.evac{background:#a16207}.evco{background:#7c3aed}.evev{background:#334155}
 .pgl{border:1px solid var(--ln);border-radius:8px;padding:8px;margin-bottom:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 @media(max-width:600px){main{padding:10px}.pc{width:62px}.lin .rot{width:100%}}
 </style>
@@ -161,13 +162,10 @@ function desenhaContrato(){
     linhas+=`<div class="lin"><span class="rot">Ano ${a+1}</span>${ms.map(btn).join('')}${an?'<span style="width:10px"></span>'+btn(an):''}</div>`}
   if(out.length)linhas+=`<div class="lin"><span class="rot">Outras</span>${out.map(btn).join('')}</div>`;
   const comp=(c.compradores||[]).map(x=>esc(x.nome)+(x.cpf?' <span class="mut">('+esc(x.cpf)+')</span>':'')).join('<br>')||esc(c.nome_planilha);
-  const ac=C.acordos.map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);const orig=(a.titulos_origem||[]).map(id=>T.find(t=>t.id==id)?.rotulo||'?').join(', ');
-    return `<div class="card" style="margin:8px 0"><div class="bt" style="align-items:center"><b style="flex:1">Acordo de ${dbr(a.data_acordo)} — ${brl(a.valor_acordado)}</b>
-    <button onclick="modalAcordo(${a.id})">Editar</button><button class="per" onclick="apagar('acordo',${a.id})">Apagar</button></div>
-    <div class="mut">Englobou: ${esc(orig)}</div><div class="mut">Principal ${brl(a.principal)} · Multa ${brl(a.multa)} · Juros ${brl(a.juros)} · Custo de cobrança ${brl(a.honorarios)} ${Number(a.desconto_encargos)?'· Desconto nos encargos '+brl(a.desconto_encargos):''}</div>
-    <div class="lin" style="margin-top:6px">${ts.map(btn).join('')}</div></div>`}).join('')||'<div class="mut">Nenhum acordo lançado.</div>';
-  const co=C.correcoes.map(k=>`<div class="pgl"><b>${k.grupo==='mensal'?'Mensal':'Anual'} a partir da ${k.a_partir}</b><span>${dbr(k.data)}</span><span>IGPM ${k.igpm_pct??'—'}% · Juros ${k.juros_pct??'—'}%</span><b>${brl(k.novo_valor)}</b><span class="mut">lançada ${new Date(k.salvo_em).toLocaleString('pt-BR')}</span><button class="per" onclick="apagar('correcao',${k.id})">Apagar</button></div>`).join('')||'<div class="mut">Nenhuma correção lançada.</div>';
-  const ev=C.eventos.map(e=>`<div class="pgl"><b>${e.tipo==='encerramento'?'Encerramento':'Cessão'}</b><span>${esc(e.motivo||'')}</span><span>a partir de ${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo||'?')}</span><span>${dbr(e.data)}</span><span>${esc(e.dados?.novos_titulares||'')}</span><span class="mut">${esc(e.obs||'')}</span><button class="per" onclick="apagar('evento',${e.id})">Apagar</button></div>`).join('')||'<div class="mut">Nenhum evento.</div>';
+  const ac=C.acordos.map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);
+    return `<div class="lin"><button class="pc ev evac" onclick="verAcordo(${a.id})"><b>Acordo</b><small>${dbr(a.data_acordo).slice(0,5)}/${String(a.data_acordo).slice(2,4)}</small><small>${brl(a.valor_acordado).replace('R$','').trim()}</small></button>${ts.map(btn).join('')}</div>`}).join('')||'<div class="mut">Nenhum acordo lançado.</div>';
+  const co=C.correcoes.length?`<div class="lin">${C.correcoes.map(k=>`<button class="pc ev evco" onclick="verCorrecao(${k.id})"><b>Corr. ${k.grupo==='mensal'?'M':'A'} ${k.a_partir}</b><small>${k.data?dbr(k.data).slice(0,5)+'/'+String(k.data).slice(2,4):'—'}</small><small>${brl(k.novo_valor).replace('R$','').trim()}</small></button>`).join('')}</div>`:'<div class="mut">Nenhuma correção lançada.</div>';
+  const ev=C.eventos.length?`<div class="lin">${C.eventos.map(e=>`<button class="pc ev evev" onclick="verEvento(${e.id})"><b>${e.tipo==='encerramento'?'Encerr.':'Cessão'}</b><small>${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo.replace(/^(Mensal|Anual|Entrada) /,(m,g)=>g[0]+' ').replace(/\/\d+$/,'')||'?')}</small><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small></button>`).join('')}</div>`:'<div class="mut">Nenhum evento.</div>';
   const itens=(c.itens||[]).map(i=>`<li>${esc(i.texto)}</li>`).join('');
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='${COMO?'x/'+c.numero:''}'">${COMO?'← Voltar ao cruzamento':'← Contratos'}</button></div>
   ${COMO?'<div class="aviso" style="background:#eff6ff;color:#1e3a8a;border-color:#bfdbfe"><b>Você está editando a VERSÃO FINAL</b> (a verdade do sistema). Tudo o que salvar aqui vai para a versão final.</div>':''}
@@ -190,9 +188,24 @@ function desenhaContrato(){
    <br><div class="grid">${linhas}</div><br>
    <div class="leg">${Object.entries({paga:'var(--pg)',quitada_acordo:'var(--ac)',em_acordo:'#fff',cancelada:'var(--ca)',em_atraso:'var(--at)',vencida:'var(--ve)',futura:'var(--fu)'}).map(([k,v])=>`<span style="--c:${v}">${NOMES[k]}</span>`).join('')}<span>✓ = conferida · borda tracejada = anual</span></div>
    <details open><summary>Acordos (${C.acordos.length})</summary>${ac}</details>
-   <details><summary>Correções (${C.correcoes.length})</summary>${co}</details>
-   <details><summary>Encerramento e cessão (${C.eventos.length})</summary>${ev}</details></div>`;
+   <details open><summary>Correções (${C.correcoes.length})</summary>${co}</details>
+   <details open><summary>Encerramento e cessão (${C.eventos.length})</summary>${ev}</details></div>`;
 }
+function verAcordo(id){const a=C.acordos.find(x=>x.id==id),T=C.titulos;const orig=(a.titulos_origem||[]).map(i=>T.find(t=>t.id==i)?.rotulo||'?').join(', ');
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Acordo de ${dbr(a.data_acordo)} — ${brl(a.valor_acordado)}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div><b>Englobou:</b> ${esc(orig)}</div><div class="mut" style="margin:6px 0">Principal ${brl(a.principal)} · Multa ${brl(a.multa)} · Juros ${brl(a.juros)} · Custo de cobrança ${brl(a.honorarios)}${Number(a.desconto_encargos)?' · Desconto nos encargos '+brl(a.desconto_encargos):''} · ${a.qtd_parcelas} parcela(s)</div>
+  ${a.obs?`<div class="mut">Obs.: ${esc(a.obs)}</div>`:''}<div class="mut">Lançado ${new Date(a.salvo_em).toLocaleString('pt-BR')}</div>
+  <div class="bt" style="margin-top:10px"><button class="pri" onclick="modalAcordo(${a.id})">Editar</button><button class="per" onclick="apagar('acordo',${a.id})">Apagar</button></div>`)}
+function verCorrecao(id){const k=C.correcoes.find(x=>x.id==id);
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Correção — ${k.grupo==='mensal'?'mensal':'anual'} a partir da ${k.a_partir}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div>Data: <b>${dbr(k.data)}</b> · IGPM <b>${k.igpm_pct??'—'}%</b> · Juros <b>${k.juros_pct??'—'}%</b></div><div style="margin:6px 0">Novo valor: <b>${brl(k.novo_valor)}</b></div>
+  ${k.obs?`<div class="mut">Obs.: ${esc(k.obs)}</div>`:''}<div class="mut">Lançada ${new Date(k.salvo_em).toLocaleString('pt-BR')}</div>
+  <div class="bt" style="margin-top:10px"><button class="per" onclick="apagar('correcao',${k.id})">Apagar</button></div>`)}
+function verEvento(id){const e=C.eventos.find(x=>x.id==id);
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${e.tipo==='encerramento'?'Encerramento':'Cessão'}</h3><button onclick="fechaModal()">Fechar</button></div>
+  ${e.motivo?`<div>Motivo: <b>${esc(e.motivo)}</b></div>`:''}<div>A partir de: <b>${esc(C.titulos.find(t=>t.id==e.a_partir_titulo)?.rotulo||'?')}</b> · Data: <b>${dbr(e.data)}</b></div>
+  ${e.dados?.novos_titulares?`<div>Novo(s) titular(es): <b>${esc(e.dados.novos_titulares)}</b></div>`:''}${e.obs?`<div class="mut">Obs.: ${esc(e.obs)}</div>`:''}
+  <div class="mut">Lançado ${new Date(e.salvo_em).toLocaleString('pt-BR')}</div><div class="bt" style="margin-top:10px"><button class="per" onclick="apagar('evento',${e.id})">Apagar</button></div>`)}
 function modoSel(){SELMODO=!SELMODO;SEL.clear();desenhaContrato()}
 function clicaTitulo(id){
   if(SELMODO){SEL.has(id)?SEL.delete(id):SEL.add(id);desenhaContrato();return}
