@@ -307,7 +307,14 @@ function modalTitulo(id,editId,novo){
   const t=C.titulos.find(x=>x.id==id),pags=C.pagamentos.filter(p=>p.titulo_id==id),sit=C.situacoes.find(s=>s.titulo_id==id);
   const ed=editId?pags.find(p=>p.id==editId):null;PRINT=null;
   const cab=`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
-  ${t.grupo==='acordo'?(()=>{const ac=C.acordos.find(x=>x.id==t.acordo_id);if(!ac)return'';return `<div class="info" style="margin-bottom:6px">Parcela do <b>Acordo ${numAc(ac)}</b>. Quitou: ${ac.titulos_origem.map(o=>{const to=C.titulos.find(x=>x.id==o);return to?`<button style="margin:2px" onclick="vaiPara(()=>modalTitulo(${to.id}),()=>modalTitulo(${id}))">${esc(to.rotulo)}</button>`:''}).join('')} <button style="margin:2px" onclick="vaiPara(()=>verAcordo(${ac.id}),()=>modalTitulo(${id}))">Dados do Acordo ${numAc(ac)}</button></div>`})():''}
+  ${t.grupo==='acordo'?(()=>{const ac=C.acordos.find(x=>x.id==t.acordo_id);if(!ac)return'';const d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v}</b></div>`;
+    return `<div class="ficha" style="border-left-color:#c79a00;background:rgba(199,154,0,.06);margin:8px 0">
+     <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">Acordo ${numAc(ac)} — feito em ${dbr(ac.data_acordo)}</b><button onclick="vaiPara(()=>verAcordo(${ac.id}),()=>modalTitulo(${id}))">Dados do Acordo ${numAc(ac)}</button></div>
+     <div class="mut" style="margin:4px 0;font-weight:600;color:var(--tx)">Parcelas quitadas por este acordo</div>
+     <div>${ac.titulos_origem.map(o=>{const to=C.titulos.find(x=>x.id==o);return to?`<button style="margin:2px" onclick="vaiPara(()=>modalTitulo(${to.id}),()=>modalTitulo(${id}))">${esc(to.rotulo)} — ${brl(valorAno(to))}</button>`:''}).join('')}</div>
+     <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Como o valor foi formado</div>
+     <div class="f2">${d('Principal (valor original)',brl(ac.principal))}${d('Multa',brl(ac.multa))}${d('Juros',brl(ac.juros))}${d('Custo de cobrança',brl(ac.honorarios))}</div>
+     <div class="f2" style="margin-top:8px">${d('Valor calculado',brl(ac.valor_calculado))}${d('Desconto nos encargos',brl(ac.desconto_encargos||0))}${d('Valor acordado',brl(ac.valor_acordado))}${d('Parcelas do acordo',ac.qtd_parcelas)}</div></div>`})():''}
   <div class="mut">Situação atual: <b>${NOMES[estado(t)]}</b>${sit?' · marcada em '+new Date(sit.salvo_em).toLocaleString('pt-BR'):''}${sit?.obs?' · '+esc(sit.obs):''}</div>`;
   const acs=(C.acordos||[]).filter(a=>a.titulos_origem.map(Number).includes(+id));
   if(acs.length&&!pags.length&&!ed&&!novo){
