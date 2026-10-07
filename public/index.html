@@ -232,6 +232,7 @@ async function reabrir(){await api('fechar/'+C.contrato.numero,{method:'DELETE'}
 
 /* ---------- MODAIS ---------- */
 function abreModal(h){$('#modal').innerHTML=`<div class="modal" onclick="if(event.target===this)fechaModal()"><div class="card">${h}</div></div>`}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#modal')?.innerHTML)fechaModal()});
 function fechaModal(){$('#modal').innerHTML='';if(C&&location.hash.match(/^#(c|f)\//))desenhaContrato()}
 const GRUPOS=[
  ['Identificação no Asaas (em pagamento fora do Asaas pode ficar em branco)',[['fatura','Número da fatura'],['situacao_asaas','Situação no Asaas'],['forma','Forma de pagamento','sel'],['cliente_asaas','Cliente no Asaas']]],
