@@ -53,6 +53,11 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .pc.ev{color:#fff}.evac{background:#a16207}.evco{background:#7c3aed}.evev{background:#334155}
 .pgl{border:1px solid var(--ln);border-radius:8px;padding:8px;margin-bottom:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 @media(max-width:600px){main{padding:10px}.pc{width:62px}.lin .rot{width:100%}}
+.ficha{border:1px solid var(--ln);border-left:5px solid #2e9e4f;border-radius:10px;padding:12px;margin-top:10px;background:rgba(46,158,79,.04)}
+.dado{border:1px solid var(--ln);border-radius:8px;padding:6px 10px;display:flex;flex-direction:column;gap:2px;background:var(--card)}
+.dado span{font-size:12px;color:#777}.dado b{font-size:14px;word-break:break-word}
+.desc{white-space:pre-wrap;word-break:break-word;border:1px solid var(--ln);border-radius:8px;padding:10px;background:var(--card);line-height:1.45}
+#f_descricao{overflow:hidden;resize:vertical;min-height:80px}
 </style>
 </head>
 <body>
@@ -281,27 +286,44 @@ function checaDesc(){const d=lerDescricao($('#f_descricao').value);const n=C.con
   const T0=window._TIT;if(T0&&T0.grupo!=='acordo'&&d.parcelas.length&&!d.parcelas.some(p=>p.n===T0.numero&&p.tot===T0.total))h+=`<div class="aviso">A descrição cita a parcela ${d.parcelas.map(p=>p.txt).join(', ')}, mas você está na <b>${esc(T0.rotulo)}</b>.</div>`;
   if(d.contrato||d.parcelas.length)h+=`<div class="info">Lido na descrição: ${d.contrato?'contrato '+d.contrato:''} ${d.quadra?'· Q'+d.quadra+' L'+d.lote:''} ${d.parcelas.length?'· parcelas '+d.parcelas.map(p=>p.txt).join(', '):''}</div>`;
   $('#descInfo').innerHTML=h}
-function modalTitulo(id,editId){
+function fichaPag(p,id){
+  const v=(k,tp)=>{const x=p[k];if(x==null||x==='')return '—';if(tp==='num')return brl(x);if(tp==='date')return dbr(x);return esc(x)};
+  return `<div class="ficha">
+   <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">Pagamento: ${brl(p.valor_pago)} em ${dbr(p.confirmada_em)}</b>
+    <span class="mut">salvo ${new Date(p.salvo_em).toLocaleString('pt-BR')}</span>${p.tem_print?`<button onclick="verPrint(${p.id})">Ver print</button>`:''}
+    <button onclick="modalTitulo(${id},${p.id})">Editar</button><button class="per" onclick="apagar('pagamento',${p.id})">Apagar</button></div>
+   ${GRUPOS.map(([g,cs])=>`<div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">${g.replace(/ \(.*\)$/,'')}</div><div class="f2">${cs.map(([k,l,tp])=>`<div class="dado"><span>${l.replace(/ \(.*\)$/,'')}</span><b>${v(k,tp)}</b></div>`).join('')}</div>`).join('')}
+   <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Descrição completa</div>
+   <div class="desc">${esc(p.descricao||'')||'<span class="mut">Sem descrição</span>'}</div>
+   ${p.obs?`<div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Observação</div><div class="desc">${esc(p.obs)}</div>`:''}</div>`;
+}
+function modalTitulo(id,editId,novo){
   const t=C.titulos.find(x=>x.id==id),pags=C.pagamentos.filter(p=>p.titulo_id==id),sit=C.situacoes.find(s=>s.titulo_id==id);
   const ed=editId?pags.find(p=>p.id==editId):null;PRINT=null;
-  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
-  <div class="mut">Situação atual: <b>${NOMES[estado(t)]}</b>${sit?' · marcada em '+new Date(sit.salvo_em).toLocaleString('pt-BR'):''}</div>
-  ${pags.map(p=>`<div class="pgl"><b>${brl(p.valor_pago)}</b><span>fatura ${esc(p.fatura||'—')}</span><span>entrou ${dbr(p.confirmada_em)}</span><span>${esc(p.forma||'')}</span>
-    <span class="mut">salvo ${new Date(p.salvo_em).toLocaleString('pt-BR')}</span>${p.tem_print?`<button onclick="verPrint(${p.id})">Ver print</button>`:''}
-    <button onclick="modalTitulo(${id},${p.id})">Editar</button><button class="per" onclick="apagar('pagamento',${p.id})">Apagar</button></div>`).join('')}
-  <h4 style="margin:12px 0 6px">${ed?'Editar pagamento':'Lançar pagamento'}</h4>
+  const cab=`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="mut">Situação atual: <b>${NOMES[estado(t)]}</b>${sit?' · marcada em '+new Date(sit.salvo_em).toLocaleString('pt-BR'):''}${sit?.obs?' · '+esc(sit.obs):''}</div>`;
+  if(pags.length&&!ed&&!novo){
+    document.onpaste=null;
+    abreModal(cab+pags.map(p=>fichaPag(p,id)).join('')+`<div class="bt" style="margin-top:12px"><button onclick="modalTitulo(${id},null,1)">Lançar outro pagamento nesta parcela</button><span style="flex:1"></span>
+     <button onclick="marca(${id},'cancelada')">Marcar cancelada</button></div>`);
+    return;
+  }
+  abreModal(cab+`
+  <h4 style="margin:12px 0 6px">${ed?'Editar pagamento':'Lançar pagamento'}${pags.length?` <button onclick="modalTitulo(${id})" style="font-size:12px;padding:3px 8px;margin-left:8px">Voltar para os dados</button>`:''}</h4>
   <div class="drop" id="drop">Aperte <b>Ctrl+V</b> com o print copiado — a leitura começa sozinha. Depois cole a descrição (Ctrl+V de novo).<div id="pv"></div></div>
    <div class="bt" style="margin:8px 0;align-items:center"><span id="iast" class="mut"></span><span style="flex:1"></span><button id="bia" onclick="lerIA()" style="font-size:12px;padding:4px 10px">Ler de novo</button></div>
   ${formPag(ed||{forma:'Boleto Bancário',vencimento_original:t.vencimento,valor_cobranca:r2(valorAno(t))},t)}
   <div class="bt" style="margin-top:12px"><button onclick="conferePag(${id},${ed?ed.id:'null'})">Conferir de novo</button><span id="confBox" style="flex-basis:100%"></span>
    <span style="flex:1"></span><button title="Use quando você olhou no Asaas e confirmou que esta parcela NÃO foi paga. Assim ela sai de 'não conferida' e o contrato pode ser fechado." onclick="marca(${id},'em_atraso')">Não foi paga (conferido)</button><button onclick="marca(${id},'cancelada')">Marcar cancelada</button>
    ${sit&&sit.situacao!=='paga'?`<button onclick="marca(${id},null)">Limpar marcação</button>`:''}</div>`);
-  window._TIT=t;window._IA=null;window._CONF=()=>conferePag(id,ed?ed.id:null);$('#f_descricao').oninput=checaDesc;checaDesc();ligaLink();
+  window._TIT=t;window._IA=null;window._CONF=()=>conferePag(id,ed?ed.id:null);
+  const ta=$('#f_descricao'),cresce=()=>{ta.style.height='auto';ta.style.height=(ta.scrollHeight+4)+'px'};
+  ta.oninput=()=>{cresce();checaDesc()};cresce();checaDesc();ligaLink();
   ['valor_cobranca','valor_pago','confirmada_em','vencimento_original'].forEach(k=>$('#f_'+k).addEventListener('change',calcEncargos));
   $('.modal').addEventListener('change',()=>{if($('#confBox')?.innerHTML)setTimeout(()=>window._CONF(),0)});
   document.onpaste=e=>{if(!$('#drop'))return;const its=[...(e.clipboardData||{}).items||[]];
     if(its.some(i=>i.type.startsWith('image/'))){colaPrint(e,true);return}
-    const tg=e.target;if(!(tg&&/INPUT|TEXTAREA|SELECT/.test(tg.tagName))){const tx=e.clipboardData.getData('text');if(tx){e.preventDefault();$('#f_descricao').value=tx;checaDesc()}}};
+    const tg=e.target;if(!(tg&&/INPUT|TEXTAREA|SELECT/.test(tg.tagName))){const tx=e.clipboardData.getData('text');if(tx){e.preventDefault();ta.value=tx;cresce();checaDesc()}}};
 }
 function colaPrint(e,auto){const it=[...(e.clipboardData||{}).items||[]].find(i=>i.type.startsWith('image/'));if(!it)return;e.preventDefault();
   const img=new Image();img.onload=()=>{const k=Math.min(1,1600/img.width);const cv=document.createElement('canvas');cv.width=img.width*k;cv.height=img.height*k;
