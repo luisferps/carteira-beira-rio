@@ -43,6 +43,17 @@ const CAMPOS_PAG = ['forma', 'fatura', 'situacao_asaas', 'valor_cobranca', 'valo
 
 function limpa(v) { return v === '' || v === undefined ? null : v; }
 
+async function corteEncerramento(contrato, conf) {
+  const [e] = await q(`select t.vencimento, e.data from carteira.eventos e join carteira.titulos t on t.id=e.a_partir_titulo
+                       where e.contrato=$1 and e.conferente=$2 and e.tipo='encerramento' order by e.id limit 1`, [contrato, conf]);
+  return e ? String(e.vencimento instanceof Date ? e.vencimento.toISOString() : e.vencimento).slice(0, 10) : null;
+}
+async function bloqueioEncerrado(t, conf) {
+  if (!t || t.grupo === 'acordo') return null;
+  const corte = await corteEncerramento(t.contrato, conf);
+  const v = String(t.vencimento instanceof Date ? t.vencimento.toISOString() : t.vencimento || '').slice(0, 10);
+  return corte && v && v >= corte ? `Contrato encerrado/cancelado a partir de ${corte.split('-').reverse().join('/')}. Não é possível alterar parcelas dessa data em diante.` : null;
+}
 async function tituloDoConferente(id, conf) {
   const r = await q('select * from carteira.titulos where id=$1 and (conferente is null or conferente=$2)', [id, conf]);
   return r[0];
@@ -467,6 +478,7 @@ export default async (req) => {
     if (p[0] === 'pagamento' && m === 'POST') {
       const t = await tituloDoConferente(body.titulo_id, conf);
       if (!t) return json({ erro: 'Parcela não encontrada' }, 404);
+      { const b0 = await bloqueioEncerrado(t, conf); if (b0) return json({ erro: b0 }, 409); }
       const vals = CAMPOS_PAG.map(c => limpa(body[c]));
       const [g] = await q(`insert into carteira.pagamentos(conferente, titulo_id, ${CAMPOS_PAG.join(',')}, tem_print)
                            values ($1,$2,${CAMPOS_PAG.map((_, i) => '$' + (i + 3)).join(',')}, $${CAMPOS_PAG.length + 3}) returning id, salvo_em`,
@@ -481,6 +493,7 @@ export default async (req) => {
     if (p[0] === 'pagamento' && p[1] && m === 'PUT') {
       const [old] = await q('select * from carteira.pagamentos where id=$1 and conferente=$2', [p[1], conf]);
       if (!old) return json({ erro: 'Pagamento não encontrado' }, 404);
+      { const [tt] = await q('select * from carteira.titulos where id=$1', [old.titulo_id]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return json({ erro: b0 }, 409); }
       await q(`update carteira.pagamentos set ${CAMPOS_PAG.map((c, i) => c + '=$' + (i + 3)).join(',')}, salvo_em=now()
                where id=$1 and conferente=$2`, [p[1], conf, ...CAMPOS_PAG.map(c => limpa(body[c]))]);
       if (body.print) {
@@ -511,6 +524,7 @@ export default async (req) => {
     if (p[0] === 'situacao' && m === 'POST') {
       const t = await tituloDoConferente(body.titulo_id, conf);
       if (!t) return json({ erro: 'Parcela não encontrada' }, 404);
+      { const b0 = await bloqueioEncerrado(t, conf); if (b0 && body.situacao !== 'cancelada') return json({ erro: b0 }, 409); }
       if (!body.situacao) await q('delete from carteira.conferencia_titulo where conferente=$1 and titulo_id=$2', [conf, t.id]);
       else await q(`insert into carteira.conferencia_titulo(conferente, titulo_id, situacao, obs) values ($1,$2,$3,$4)
                     on conflict (conferente, titulo_id) do update set situacao=excluded.situacao, obs=excluded.obs, salvo_em=now()`,
@@ -521,6 +535,7 @@ export default async (req) => {
 
     if (p[0] === 'acordo' && m === 'POST') {
       const b = body;
+      for (const id of b.titulos_origem || []) { const [tt] = await q('select * from carteira.titulos where id=$1', [id]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return json({ erro: b0 }, 409); }
       const [a] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios,
                            valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs)
                            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id`,
@@ -566,6 +581,7 @@ export default async (req) => {
 
     if (p[0] === 'correcao' && m === 'POST') {
       const b = body;
+      { const [tt] = await q('select * from carteira.titulos where contrato=$1 and grupo=$2 and numero=$3 and conferente is null', [b.contrato, b.grupo, b.a_partir]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return json({ erro: b0 }, 409); }
       const [r] = await q(`insert into carteira.correcoes(contrato, conferente, grupo, a_partir, data, igpm_pct, juros_pct, novo_valor, obs)
                            values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
         [b.contrato, conf, b.grupo, b.a_partir, limpa(b.data), limpa(b.igpm_pct), limpa(b.juros_pct), b.novo_valor, limpa(b.obs)]);
@@ -581,6 +597,11 @@ export default async (req) => {
 
     if (p[0] === 'evento' && m === 'POST') {
       const b = body;
+      if (b.tipo === 'encerramento') {
+        const [ja] = await q(`select id from carteira.eventos where contrato=$1 and conferente=$2 and tipo='encerramento' limit 1`, [b.contrato, conf]);
+        if (ja) return json({ erro: 'Este contrato já está encerrado/cancelado. Para mudar, edite ou apague o encerramento que já existe.' }, 409);
+      }
+      if (b.tipo === 'cessao') { const [tt] = await q('select * from carteira.titulos where id=$1', [b.a_partir_titulo]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return json({ erro: b0 }, 409); }
       const [r] = await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs)
                            values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`,
         [b.contrato, conf, b.tipo, limpa(b.motivo), b.a_partir_titulo, limpa(b.data), b.dados || {}, limpa(b.obs)]);
