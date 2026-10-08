@@ -160,7 +160,8 @@ function estado(t){
 function codTit(t){if(!t)return'?';if(t.grupo==='acordo'){const a=C.acordos.find(x=>x.id==t.acordo_id);return 'R'+(a?numAc(a):'')+(t.total>1?'.'+t.numero:'')}
   return ({mensal:'M',anual:'A',entrada:'E'}[t.grupo]||'P')+t.numero}
 function origensAc(a){const g={},ord=[];for(const i of a.titulos_origem||[]){const c=codTit(C.titulos.find(t=>t.id==i)),m=c.match(/^(.*?)(\d+)$/);const k=m?m[1]:c;if(!g[k]){g[k]=[];ord.push(k)}if(m)g[k].push(+m[2])}
-  return ord.map(k=>{const n=[...new Set(g[k])].sort((x,y)=>x-y),r=[];for(let i=0;i<n.length;i++){let j=i;while(j+1<n.length&&n[j+1]===n[j]+1)j++;r.push(j>i?n[i]+'–'+n[j]:''+n[i]);i=j}return k+(r.join(',')||'')}).join(' ')}
+  return ord.map(k=>{const n=[...new Set(g[k])].sort((x,y)=>x-y),r=[];for(let i=0;i<n.length;i++){let j=i;while(j+1<n.length&&n[j+1]===n[j]+1)j++;r.push(j>i?n[i]+'/'+n[j]:''+n[i]);i=j}
+    if(!r.length)return k;if(/\.$/.test(k))return k.slice(0,-1)+': '+r.join(', ');return r.map(x=>k+x).join(', ')}).join(', ')}
 const ehRep=a=>a&&a.tipo==='repactuacao';const nomeAc=a=>(ehRep(a)?'Repactuação ':'Acordo ')+numAc(a);const nomeCurto=a=>(ehRep(a)?'Repact. ':'Acordo ')+numAc(a);
 function numAc(a){const l=[...C.acordos].filter(x=>ehRep(x)===ehRep(a)).sort((x,y)=>String(x.data_acordo).localeCompare(String(y.data_acordo))||x.id-y.id);return l.findIndex(x=>x.id==a.id)+1}
 function acordoDe(t){return C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)))}
