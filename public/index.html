@@ -163,21 +163,25 @@ const ehRep=a=>a&&a.tipo==='repactuacao';const nomeAc=a=>(ehRep(a)?'Repactuaçã
 function numAc(a){const l=[...C.acordos].filter(x=>ehRep(x)===ehRep(a)).sort((x,y)=>String(x.data_acordo).localeCompare(String(y.data_acordo))||x.id-y.id);return l.findIndex(x=>x.id==a.id)+1}
 function acordoDe(t){return C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)))}
 const NOMES={paga:'Paga em dia',paga_atraso:'Paga com atraso',quitada_acordo:'Paga em cobrança (acordo)',em_acordo:'Em acordo (sem pagamento ainda)',quitada_repact:'Paga por repactuação',em_repact:'Repactuada (boletos em aberto)',cancelada:'Cancelada',em_atraso:'Não paga (conferido)',vencida:'Vencida sem nada lançado',futura:'A vencer'};
+function fatorCorr(t,ate){if(t.grupo!=='mensal'&&t.grupo!=='anual')return 1;let f=1;
+  for(const k of C.correcoes.filter(k=>k.grupo===t.grupo&&+k.a_partir>+t.numero)){const tk=C.titulos.find(x=>x.grupo===k.grupo&&+x.numero===+k.a_partir&&!x.conferente);const dk=String(k.data||tk?.vencimento||'').slice(0,10);
+    if(dk&&dk>t.vencimento&&dk<=ate){const P=pctCorr(k);if(P.tot!=null&&P.tot>0)f*=1+P.tot/100}}return f}
+function atrasoDe(t,ate){const v=valorAno(t),f=fatorCorr(t,ate),vc=v*f,k=encDe(vc,t.vencimento,ate);return{v,co:vc-v,vc,mu:k.mu,ju:k.ju,ho:k.ho,dias:k.dias,tot:vc+k.mu+k.ju+k.ho}}
 function encDe(v,venc,ate){const dias=Math.max(0,Math.round((new Date(ate)-new Date(venc))/864e5));if(!dias)return{mu:0,ju:0,ho:0,dias};
   const mu=v*.02,ju=v*(Math.pow(1.01,dias/30)-1),ho=dias>60?(v+mu+ju)*.10:0;return{mu,ju,ho,dias}}
 function totais(){
-  let qv=0,esp=0,rec=0,pend=0;const pg={pr:0,mu:0,ju:0,ho:0},at={pr:0,mu:0,ju:0,ho:0,q:0};
+  let qv=0,esp=0,rec=0,pend=0;const pg={pr:0,mu:0,ju:0,ho:0},at={pr:0,co:0,mu:0,ju:0,ho:0,q:0};
   for(const t of C.titulos){const e=estado(t);const venc=t.vencimento&&t.vencimento<=C.hoje;if(e==='cancelada')continue;
     if(t.grupo!=='acordo'&&venc){qv++;esp+=valorAno(t)}
     if(e==='vencida')pend++;
-    if(venc&&(e==='vencida'||e==='em_atraso')){const v=valorAno(t),k=encDe(v,t.vencimento,C.hoje);at.q++;at.pr+=v;at.mu+=k.mu;at.ju+=k.ju;at.ho+=k.ho}}
+    if(venc&&(e==='vencida'||e==='em_atraso')){const k=atrasoDe(t,C.hoje);at.q++;at.pr+=k.v;at.co+=k.co;at.mu+=k.mu;at.ju+=k.ju;at.ho+=k.ho}}
   for(const p of C.pagamentos){const v=Number(p.valor_pago||0);rec+=v;
     const mu=Number(p.multa_paga||0),ju=Number(p.juros_pago||0),ho=Number(p.honorarios_pago||0),base=v-mu-ju-ho;
     pg.mu+=mu;pg.ju+=ju;pg.ho+=ho;
     const t=C.titulos.find(x=>x.id==p.titulo_id),a=t&&t.grupo==='acordo'?C.acordos.find(x=>x.id==t.acordo_id):null;
     if(a&&Number(a.valor_acordado)>0){const f=base/Number(a.valor_acordado);pg.pr+=Number(a.principal||0)*f;pg.mu+=Number(a.multa||0)*f;pg.ju+=Number(a.juros||0)*f;pg.ho+=Number(a.honorarios||0)*f}
     else pg.pr+=base}
-  at.tot=at.pr+at.mu+at.ju+at.ho;
+  at.tot=at.pr+at.co+at.mu+at.ju+at.ho;
   return {qv,esp,rec,pend,pg,at};
 }
 
@@ -228,12 +232,12 @@ function desenhaContrato(){
    <div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">Do que já pagou</div>
    <div class="tot"><div><span class="mut">Principal</span><b>${brl(tt.pg.pr)}</b></div><div><span class="mut">Multa</span><b>${brl(tt.pg.mu)}</b></div><div><span class="mut">Juros</span><b>${brl(tt.pg.ju)}</b></div><div><span class="mut">Custo de cobrança</span><b>${brl(tt.pg.ho)}</b></div></div>
    <div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">Do que está em atraso (calculado até hoje)</div>
-   <div class="tot"><div><span class="mut">Principal</span><b>${brl(tt.at.pr)}</b></div><div><span class="mut">Multa</span><b>${brl(tt.at.mu)}</b></div><div><span class="mut">Juros</span><b>${brl(tt.at.ju)}</b></div><div><span class="mut">Custo de cobrança</span><b>${brl(tt.at.ho)}</b></div></div></div>
+   <div class="tot"><div><span class="mut">Principal</span><b>${brl(tt.at.pr)}</b></div><div><span class="mut">Correção (IGP-M + juros anuais)</span><b>${brl(tt.at.co)}</b></div><div><span class="mut">Multa</span><b>${brl(tt.at.mu)}</b></div><div><span class="mut">Juros</span><b>${brl(tt.at.ju)}</b></div><div><span class="mut">Custo de cobrança</span><b>${brl(tt.at.ho)}</b></div></div></div>
   <div class="card"><div class="bt">
    <button id="bsel" onclick="modoSel()">${SELMODO?'Cancelar seleção':'Selecionar parcelas para acordo'}</button>
    <button class="pri" ${SELMODO&&SEL.size?'':'disabled'} onclick="modalAcordo()">Adicionar acordo (${SEL.size})</button>
    <button onclick="modalCorrecao()">Adicionar correção</button>${C.eventos.some(e=>e.tipo==='encerramento')?'<span class="tag" style="background:#dbeafe;color:#1e3a8a">Contrato encerrado/cancelado</span>':`<button onclick="modalEvento('encerramento')">Encerrar contrato</button><button onclick="modalEvento('encerramento',null,'cancelado')">Cancelar contrato</button>`}
-   <button onclick="modalEvento('cessao')">Cessão</button><button onclick="modalRepact()">Repactuação</button>${EU==='luis'?'<button onclick="puxarDesc()">Puxar descrições do Asaas</button>':''}<span style="flex:1"></span>
+   <button onclick="modalEvento('cessao')">Cessão</button><button onclick="modalRepact()">Repactuação</button><button onclick="relatorio('pagos')">Relatório de valores pagos</button><button onclick="relatorio('atraso')">Relatório de atraso</button>${EU==='luis'?'<button onclick="puxarDesc()">Puxar descrições do Asaas</button>':''}<span style="flex:1"></span>
    ${C.fechamento?`<button onclick="reabrir()">Reabrir conferência</button>`:`<button class="pri" onclick="fechar()">Fechar conferência do contrato</button>`}</div>
    ${SELMODO?`<div class="info">Clique nas parcelas em atraso que entraram no acordo e depois em "Adicionar acordo". Só as parcelas em atraso ficam disponíveis.<br><b>Selecionadas (${SEL.size}):</b> ${[...SEL].map(i=>C.titulos.find(t=>t.id==i)).filter(Boolean).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).map(t=>codTit(t)).join(', ')||'nenhuma'}</div>`:''}
    <br><div class="grid ${SELMODO?'selmodo':''}">${linhas}</div><br>
@@ -571,6 +575,39 @@ async function salvaEvento(tipo,eid){const old=eid?C.eventos.find(x=>x.id==eid)?
   const body={contrato:C.contrato.numero,tipo,motivo:$('#e_m')?.value,a_partir_titulo:Number($('#e_t').value),data:$('#e_d').value,dados,obs:$('#e_o').value};
   await api(eid?'evento/'+eid:'evento',{method:eid?'PUT':'POST',body});fechaModal();recarrega()}
 
+
+/* relatórios (abrem em nova aba, prontos para imprimir/salvar em PDF) */
+function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
+  const ces=C.eventos.filter(e=>e.tipo==='cessao'&&e.dados?.novos_titulares).sort((x,y)=>String(x.data).localeCompare(String(y.data)));
+  const tit=ces.length?nome(ces[ces.length-1].dados.novos_titulares):(c.compradores||[]).map(x=>nome(x.nome)).join(' e ')||nome(c.nome_planilha);
+  const rot=t=>t.grupo==='acordo'?nomeAc(C.acordos.find(a=>a.id==t.acordo_id))+(t.total>1?' ('+t.numero+'/'+t.total+')':''):t.rotulo;
+  let corpo='',titulo='';
+  if(tipo==='pagos'){titulo='Relatório de valores pagos';
+    const ls=C.pagamentos.map(p=>({p,t:C.titulos.find(x=>x.id==p.titulo_id)})).filter(x=>x.t).sort((a,b)=>String(a.p.confirmada_em||a.t.vencimento).localeCompare(String(b.p.confirmada_em||b.t.vencimento)));
+    let T={v:0,mu:0,ju:0,ho:0,de:0,pg:0};
+    const rows=ls.map(({p,t})=>{const mu=+p.multa_paga||0,ju=+p.juros_pago||0,ho=+p.honorarios_pago||0,de=+p.desconto_dado||0,pg=+p.valor_pago||0,v=pg-mu-ju-ho+de;T.v+=v;T.mu+=mu;T.ju+=ju;T.ho+=ho;T.de+=de;T.pg+=pg;
+      return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td>${dbr(p.confirmada_em)}</td><td>${esc(p.forma||'')}</td><td>${esc(p.fatura||'')}</td><td class="n">${brl(v)}</td><td class="n">${brl(mu)}</td><td class="n">${brl(ju)}</td><td class="n">${brl(ho)}</td><td class="n">${de?brl(de):''}</td><td class="n"><b>${brl(pg)}</b></td></tr>`}).join('');
+    const qa=C.titulos.filter(t=>['quitada_acordo','quitada_repact'].includes(estado(t)));
+    corpo=`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th>Pago em</th><th>Forma</th><th>Fatura</th><th class="n">Parcela</th><th class="n">Multa</th><th class="n">Juros</th><th class="n">Custo cobr.</th><th class="n">Desconto</th><th class="n">Total pago</th></tr></thead><tbody>${rows}</tbody>
+     <tfoot><tr><td colspan="5">Total (${ls.length} pagamentos)</td><td class="n">${brl(T.v)}</td><td class="n">${brl(T.mu)}</td><td class="n">${brl(T.ju)}</td><td class="n">${brl(T.ho)}</td><td class="n">${brl(T.de)}</td><td class="n">${brl(T.pg)}</td></tr></tfoot></table>
+     ${qa.length?`<p class="obs">Parcelas quitadas por acordo/repactuação (o valor está na linha do acordo): ${qa.map(t=>esc(t.rotulo)+' → '+esc(nomeAc(acordoDe(t)))).join('; ')}.</p>`:''}`}
+  else{titulo='Relatório de valores em atraso';
+    const ts=C.titulos.filter(t=>t.vencimento&&t.vencimento<=hoje&&['vencida','em_atraso'].includes(estado(t))).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
+    let T={v:0,co:0,mu:0,ju:0,ho:0,tot:0};
+    const rows=ts.map(t=>{const k=atrasoDe(t,hoje);for(const x in T)T[x]+=k[x];
+      return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td class="n">${k.dias}</td><td class="n">${brl(k.v)}</td><td class="n">${brl(k.co)}</td><td class="n">${brl(k.mu)}</td><td class="n">${brl(k.ju)}</td><td class="n">${brl(k.ho)}</td><td class="n"><b>${brl(k.tot)}</b></td></tr>`}).join('');
+    corpo=ts.length?`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th class="n">Dias de atraso</th><th class="n">Valor da parcela</th><th class="n">Correção</th><th class="n">Multa 2%</th><th class="n">Juros 1% a.m.</th><th class="n">Custo cobr.</th><th class="n">Total</th></tr></thead><tbody>${rows}</tbody>
+     <tfoot><tr><td colspan="3">Total (${ts.length} parcela${ts.length==1?'':'s'})</td><td class="n">${brl(T.v)}</td><td class="n">${brl(T.co)}</td><td class="n">${brl(T.mu)}</td><td class="n">${brl(T.ju)}</td><td class="n">${brl(T.ho)}</td><td class="n">${brl(T.tot)}</td></tr></tfoot></table>
+     <p class="obs">Correção: reajustes anuais (IGP-M + juros contratuais) aplicados depois do vencimento da parcela. Multa de 2% e juros de 1% ao mês (capitalizados ao dia) calculados sobre o valor corrigido. Custo de cobrança de 10% para atrasos acima de 60 dias. Valores calculados até ${dbr(hoje)}.</p>`:'<p><b>Nenhuma parcela em atraso nesta data.</b></p>'}
+  const w=window.open('','_blank');
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${titulo} — Contrato ${c.numero}</title><style>
+   body{font-family:Arial,sans-serif;color:#111;margin:28px;font-size:13px}h1{font-size:19px;margin:0 0 4px}.cab{display:flex;gap:14px;align-items:center;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:12px}.cab img{height:46px}
+   .mut{color:#555}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #ccc;padding:5px 6px;text-align:left}th{background:#f1f5f9}.n{text-align:right;white-space:nowrap}tfoot td{font-weight:700;background:#f8fafc}.obs{font-size:11px;color:#444;margin-top:10px}
+   .bt{margin-bottom:12px}@media print{.bt{display:none}body{margin:10mm}}</style></head><body>
+   <div class="bt"><button onclick="print()">Imprimir / salvar em PDF</button></div>
+   <div class="cab"><img src="${location.origin}/logo.png" alt=""><div><h1>${titulo}</h1><div class="mut">Inerente Gestão Imobiliária · Condomínio de Chácaras Beira Rio</div></div></div>
+   <div><b>Contrato ${c.numero}</b> · Quadra ${c.quadra} · Lote ${c.lote}</div><div>Titular: <b>${esc(tit)}</b></div><div class="mut">Emitido em ${dbr(hoje)}</div>${corpo}</body></html>`);
+  w.document.close()}
 
 /* repactuação: parcela dividida em vários boletos antes de atrasar */
 function modalRepact(){
