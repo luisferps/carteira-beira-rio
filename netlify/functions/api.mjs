@@ -332,7 +332,21 @@ async function puxarDescricoes(contrato, conferentes) {
   return { preenchidas: ok.length, do_asaas: ok.filter(x => x.fonte === 'Asaas').length, sem_descricao: sem, erro_asaas: erroAsaas || (A.erro === 'sem_chave' ? 'Falta a chave do Asaas no Netlify' : null), detalhes: ok };
 }
 
+let schemaOk = false;
+async function garanteEsquema() {
+  if (schemaOk) return;
+  try {
+    const [r] = await q(`select pg_get_constraintdef(oid) d from pg_constraint where conname='eventos_tipo_check'`);
+    if (!r || !/repactuacao/.test(r.d)) {
+      await q(`alter table carteira.eventos drop constraint if exists eventos_tipo_check`);
+      await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao'))`);
+    }
+    schemaOk = true;
+  } catch (e) { console.error('garanteEsquema', e.message); }
+}
+
 export default async (req) => {
+  await garanteEsquema();
   const url = new URL(req.url);
   const p = url.pathname.replace(/^\/(\.netlify\/functions\/api|api)/, '').split('/').filter(Boolean);
   if (p[0] === 'diag') {

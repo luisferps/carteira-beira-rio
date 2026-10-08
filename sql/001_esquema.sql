@@ -116,7 +116,7 @@ create table if not exists carteira.eventos (
   id            bigserial primary key,
   contrato      text not null references carteira.contratos(numero) on delete cascade,
   conferente    text not null,
-  tipo          text not null check (tipo in ('encerramento','cessao')),
+  tipo          text not null check (tipo in ('encerramento','cessao','repactuacao')),
   motivo        text,
   a_partir_titulo bigint references carteira.titulos(id) on delete cascade,
   data          date,
