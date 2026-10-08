@@ -466,6 +466,7 @@ export default async (req) => {
                       or exists(select 1 from carteira.acordos a where a.contrato=c.numero and a.conferente=$1 and t.id = any(a.titulos_origem)))) as conferidas,
                (select fechado_em from carteira.fechamentos f where f.contrato=c.numero and f.conferente=$1) as fechado_em,
                exists(select 1 from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='encerramento') as cancelado,
+               (select e.motivo from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='encerramento' order by e.id desc limit 1) as motivo_enc,
                (select count(*) from carteira.titulos t
                   where t.contrato=c.numero and (t.conferente is null or t.conferente=$1) and t.vencimento <= current_date
                     and not exists(select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente=$1)
