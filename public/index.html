@@ -164,11 +164,14 @@ function numAc(a){const l=[...C.acordos].filter(x=>ehRep(x)===ehRep(a)).sort((x,
 function acordoDe(t){return C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)))}
 const NOMES={paga:'Paga em dia',paga_atraso:'Paga com atraso',quitada_acordo:'Paga em cobrança (acordo)',em_acordo:'Em acordo (sem pagamento ainda)',quitada_repact:'Paga por repactuação',em_repact:'Repactuada (boletos em aberto)',cancelada:'Cancelada',em_atraso:'Não paga (conferido)',vencida:'Vencida sem nada lançado',futura:'A vencer'};
 const FATOR_ANO={2024:1.02,2025:1.0854,2026:1.02};
-function valorHoje(t,ate){if(t.grupo!=='mensal'&&t.grupo!=='anual')return valorAno(t);
+function fatorAnos(y0,y1){let f=1;for(let y=y0+1;y<=y1;y++)f*=FATOR_ANO[y]||1;return f}
+function valorNoVenc(t){if(t.grupo!=='mensal'&&t.grupo!=='anual')return valorAno(t);
   const vs=C.titulos.filter(x=>x.grupo===t.grupo&&!x.conferente).map(x=>+x.valor_face).filter(v=>v>0);const base=vs.length?Math.min(...vs):+t.valor_face;
-  const y0=+String(C.contrato.data_assinatura||t.vencimento).slice(0,4),y1=+String(ate).slice(0,4);let f=1;for(let y=y0+1;y<=y1;y++)f*=FATOR_ANO[y]||1;
-  return Math.max(valorAno(t),Math.round(base*f*100)/100)}
-function atrasoDe(t,ate){const v=valorAno(t),vc=valorHoje(t,ate),k=encDe(vc,t.vencimento,ate);return{v,co:vc-v,vc,mu:k.mu,ju:k.ju,ho:k.ho,dias:k.dias,tot:vc+k.mu+k.ju+k.ho}}
+  const y0=+String(C.contrato.data_assinatura||t.vencimento).slice(0,4);return Math.max(valorAno(t),Math.round(base*fatorAnos(y0,+String(t.vencimento).slice(0,4))*100)/100)}
+/* ordem: parcela -> multa -> juros -> custo de cobrança -> correção (última, sobre tudo) */
+function atrasoDe(t,ate){const v=valorAno(t),vd=valorNoVenc(t),k=encDe(vd,t.vencimento,ate),sub=vd+k.mu+k.ju+k.ho;
+  const f=(t.grupo==='mensal'||t.grupo==='anual')?fatorAnos(+String(t.vencimento).slice(0,4),+String(ate).slice(0,4)):1;const tot=sub*f;
+  return{v,co:(vd-v)+(tot-sub),mu:k.mu,ju:k.ju,ho:k.ho,dias:k.dias,tot}}
 function encDe(v,venc,ate){const dias=Math.max(0,Math.round((new Date(ate)-new Date(venc))/864e5));if(!dias)return{mu:0,ju:0,ho:0,dias};
   const mu=v*.02,ju=v*(Math.pow(1.01,dias/30)-1),ho=dias>60?(v+mu+ju)*.10:0;return{mu,ju,ho,dias}}
 function totais(){
@@ -234,7 +237,7 @@ function desenhaContrato(){
    <div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">Do que já pagou</div>
    <div class="tot"><div><span class="mut">Principal</span><b>${brl(tt.pg.pr)}</b></div><div><span class="mut">Multa</span><b>${brl(tt.pg.mu)}</b></div><div><span class="mut">Juros</span><b>${brl(tt.pg.ju)}</b></div><div><span class="mut">Custo de cobrança</span><b>${brl(tt.pg.ho)}</b></div></div>
    <div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">Do que está em atraso (calculado até hoje)</div>
-   <div class="tot"><div><span class="mut">Principal</span><b>${brl(tt.at.pr)}</b></div><div><span class="mut">Correção (IGP-M + juros anuais)</span><b>${brl(tt.at.co)}</b></div><div><span class="mut">Multa</span><b>${brl(tt.at.mu)}</b></div><div><span class="mut">Juros</span><b>${brl(tt.at.ju)}</b></div><div><span class="mut">Custo de cobrança</span><b>${brl(tt.at.ho)}</b></div></div></div>
+   <div class="tot"><div><span class="mut">Principal</span><b>${brl(tt.at.pr)}</b></div><div><span class="mut">Multa</span><b>${brl(tt.at.mu)}</b></div><div><span class="mut">Juros</span><b>${brl(tt.at.ju)}</b></div><div><span class="mut">Custo de cobrança</span><b>${brl(tt.at.ho)}</b></div><div><span class="mut">Correção (sobre o total)</span><b>${brl(tt.at.co)}</b></div></div></div>
   <div class="card"><div class="bt">
    <button id="bsel" onclick="modoSel()">${SELMODO?'Cancelar seleção':'Selecionar parcelas para acordo'}</button>
    <button class="pri" ${SELMODO&&SEL.size?'':'disabled'} onclick="modalAcordo()">Adicionar acordo (${SEL.size})</button>
@@ -597,10 +600,10 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
     const ts=C.titulos.filter(t=>t.vencimento&&t.vencimento<=hoje&&['vencida','em_atraso'].includes(estado(t))).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
     let T={v:0,co:0,mu:0,ju:0,ho:0,tot:0};
     const rows=ts.map(t=>{const k=atrasoDe(t,hoje);for(const x in T)T[x]+=k[x];
-      return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td class="n">${k.dias}</td><td class="n">${brl(k.v)}</td><td class="n">${brl(k.co)}</td><td class="n">${brl(k.mu)}</td><td class="n">${brl(k.ju)}</td><td class="n">${brl(k.ho)}</td><td class="n"><b>${brl(k.tot)}</b></td></tr>`}).join('');
-    corpo=ts.length?`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th class="n">Dias de atraso</th><th class="n">Valor da parcela</th><th class="n">Correção</th><th class="n">Multa 2%</th><th class="n">Juros 1% a.m.</th><th class="n">Custo cobr.</th><th class="n">Total</th></tr></thead><tbody>${rows}</tbody>
-     <tfoot><tr><td colspan="3">Total (${ts.length} parcela${ts.length==1?'':'s'})</td><td class="n">${brl(T.v)}</td><td class="n">${brl(T.co)}</td><td class="n">${brl(T.mu)}</td><td class="n">${brl(T.ju)}</td><td class="n">${brl(T.ho)}</td><td class="n">${brl(T.tot)}</td></tr></tfoot></table>
-     <p class="obs">Correção: a parcela em atraso é atualizada pelo reajuste contratual de todos os anos até hoje (IGP-M + juros de 2% ao ano: 2024 +2%, 2025 +8,54%, 2026 +2%). Multa de 2% e juros de 1% ao mês (capitalizados ao dia) calculados sobre o valor corrigido. Custo de cobrança de 10% para atrasos acima de 60 dias. Valores calculados até ${dbr(hoje)}.</p>`:'<p><b>Nenhuma parcela em atraso nesta data.</b></p>'}
+      return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td class="n">${k.dias}</td><td class="n">${brl(k.v)}</td><td class="n">${brl(k.mu)}</td><td class="n">${brl(k.ju)}</td><td class="n">${brl(k.ho)}</td><td class="n">${brl(k.co)}</td><td class="n"><b>${brl(k.tot)}</b></td></tr>`}).join('');
+    corpo=ts.length?`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th class="n">Dias de atraso</th><th class="n">Valor da parcela</th><th class="n">Multa 2%</th><th class="n">Juros 1% a.m.</th><th class="n">Custo cobr.</th><th class="n">Correção</th><th class="n">Total</th></tr></thead><tbody>${rows}</tbody>
+     <tfoot><tr><td colspan="3">Total (${ts.length} parcela${ts.length==1?'':'s'})</td><td class="n">${brl(T.v)}</td><td class="n">${brl(T.mu)}</td><td class="n">${brl(T.ju)}</td><td class="n">${brl(T.ho)}</td><td class="n">${brl(T.co)}</td><td class="n">${brl(T.tot)}</td></tr></tfoot></table>
+     <p class="obs">Ordem do cálculo: parcela → multa de 2% → juros de 1% ao mês (capitalizados ao dia) → custo de cobrança de 10% (atrasos acima de 60 dias) → correção por último, sobre o total. Correção = reajuste contratual anual (IGP-M + juros de 2% a.a.: 2024 +2%, 2025 +8,54%, 2026 +2%) de cada ano posterior ao vencimento, mais o reajuste que a própria parcela já deveria ter no vencimento. Valores calculados até ${dbr(hoje)}.</p>`:'<p><b>Nenhuma parcela em atraso nesta data.</b></p>'}
   const w=window.open('','_blank');
   w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${titulo} — Contrato ${c.numero}</title><style>
    body{font-family:Arial,sans-serif;color:#111;margin:28px;font-size:13px}h1{font-size:19px;margin:0 0 4px}.cab{display:flex;gap:14px;align-items:center;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:12px}.cab img{height:46px}
