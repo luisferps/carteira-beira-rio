@@ -206,7 +206,7 @@ function desenhaContrato(){
   const tit=ces.length?`<b>${esc(nome(ces[ces.length-1].dados.novos_titulares))}</b> <span class="mut">(titular atual, por cessão em ${dbr(ces[ces.length-1].data)})</span><div class="mut" style="font-size:12px">Comprador original: ${(c.compradores||[]).map(x=>esc(nome(x.nome))).join(', ')||esc(nome(c.nome_planilha))}${ces.length>1?' · cessões anteriores: '+ces.slice(0,-1).map(e=>esc(nome(e.dados.novos_titulares))+' ('+dbr(e.data)+')').join(', '):''}</div>`:comp;
   const ac=C.acordos.length?'<div class="lin">'+[...C.acordos].sort((x,y)=>numAc(x)-numAc(y)).map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);
     return `${ts.length?ts.map(btn).join(''):`<button class="pc ev evac" onclick="verAcordo(${a.id})"><b>Acordo ${numAc(a)}</b><small>${dbr(a.data_acordo).slice(0,5)}</small><small>sem parcelas</small></button>`}`}).join('')+'</div>':'<div class="mut">Nenhum acordo lançado.</div>';
-  const co=C.correcoes.length?`<div class="lin">${C.correcoes.map(k=>`<button class="pc ev evco" onclick="verCorrecao(${k.id})"><b>Corr. ${k.grupo==='mensal'?'M':'A'} ${k.a_partir}</b><small>${k.data?dbr(k.data).slice(0,5)+'/'+String(k.data).slice(2,4):'—'}</small><small>${brl(k.novo_valor).replace('R$','').trim()}</small></button>`).join('')}</div>`:'<div class="mut">Nenhuma correção lançada.</div>';
+  const co=C.correcoes.length?`<div class="lin">${C.correcoes.map(k=>`<button class="pc ev evco" onclick="verCorrecao(${k.id})"><b>Corr. ${k.grupo==='mensal'?'M':'A'} ${k.a_partir}</b><small>${k.data?dbr(k.data).slice(0,5)+'/'+String(k.data).slice(2,4):'—'}</small><small>${brl(k.novo_valor).replace('R$','').trim()}</small>${(P=>`<small class="orig">IGP-M ${pf(P.ig)}</small><small class="orig">Juros ${pf(P.ju)}</small>`)(pctCorr(k))}</button>`).join('')}</div>`:'<div class="mut">Nenhuma correção lançada.</div>';
   const ev=C.eventos.length?`<div class="lin">${C.eventos.map(e=>`<button class="pc ev evev" onclick="verEvento(${e.id})"><b>${e.tipo==='encerramento'?'Encerr.':'Cessão'}</b><small>${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo.replace(/^(Mensal|Anual|Entrada) /,(m,g)=>g[0]+' ').replace(/\/\d+$/,'')||'?')}</small><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small>${e.tipo==='cessao'&&e.dados?.taxa_cessao!=null?`<small style="font-weight:700">${brl(e.dados.taxa_cessao).replace('R$','').trim()} ${e.dados.pago_em?'✓':'✗'}</small>`:''}</button>`).join('')}</div>`:'<div class="mut">Nenhum evento.</div>';
   const itens=(c.itens||[]).map(i=>`<li>${esc(i.texto)}</li>`).join('');
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='${COMO?'x/'+c.numero:''}'">${COMO?'← Voltar ao cruzamento':'← Contratos'}</button></div>
@@ -243,9 +243,16 @@ function verAcordo(id){const a=C.acordos.find(x=>x.id==id),T=C.titulos;const ori
   <div><b>Englobou:</b> ${esc(orig)}</div><div class="mut" style="margin:6px 0">Principal ${brl(a.principal)} · Multa ${brl(a.multa)} · Juros ${brl(a.juros)} · Custo de cobrança ${brl(a.honorarios)}${Number(a.desconto_encargos)?' · Desconto nos encargos '+brl(a.desconto_encargos):''} · ${a.qtd_parcelas} parcela(s)</div>
   ${a.obs?`<div class="mut">Obs.: ${esc(a.obs)}</div>`:''}<div class="mut">Lançado ${new Date(a.salvo_em).toLocaleString('pt-BR')}</div>
   <div class="bt" style="margin-top:10px"><button class="pri" onclick="modalAcordo(${a.id})">Editar</button><button class="per" onclick="apagar('acordo',${a.id})">Apagar</button></div>`)}
-function verCorrecao(id){const k=C.correcoes.find(x=>x.id==id);
+const IGPM_ANO={2023:0,2024:0,2025:6.54,2026:0};
+function pctCorr(k){const ks=C.correcoes.filter(x=>x.grupo===k.grupo&&+x.a_partir<+k.a_partir).sort((a,b)=>a.a_partir-b.a_partir);
+  const base=ks.length?+ks[ks.length-1].novo_valor:Math.min(...C.titulos.filter(t=>t.grupo===k.grupo&&!t.conferente).map(t=>+t.valor_face).filter(v=>v>0));
+  const tot=base>0?(+k.novo_valor/base-1)*100:null;const t=C.titulos.find(t=>t.grupo===k.grupo&&+t.numero===+k.a_partir&&!t.conferente);
+  const ano=+String(k.data||t?.vencimento||'').slice(0,4);const ig=IGPM_ANO[ano]!=null?IGPM_ANO[ano]:(k.igpm_pct!=null&&k.igpm_pct!==''?+k.igpm_pct:null);
+  const ju=tot!=null&&ig!=null?tot-ig:(k.juros_pct!=null&&k.juros_pct!==''?+k.juros_pct:null);return {base,tot,ig,ju}}
+const pf=v=>v==null||isNaN(v)?'—':(Math.round(v*100)/100).toLocaleString('pt-BR',{maximumFractionDigits:2})+'%';
+function verCorrecao(id){const k=C.correcoes.find(x=>x.id==id);const P=pctCorr(k);
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Correção — ${k.grupo==='mensal'?'mensal':'anual'} a partir da ${k.a_partir}</h3><button onclick="fechaModal()">Fechar</button></div>
-  <div>Data: <b>${dbr(k.data)}</b> · IGPM <b>${k.igpm_pct??'—'}%</b> · Juros <b>${k.juros_pct??'—'}%</b></div><div style="margin:6px 0">Novo valor: <b>${brl(k.novo_valor)}</b></div>
+  <div>Data: <b>${dbr(k.data)}</b> · IGP-M <b>${pf(P.ig)}</b> · Juros <b>${pf(P.ju)}</b> · Total <b>${pf(P.tot)}</b></div><div style="margin:6px 0">Valor anterior: <b>${brl(P.base)}</b> → Novo valor: <b>${brl(k.novo_valor)}</b></div>
   ${k.obs?`<div class="mut">Obs.: ${esc(k.obs)}</div>`:''}<div class="mut">Lançada ${new Date(k.salvo_em).toLocaleString('pt-BR')}</div>
   <div class="bt" style="margin-top:10px"><button class="per" onclick="apagar('correcao',${k.id})">Apagar</button></div>`)}
 function verEvento(id){const e=C.eventos.find(x=>x.id==id),d=e.dados||{};const dd=(l,v)=>`<div class="dado"><span>${l}</span><b>${v||'—'}</b></div>`;
