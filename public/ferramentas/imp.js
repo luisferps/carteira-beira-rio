@@ -41,6 +41,7 @@ for(const g of ['mensal','anual']){const base=C.titulos.filter(t=>!t.conferente&
  let atual=+base[0].valor_face,ultN=0;
  for(let i=0;i<ser.length;i++){const s=ser[i];if(Math.abs(s.v-atual)>0.01){const prox=ser[i+1];if(prox&&Math.abs(prox.v-s.v)>0.01&&(Math.abs(prox.v-atual)<0.01||Math.abs(prox.v/atual-1.02)<0.002||Math.abs(prox.v/atual-1.0854)<0.002)&&Math.abs(s.v/atual-1)<0.015)continue;
    if(s.v<atual-0.01){log.push(`IGNOREI queda de valor na ${g} ${s.n}: ${atual} → ${s.v}`);continue}
+   if(ser.slice(i+1).some(y=>Math.abs(y.v-atual)<0.01)){log.push(`IGNOREI subida temporária na ${g} ${s.n}: ${atual} → ${s.v}`);continue}
    let a=s.n;if(g==='mensal'){const jan=base.filter(t=>t.numero>ultN&&t.numero<=s.n&&t.vencimento.slice(5,7)==='01').pop();if(jan)a=jan.numero}
    const t0=base.find(t=>t.numero===a);const tot=R2((s.v/atual-1)*100);const ig=IG[+t0.vencimento.slice(0,4)]??tot;await call('correcao','POST',{contrato:n,grupo:g,a_partir:a,data:t0.vencimento,igpm_pct:ig,juros_pct:R2(tot-ig),novo_valor:s.v,obs:'Valor tirado dos boletos do Asaas'});log.push(`correção ${g} a partir da ${a}: ${atual} → ${s.v} (${tot}%)`);atual=s.v}
   ultN=s.n}}
