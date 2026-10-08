@@ -49,7 +49,8 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .mut{color:var(--mut);font-size:12px}.r{text-align:right}.hid{display:none}
 .cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
 .cb{text-align:left;background:#fff;border:1px solid var(--ln);border-left:5px solid var(--fu);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px;min-height:140px}
-.cb:hover{border-color:var(--az);box-shadow:0 2px 10px rgba(0,0,0,.06)}.cb.alt{border-left-color:var(--ac)}.cb.fech{border-left-color:var(--pg)}
+.cb:hover{border-color:var(--az);box-shadow:0 2px 10px rgba(0,0,0,.06)}.cb.st-dia{border-left-color:var(--pg)}.cb.st-atraso{border-left-color:var(--at);background:#fff5f5}.cb.st-canc{border-left-color:var(--ca);background:#f1f5f9}.cb.st-conf{border-left-color:var(--fu)}
+.filtros{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.filtros button.on{background:var(--tx);color:#fff}
 .cbt{display:flex;justify-content:space-between;align-items:baseline}.cbt b{font-size:20px}.cbt span{font-weight:600;color:var(--azd)}
 .cbn{font-size:13px;line-height:1.25;min-height:32px}
 .pc.ev{color:#fff}.evac{background:#a16207}.evco{background:#7c3aed}.evev{background:#334155}
@@ -108,22 +109,28 @@ function route(){const h=location.hash.slice(1);COMO='';
   else if(h.startsWith('c/'))abrirContrato(h.slice(2));else telaLista()}
 
 /* ---------- LISTA ---------- */
+let FILTRO='todos';
+function statusC(c){if(c.cancelado)return 'canc';if(!+c.conferidas&&+c.vencidas)return 'conf';return +c.em_atraso?'atraso':'dia'}
+const STNOME={dia:'Em dia',atraso:'Em atraso',canc:'Cancelado/encerrado',conf:'A conferir'};
 async function telaLista(){
   app.innerHTML='<div class="card">Carregando…</div>';
   LISTA=await api('contratos');
-  const fech=LISTA.filter(c=>c.fechado_em).length;
+  const fech=LISTA.filter(c=>c.fechado_em).length;const cont={dia:0,atraso:0,canc:0,conf:0};LISTA.forEach(c=>cont[statusC(c)]++);
+  const fb=(k,l,n)=>`<button data-f="${k}" class="${FILTRO===k?'on':''}">${l} (${n})</button>`;
   app.innerHTML=`<div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Contratos (${LISTA.length})</h3>
   <span class="tag ok">${fech} fechados</span><span class="tag">${LISTA.length-fech} abertos</span></div><br>
-  <input id="bus" placeholder="Buscar por número, quadra/lote ou nome"></div><div class="cgrid" id="tb"></div>`;
+  <input id="bus" placeholder="Buscar por número, quadra/lote ou nome">
+  <div class="filtros" id="filt">${fb('todos','Todos',LISTA.length)}${fb('dia','Em dia',cont.dia)}${fb('atraso','Em atraso',cont.atraso)}${fb('canc','Cancelados/encerrados',cont.canc)}${fb('conf','A conferir',cont.conf)}${fb('fech','Conferência fechada',fech)}</div></div><div class="cgrid" id="tb"></div>`;
   const desenha=()=>{const t=$('#bus').value.toLowerCase();
-    $('#tb').innerHTML=LISTA.filter(c=>!t||(c.numero+' q'+c.quadra+' l'+c.lote+' q'+c.quadra+'l'+c.lote+' '+(c.titular||'')).toLowerCase().includes(t)).map(c=>{
-      const pc=c.vencidas?Math.round(100*c.conferidas/c.vencidas):0;
-      return `<button class="cb ${c.fechado_em?'fech':''} ${c.n_alertas?'alt':''}" onclick="location.hash='c/${c.numero}'">
+    $('#tb').innerHTML=LISTA.filter(c=>(!t||(c.numero+' q'+c.quadra+' l'+c.lote+' q'+c.quadra+'l'+c.lote+' '+(c.titular||'')).toLowerCase().includes(t))&&(FILTRO==='todos'||(FILTRO==='fech'?!!c.fechado_em:statusC(c)===FILTRO))).map(c=>{
+      const pc=c.vencidas?Math.round(100*c.conferidas/c.vencidas):0,st=statusC(c);
+      return `<button class="cb st-${st}" onclick="location.hash='c/${c.numero}'">
       <div class="cbt"><b>${c.numero}</b><span>Q${c.quadra||'?'} L${c.lote||'?'}</span></div>
       <div class="cbn">${esc(nome(c.titular))}</div>
       <div class="bar"><i style="width:${pc}%"></i></div><div class="mut">${c.conferidas}/${c.vencidas} vencidas conferidas</div>
-      <div>${c.fechado_em?`<span class="tag ok">Fechado ${dbr(c.fechado_em)}</span>`:''} ${c.n_alertas?`<span class="tag al">${c.n_alertas} alerta(s)</span>`:''}</div></button>`}).join('')};
-  $('#bus').oninput=desenha;desenha();
+      <div><span class="tag" style="${st==='dia'?'background:#dcfce7;color:#166534':st==='atraso'?'background:#fee2e2;color:#991b1b':st==='canc'?'background:#dbeafe;color:#1e3a8a':''}">${STNOME[st]}${st==='atraso'?' · '+c.em_atraso+' parcela'+(+c.em_atraso>1?'s':''):''}</span>
+      ${c.fechado_em?`<span class="tag ok">Fechado ${dbr(c.fechado_em)}</span>`:''} ${c.n_alertas?`<span class="tag al">${c.n_alertas} alerta(s)</span>`:''}</div></button>`}).join('')||'<div class="mut">Nenhum contrato nesse filtro.</div>'};
+  $('#bus').oninput=desenha;$('#filt').onclick=e=>{const f=e.target.dataset?.f;if(!f)return;FILTRO=f;document.querySelectorAll('#filt button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));desenha()};desenha();
 }
 
 /* ---------- CONTRATO: cálculos ---------- */

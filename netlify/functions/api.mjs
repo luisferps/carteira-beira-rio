@@ -464,7 +464,15 @@ export default async (req) => {
                     and (exists(select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente=$1)
                       or exists(select 1 from carteira.conferencia_titulo ct where ct.titulo_id=t.id and ct.conferente=$1)
                       or exists(select 1 from carteira.acordos a where a.contrato=c.numero and a.conferente=$1 and t.id = any(a.titulos_origem)))) as conferidas,
-               (select fechado_em from carteira.fechamentos f where f.contrato=c.numero and f.conferente=$1) as fechado_em
+               (select fechado_em from carteira.fechamentos f where f.contrato=c.numero and f.conferente=$1) as fechado_em,
+               exists(select 1 from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='encerramento') as cancelado,
+               (select count(*) from carteira.titulos t
+                  where t.contrato=c.numero and (t.conferente is null or t.conferente=$1) and t.vencimento <= current_date
+                    and not exists(select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente=$1)
+                    and not exists(select 1 from carteira.acordos a where a.contrato=c.numero and a.conferente=$1 and t.id = any(a.titulos_origem))
+                    and not exists(select 1 from carteira.conferencia_titulo ct where ct.titulo_id=t.id and ct.conferente=$1 and ct.situacao='cancelada')
+                    and not exists(select 1 from carteira.eventos e join carteira.titulos t0 on t0.id=e.a_partir_titulo
+                                   where e.contrato=c.numero and e.conferente=$1 and e.tipo='encerramento' and t.grupo<>'acordo' and t.vencimento >= t0.vencimento)) as em_atraso
         from carteira.contratos c order by c.numero`, [conf]);
       return json(rows);
     }
