@@ -7,7 +7,7 @@
 <link rel="icon" href="logo.png">
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--tx:#16181d;--mut:#6b7280;--ln:#e3e6eb;--az:#29c5f6;--azd:#0b8fbf;
---pg:#16a34a;--ac:#eab308;--ca:#4b5563;--at:#b91c1c;--ve:#ef4444;--fu:#d1d5db;--pa:#6fbf8a}
+--pg:#16a34a;--ac:#eab308;--ca:#4b5563;--at:#b91c1c;--ve:#ef4444;--fu:#d1d5db;--pa:#6fbf8a;--rp:#0d9488}
 *{box-sizing:border-box}body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--tx)}
 header{display:flex;align-items:center;gap:12px;padding:10px 20px;background:#111;color:#fff;position:sticky;top:0;z-index:5}
 header img{height:30px;background:#fff;border-radius:6px;padding:2px}header b{font-size:16px}header .sp{flex:1}
@@ -28,7 +28,7 @@ th{font-size:12px;color:var(--mut);font-weight:600}tr.lk{cursor:pointer}tr.lk:ho
 .lin .rot{width:78px;font-size:12px;color:var(--mut)}
 .pc{width:74px;height:50px;border-radius:8px;border:2px solid transparent;font-size:11px;line-height:1.15;padding:3px;color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;position:relative}
 .pc small{font-size:10px;opacity:.9}
-.pc.paga{background:var(--pg)}.pc.paga_atraso{background:var(--pa);color:#0f3d1f}.pc.quitada_acordo{background:var(--ac);color:#3a2c00}.pc.em_acordo{background:#fff;color:#3a2c00;border-color:var(--ac)}
+.pc.paga{background:var(--pg)}.pc.paga_atraso{background:var(--pa);color:#0f3d1f}.pc.quitada_acordo{background:var(--ac);color:#3a2c00}.pc.em_acordo{background:#fff;color:#3a2c00;border-color:var(--ac)}.pc.quitada_repact{background:var(--rp)}.pc.em_repact{background:#fff;color:#134e4a;border-color:var(--rp)}
 .pc.cancelada{background:var(--ca)}.pc.em_atraso{background:var(--at)}.pc.vencida{background:var(--ve)}.pc.futura{background:var(--fu);color:#333}
 .pc.anual{outline:2px dashed #333;outline-offset:1px}.grid.selmodo .pc{opacity:.3;filter:grayscale(.5);cursor:not-allowed}.grid.selmodo .pc.selok{opacity:1;filter:none;cursor:pointer}
 .grid.selmodo .pc.sel{opacity:1;filter:none;transform:scale(1.08);box-shadow:0 0 0 4px #fff,0 0 0 8px #2563eb,0 6px 14px rgba(0,0,0,.35);z-index:2}
@@ -55,7 +55,7 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .filtros{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.filtros button.on{background:var(--tx);color:#fff}
 .cbt{display:flex;justify-content:space-between;align-items:baseline}.cbt b{font-size:20px}.cbt span{font-weight:600;color:var(--azd)}
 .cbn{font-size:13px;line-height:1.25;min-height:32px}
-.pc.ev{color:#fff}.evac{background:#a16207}.evco{background:#7c3aed}.evev{background:#334155}
+.pc.ev{color:#fff}.evac{background:#a16207}.evco{background:#7c3aed}.evev{background:#334155}.evces{background:#ea580c}.evenc{background:#374151}.evrp{background:var(--rp)}.pc.ev{width:auto;min-width:92px;height:auto;min-height:58px;padding:5px 9px}
 .pgl{border:1px solid var(--ln);border-radius:8px;padding:8px;margin-bottom:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 @media(max-width:600px){main{padding:10px}.pc{width:62px}.lin .rot{width:100%}}
 .ficha{border:1px solid var(--ln);border-left:5px solid #2e9e4f;border-radius:10px;padding:12px;margin-top:10px;background:rgba(46,158,79,.04)}
@@ -151,7 +151,7 @@ function estado(t){
   if(sit&&sit.situacao==='cancelada'||enc)return 'cancelada';
   if(pags.length){const tarde=pags.some(p=>Number(p.multa_paga||0)+Number(p.juros_pago||0)+Number(p.honorarios_pago||0)>0.009||(p.confirmada_em&&(p.vencimento_boleto||t.vencimento)&&diasUteisDepois(p.vencimento_boleto||t.vencimento,p.confirmada_em)>3));return t.grupo!=='acordo'&&tarde?'paga_atraso':'paga'}
   const ac=C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)));
-  if(ac){const pago=C.titulos.some(x=>x.acordo_id==ac.id&&C.pagamentos.some(p=>p.titulo_id==x.id));return pago?'quitada_acordo':'em_acordo'}
+  if(ac){const pago=C.titulos.some(x=>x.acordo_id==ac.id&&C.pagamentos.some(p=>p.titulo_id==x.id));return ehRep(ac)?(pago?'quitada_repact':'em_repact'):(pago?'quitada_acordo':'em_acordo')}
   if(sit&&sit.situacao==='em_atraso')return 'em_atraso';
   if(t.vencimento&&t.vencimento<=hoje)return 'vencida';
   return 'futura';
@@ -159,9 +159,10 @@ function estado(t){
 function codTit(t){if(!t)return'?';if(t.grupo==='acordo'){const a=C.acordos.find(x=>x.id==t.acordo_id);return 'R'+(a?numAc(a):'')+(t.total>1?'.'+t.numero:'')}
   return ({mensal:'M',anual:'A',entrada:'E'}[t.grupo]||'P')+t.numero}
 function origensAc(a){return (a.titulos_origem||[]).map(i=>codTit(C.titulos.find(t=>t.id==i))).join('+')}
-function numAc(a){const l=[...C.acordos].sort((x,y)=>String(x.data_acordo).localeCompare(String(y.data_acordo))||x.id-y.id);return l.findIndex(x=>x.id==a.id)+1}
+const ehRep=a=>a&&a.tipo==='repactuacao';const nomeAc=a=>(ehRep(a)?'Repactuação ':'Acordo ')+numAc(a);const nomeCurto=a=>(ehRep(a)?'Repact. ':'Acordo ')+numAc(a);
+function numAc(a){const l=[...C.acordos].filter(x=>ehRep(x)===ehRep(a)).sort((x,y)=>String(x.data_acordo).localeCompare(String(y.data_acordo))||x.id-y.id);return l.findIndex(x=>x.id==a.id)+1}
 function acordoDe(t){return C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)))}
-const NOMES={paga:'Paga em dia',paga_atraso:'Paga com atraso',quitada_acordo:'Paga em cobrança (acordo)',em_acordo:'Em acordo (sem pagamento ainda)',cancelada:'Cancelada',em_atraso:'Não paga (conferido)',vencida:'Vencida sem nada lançado',futura:'A vencer'};
+const NOMES={paga:'Paga em dia',paga_atraso:'Paga com atraso',quitada_acordo:'Paga em cobrança (acordo)',em_acordo:'Em acordo (sem pagamento ainda)',quitada_repact:'Paga por repactuação',em_repact:'Repactuada (boletos em aberto)',cancelada:'Cancelada',em_atraso:'Não paga (conferido)',vencida:'Vencida sem nada lançado',futura:'A vencer'};
 function encDe(v,venc,ate){const dias=Math.max(0,Math.round((new Date(ate)-new Date(venc))/864e5));if(!dias)return{mu:0,ju:0,ho:0,dias};
   const mu=v*.02,ju=v*(Math.pow(1.01,dias/30)-1),ho=dias>60?(v+mu+ju)*.10:0;return{mu,ju,ho,dias}}
 function totais(){
@@ -187,11 +188,11 @@ async function abrirContrato(n){
 }
 function btn(t){
   const e=estado(t),conf=C.pagamentos.filter(p=>p.titulo_id==t.id).length||C.situacoes.find(s=>s.titulo_id==t.id);
-  const lab=t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?'Acordo '+numAc(C.acordos.find(a=>a.id==t.acordo_id))+(t.total>1?' · '+t.numero+'/'+t.total:''):t.grupo==='mensal'?'M '+t.numero:t.grupo==='anual'?'A '+t.numero:t.grupo==='entrada'?'E '+t.numero:t.grupo==='acordo'?'Ac '+t.numero:'P '+t.numero;
+  const lab=t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?nomeCurto(C.acordos.find(a=>a.id==t.acordo_id))+(t.total>1?' · '+t.numero+'/'+t.total:''):t.grupo==='mensal'?'M '+t.numero:t.grupo==='anual'?'A '+t.numero:t.grupo==='entrada'?'E '+t.numero:t.grupo==='acordo'?'Ac '+t.numero:'P '+t.numero;
   const corr=t.grupo!=='acordo'&&C.correcoes.some(k=>k.grupo===t.grupo&&+k.a_partir===+t.numero);
   const ces=C.eventos.some(e=>e.tipo==='cessao'&&+e.a_partir_titulo===+t.id);const rep=C.eventos.some(e=>e.tipo==='repactuacao'&&+e.a_partir_titulo===+t.id);
   return `<button class="pc ${e} ${t.grupo==='anual'?'anual':''} ${SEL.has(+t.id)?'sel':''} ${SELMODO&&podeAcordo(t)?'selok':''} ${corr?'corr':''} ${ces?'ces':''} ${rep?'rep':''}" title="${esc(t.rotulo)}${rep?' — repactuada (parcelada sem atraso)':''} — ${dbr(t.vencimento)} — ${NOMES[e]}${corr?' — começa correção aqui':''}${ces?' — primeira parcela do novo titular (cessão)':''}" onclick="clicaTitulo(${t.id})">
-  ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo')&&acordoDe(t)?'Acordo '+numAc(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small>${t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?`<small class="orig" style="font-weight:700">${esc(origensAc(C.acordos.find(a=>a.id==t.acordo_id))).replace(/\+/g,'+&#8203;')}</small>`:''}</button>`;
+  ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo'||e==='quitada_repact'||e==='em_repact')&&acordoDe(t)?nomeCurto(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small>${t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?`<small class="orig" style="font-weight:700">${esc(origensAc(C.acordos.find(a=>a.id==t.acordo_id))).replace(/\+/g,'+&#8203;')}</small>`:''}</button>`;
 }
 function desenhaContrato(){
   const c=C.contrato,tt=totais(),T=C.titulos,base=T.filter(t=>t.grupo!=='acordo');
@@ -205,10 +206,12 @@ function desenhaContrato(){
   const comp=(c.compradores||[]).map(x=>esc(nome(x.nome))+(x.cpf?' <span class="mut">('+esc(x.cpf)+')</span>':'')).join('<br>')||esc(nome(c.nome_planilha));
   const ces=C.eventos.filter(e=>e.tipo==='cessao'&&e.dados?.novos_titulares).sort((x,y)=>String(x.data).localeCompare(String(y.data)));
   const tit=ces.length?`<b>${esc(nome(ces[ces.length-1].dados.novos_titulares))}</b> <span class="mut">(titular atual, por cessão em ${dbr(ces[ces.length-1].data)})</span><div class="mut" style="font-size:12px">Comprador original: ${(c.compradores||[]).map(x=>esc(nome(x.nome))).join(', ')||esc(nome(c.nome_planilha))}${ces.length>1?' · cessões anteriores: '+ces.slice(0,-1).map(e=>esc(nome(e.dados.novos_titulares))+' ('+dbr(e.data)+')').join(', '):''}</div>`:comp;
-  const ac=C.acordos.length?'<div class="lin">'+[...C.acordos].sort((x,y)=>numAc(x)-numAc(y)).map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);
-    return `${ts.length?ts.map(btn).join(''):`<button class="pc ev evac" onclick="verAcordo(${a.id})"><b>Acordo ${numAc(a)}</b><small>${dbr(a.data_acordo).slice(0,5)}</small><small>sem parcelas</small></button>`}`}).join('')+'</div>':'<div class="mut">Nenhum acordo lançado.</div>';
+  const ACS=C.acordos.filter(a=>!ehRep(a)),RPS=C.acordos.filter(ehRep);
+  const ac=ACS.length?'<div class="lin">'+[...ACS].sort((x,y)=>numAc(x)-numAc(y)).map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);
+    return `${ts.length?ts.map(btn).join(''):`<button class="pc ev evac" onclick="verAcordo(${a.id})"><b>${nomeAc(a)}</b><small>${dbr(a.data_acordo).slice(0,5)}</small><small>sem parcelas</small></button>`}`}).join('')+'</div>':'<div class="mut">Nenhum acordo lançado.</div>';
+  const rp=RPS.length?'<div class="lin">'+[...RPS].sort((x,y)=>numAc(x)-numAc(y)).map(a=>T.filter(t=>t.acordo_id==a.id).map(btn).join('')).join('<span style="width:14px"></span>')+'</div>':'<div class="mut">Nenhuma repactuação lançada.</div>';
   const co=C.correcoes.length?`<div class="lin">${C.correcoes.map(k=>`<button class="pc ev evco" onclick="verCorrecao(${k.id})"><b>Corr. ${k.grupo==='mensal'?'M':'A'} ${k.a_partir}</b><small>${k.data?dbr(k.data).slice(0,5)+'/'+String(k.data).slice(2,4):'—'}</small><small>${brl(k.novo_valor).replace('R$','').trim()}</small>${(P=>`<small class="orig">IGP-M ${pf(P.ig)}</small><small class="orig">Juros ${pf(P.ju)}</small>`)(pctCorr(k))}</button>`).join('')}</div>`:'<div class="mut">Nenhuma correção lançada.</div>';
-  const ev=C.eventos.length?`<div class="lin">${C.eventos.map(e=>`<button class="pc ev evev" onclick="verEvento(${e.id})"><b>${e.tipo==='encerramento'?'Encerr.':e.tipo==='repactuacao'?'Repact.':'Cessão'}</b><small>${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo.replace(/^(Mensal|Anual|Entrada) /,(m,g)=>g[0]+' ').replace(/\/\d+$/,'')||'?')}</small><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small>${e.tipo==='repactuacao'&&e.dados?.boletos?`<small style="font-weight:700">${e.dados.boletos} boletos</small>`:''}${e.tipo==='cessao'&&e.dados?.taxa_cessao!=null?`<small style="font-weight:700">${brl(e.dados.taxa_cessao).replace('R$','').trim()} ${e.dados.pago_em?'✓':'✗'}</small>`:''}</button>`).join('')}</div>`:'<div class="mut">Nenhum evento.</div>';
+  const EVS=C.eventos.filter(e=>e.tipo!=='repactuacao');const ev=EVS.length?`<div class="lin">${EVS.map(e=>`<button class="pc ev ${e.tipo==='cessao'?'evces':'evenc'}" onclick="verEvento(${e.id})"><b>${e.tipo==='encerramento'?'Encerr.':e.tipo==='repactuacao'?'Repact.':'Cessão'}</b><small>${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo.replace(/^(Mensal|Anual|Entrada) /,(m,g)=>g[0]+' ').replace(/\/\d+$/,'')||'?')}</small><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small>${e.tipo==='repactuacao'&&e.dados?.boletos?`<small style="font-weight:700">${e.dados.boletos} boletos</small>`:''}${e.tipo==='cessao'&&e.dados?.taxa_cessao!=null?`<small style="font-weight:700">${brl(e.dados.taxa_cessao).replace('R$','').trim()} ${e.dados.pago_em?'✓':'✗'}</small>`:''}</button>`).join('')}</div>`:'<div class="mut">Nenhum evento.</div>';
   const itens=(c.itens||[]).map(i=>`<li>${esc(i.texto)}</li>`).join('');
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='${COMO?'x/'+c.numero:''}'">${COMO?'← Voltar ao cruzamento':'← Contratos'}</button></div>
   ${COMO?'<div class="aviso" style="background:#eff6ff;color:#1e3a8a;border-color:#bfdbfe"><b>Você está editando a VERSÃO FINAL</b> (a verdade do sistema). Tudo o que salvar aqui vai para a versão final.</div>':''}
@@ -230,17 +233,18 @@ function desenhaContrato(){
    <button id="bsel" onclick="modoSel()">${SELMODO?'Cancelar seleção':'Selecionar parcelas para acordo'}</button>
    <button class="pri" ${SELMODO&&SEL.size?'':'disabled'} onclick="modalAcordo()">Adicionar acordo (${SEL.size})</button>
    <button onclick="modalCorrecao()">Adicionar correção</button>${C.eventos.some(e=>e.tipo==='encerramento')?'<span class="tag" style="background:#dbeafe;color:#1e3a8a">Contrato encerrado/cancelado</span>':`<button onclick="modalEvento('encerramento')">Encerrar contrato</button><button onclick="modalEvento('encerramento',null,'cancelado')">Cancelar contrato</button>`}
-   <button onclick="modalEvento('cessao')">Cessão</button><button onclick="modalEvento('repactuacao')">Repactuação</button>${EU==='luis'?'<button onclick="puxarDesc()">Puxar descrições do Asaas</button>':''}<span style="flex:1"></span>
+   <button onclick="modalEvento('cessao')">Cessão</button><button onclick="modalRepact()">Repactuação</button>${EU==='luis'?'<button onclick="puxarDesc()">Puxar descrições do Asaas</button>':''}<span style="flex:1"></span>
    ${C.fechamento?`<button onclick="reabrir()">Reabrir conferência</button>`:`<button class="pri" onclick="fechar()">Fechar conferência do contrato</button>`}</div>
    ${SELMODO?`<div class="info">Clique nas parcelas em atraso que entraram no acordo e depois em "Adicionar acordo". Só as parcelas em atraso ficam disponíveis.<br><b>Selecionadas (${SEL.size}):</b> ${[...SEL].map(i=>C.titulos.find(t=>t.id==i)).filter(Boolean).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).map(t=>codTit(t)).join(', ')||'nenhuma'}</div>`:''}
    <br><div class="grid ${SELMODO?'selmodo':''}">${linhas}</div><br>
-   <div class="leg">${Object.entries({paga:'var(--pg)',paga_atraso:'var(--pa)',quitada_acordo:'var(--ac)',em_acordo:'#fff',cancelada:'var(--ca)',em_atraso:'var(--at)',vencida:'var(--ve)',futura:'var(--fu)'}).map(([k,v])=>`<span style="--c:${v}">${NOMES[k]}</span>`).join('')}<span>✓ = conferida · borda tracejada = anual · <b style="color:#7c3aed">contorno roxo</b> = começa correção aqui · <b style="color:#ea580c">contorno laranja</b> = primeira parcela do novo titular (cessão)</span></div>
-   <details open><summary>Acordos (${C.acordos.length})</summary>${ac}</details>
+   <div class="leg">${Object.entries({paga:'var(--pg)',paga_atraso:'var(--pa)',quitada_acordo:'var(--ac)',em_acordo:'#fff',quitada_repact:'var(--rp)',cancelada:'var(--ca)',em_atraso:'var(--at)',vencida:'var(--ve)',futura:'var(--fu)'}).map(([k,v])=>`<span style="--c:${v}">${NOMES[k]}</span>`).join('')}<span>✓ = conferida · borda tracejada = anual · <b style="color:#7c3aed">contorno roxo</b> = começa correção aqui · <b style="color:#ea580c">contorno laranja</b> = primeira parcela do novo titular (cessão)</span></div>
+   <details open><summary>Acordos (${ACS.length})</summary>${ac}</details>
+   <details open><summary>Repactuações (${RPS.length})</summary><div class="mut" style="margin-bottom:4px">Parcela dividida em vários boletos a pedido do cliente, antes de atrasar — sem multa nem juros.</div>${rp}</details>
    <details open><summary>Correções (${C.correcoes.length})</summary>${co}</details>
-   <details open><summary>Encerramento e cessão (${C.eventos.length})</summary>${ev}</details></div>`;
+   <details open><summary>Encerramento e cessão (${EVS.length})</summary>${ev}</details></div>`;
 }
 function verAcordo(id){const a=C.acordos.find(x=>x.id==id),T=C.titulos;const orig=(a.titulos_origem||[]).map(i=>T.find(t=>t.id==i)?.rotulo||'?').join(', ');
-  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Acordo ${numAc(a)} — de ${dbr(a.data_acordo)} — ${brl(a.valor_acordado)}</h3><button onclick="fechaModal()">Fechar</button></div>
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${nomeAc(a)} — de ${dbr(a.data_acordo)} — ${brl(a.valor_acordado)}</h3><button onclick="fechaModal()">Fechar</button></div>
   <div><b>Englobou:</b> ${esc(orig)}</div><div class="mut" style="margin:6px 0">Principal ${brl(a.principal)} · Multa ${brl(a.multa)} · Juros ${brl(a.juros)} · Custo de cobrança ${brl(a.honorarios)}${Number(a.desconto_encargos)?' · Desconto nos encargos '+brl(a.desconto_encargos):''} · ${a.qtd_parcelas} parcela(s)</div>
   ${a.obs?`<div class="mut">Obs.: ${esc(a.obs)}</div>`:''}<div class="mut">Lançado ${new Date(a.salvo_em).toLocaleString('pt-BR')}</div>
   <div class="bt" style="margin-top:10px"><button class="pri" onclick="modalAcordo(${a.id})">Editar</button><button class="per" onclick="apagar('acordo',${a.id})">Apagar</button></div>`)}
@@ -363,7 +367,7 @@ function modalTitulo(id,editId,novo){
   const cab=`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
   ${t.grupo==='acordo'?(()=>{const ac=C.acordos.find(x=>x.id==t.acordo_id);if(!ac)return'';const d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v}</b></div>`;
     return `<div class="ficha" style="border-left-color:#c79a00;background:rgba(199,154,0,.06);margin:8px 0">
-     <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">Acordo ${numAc(ac)} — feito em ${dbr(ac.data_acordo)}</b><button onclick="vaiPara(()=>verAcordo(${ac.id}),()=>modalTitulo(${id}))">Dados do Acordo ${numAc(ac)}</button></div>
+     <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">${nomeAc(ac)} — feito em ${dbr(ac.data_acordo)}</b><button onclick="vaiPara(()=>verAcordo(${ac.id}),()=>modalTitulo(${id}))">Dados do ${nomeAc(ac)}</button></div>
      <div class="mut" style="margin:4px 0;font-weight:600;color:var(--tx)">Parcelas quitadas por este acordo</div>
      <div>${ac.titulos_origem.map(o=>{const to=C.titulos.find(x=>x.id==o);return to?`<button style="margin:2px" onclick="vaiPara(()=>modalTitulo(${to.id}),()=>modalTitulo(${id}))">${esc(to.rotulo)} — ${brl(valorAno(to))}</button>`:''}).join('')}</div>
      <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Como o valor foi formado</div>
@@ -373,16 +377,16 @@ function modalTitulo(id,editId,novo){
   const acs=(C.acordos||[]).filter(a=>a.titulos_origem.map(Number).includes(+id));
   if(acs.length&&!pags.length&&!ed&&!novo){
     document.onpaste=null;
-    abreModal(cab+acs.map(a=>{const N=numAc(a),ts=C.titulos.filter(x=>x.acordo_id==a.id),pa=C.pagamentos.filter(p=>ts.some(x=>x.id==p.titulo_id));
+    abreModal(cab+acs.map(a=>{const N=numAc(a),NA=nomeAc(a),ts=C.titulos.filter(x=>x.acordo_id==a.id),pa=C.pagamentos.filter(p=>ts.some(x=>x.id==p.titulo_id));
       const orig=a.titulos_origem.map(x=>C.titulos.find(t=>t.id==x)).filter(Boolean),peso=orig.reduce((s,x)=>s+valorAno(x),0)||1;
       const totPago=pa.reduce((s,p)=>s+Number(p.valor_pago||0),0),parte=r2(totPago*valorAno(t)/peso),ult=pa.slice().sort((x,y)=>String(y.confirmada_em).localeCompare(String(x.confirmada_em)))[0]||{};
       const fats=pa.map(p=>p.fatura).filter(Boolean);
-      const desc=`Quitada pelo Acordo ${N}`+(fats.length?` — fatura ${fats.join(', ')}`:'')+(orig.length>1?` (o acordo englobou: ${orig.map(x=>x.rotulo).join(', ')})`:'')+`. O valor está no Acordo ${N}.`;
+      const desc=`Quitada pelo ${NA}`+(fats.length?` — fatura ${fats.join(', ')}`:'')+(orig.length>1?` (o acordo englobou: ${orig.map(x=>x.rotulo).join(', ')})`:'')+`. O valor está no ${NA}.`;
       const d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v||'—'}</b></div>`;
       return `<div class="ficha">
-       <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">Quitada pelo Acordo ${N} — recebido R$ 0,00</b>${ts.map(x=>`<button class="pri" onclick="vaiPara(()=>modalTitulo(${x.id}),()=>modalTitulo(${id}))">Ver a parcela do Acordo ${N}${ts.length>1?' ('+x.numero+'/'+x.total+')':''}</button>`).join('')}<button onclick="vaiPara(()=>verAcordo(${a.id}),()=>modalTitulo(${id}))">Dados do Acordo ${N}</button></div>
+       <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">Quitada pelo ${NA} — recebido R$ 0,00</b>${ts.map(x=>`<button class="pri" onclick="vaiPara(()=>modalTitulo(${x.id}),()=>modalTitulo(${id}))">Ver a parcela do ${NA}${ts.length>1?' ('+x.numero+'/'+x.total+')':''}</button>`).join('')}<button onclick="vaiPara(()=>verAcordo(${a.id}),()=>modalTitulo(${id}))">Dados do ${NA}</button></div>
        <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Identificação no Asaas</div>
-       <div class="f2">${d('Número da fatura (do acordo)',esc(fats.join(', ')))}${d('Situação','Quitada por acordo')}${d('Forma de pagamento',esc(ult.forma||''))}${d('Cliente no Asaas',esc(ult.cliente_asaas||''))}</div>
+       <div class="f2">${d('Número da fatura (do acordo)',esc(fats.join(', ')))}${d('Situação',ehRep(a)?'Quitada por repactuação':'Quitada por acordo')}${d('Forma de pagamento',esc(ult.forma||''))}${d('Cliente no Asaas',esc(ult.cliente_asaas||''))}</div>
        <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Valores</div>
        <div class="f2">${d('Valor da cobrança',brl(valorAno(t)))}${d('Valor pago','R$ 0,00')}</div>
        <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Datas</div>
@@ -567,6 +571,30 @@ async function salvaEvento(tipo,eid){const old=eid?C.eventos.find(x=>x.id==eid)?
   const body={contrato:C.contrato.numero,tipo,motivo:$('#e_m')?.value,a_partir_titulo:Number($('#e_t').value),data:$('#e_d').value,dados,obs:$('#e_o').value};
   await api(eid?'evento/'+eid:'evento',{method:eid?'PUT':'POST',body});fechaModal();recarrega()}
 
+
+/* repactuação: parcela dividida em vários boletos antes de atrasar */
+function modalRepact(){
+  const ops=C.titulos.filter(t=>t.grupo!=='acordo'&&!C.pagamentos.some(p=>p.titulo_id==t.id)&&!acordoDe(t)&&estado(t)!=='cancelada').map(t=>`<option value="${t.id}">${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${brl(valorAno(t))}</option>`).join('');
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Repactuação (parcelamento sem atraso)</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="info">O cliente pediu, antes de atrasar, para dividir uma parcela em vários boletos. A parcela original sai como quitada pela repactuação e os boletos novos aparecem na seção Repactuações. Não tem multa nem juros.</div>
+  <div class="f2"><div><label>Parcela repactuada</label><select id="r_t">${ops}</select></div>
+  <div><label>Data da repactuação</label><input id="r_d" type="date"></div>
+  <div><label>Dividida em quantos boletos</label><input id="r_n" inputmode="numeric" value="3"></div></div>
+  <div id="r_bol" style="margin-top:8px"></div>
+  <label style="margin-top:8px">Observação</label><input id="r_o">
+  <div class="bt"><button class="pri" onclick="salvaRepact()">Salvar</button></div>`);
+  const monta=()=>{const t=C.titulos.find(x=>x.id==$('#r_t').value);if(!t)return;const n=Math.max(1,Math.min(24,parseInt($('#r_n').value)||1)),v=valorAno(t),b=r2(Math.floor(v/n*100)/100);
+    let h='<div class="mut" style="font-weight:600;color:var(--tx)">Boletos</div>';for(let i=0;i<n;i++){const d=new Date(String(t.vencimento).slice(0,10)+'T12:00:00Z');d.setUTCMonth(d.getUTCMonth()+i);const val=i<n-1?b:r2(v-b*(n-1));
+      h+=`<div class="f2"><div><label>Boleto ${i+1} — vencimento</label><input class="r_v" type="date" value="${d.toISOString().slice(0,10)}"></div><div><label>Valor</label><input class="r_val" inputmode="decimal" value="${brl(val)}"></div></div>`}
+    $('#r_bol').innerHTML=h;if(!$('#r_d').value)$('#r_d').value=String(t.vencimento).slice(0,10)};
+  $('#r_t').onchange=monta;$('#r_n').oninput=monta;monta();
+}
+async function salvaRepact(){const t=C.titulos.find(x=>x.id==$('#r_t').value);if(!t)return alert('Escolha a parcela.');
+  const vs=[...document.querySelectorAll('.r_v')].map(e=>e.value),vals=[...document.querySelectorAll('.r_val')].map(e=>numBR(e.value));
+  if(vs.some(x=>!x)||vals.some(x=>!x))return alert('Preencha vencimento e valor de todos os boletos.');
+  const tot=r2(vals.reduce((a,b)=>a+b,0));
+  await api('acordo',{method:'POST',body:{tipo:'repactuacao',contrato:C.contrato.numero,data_acordo:$('#r_d').value||t.vencimento,titulos_origem:[+t.id],principal:tot,multa:0,juros:0,honorarios:0,valor_calculado:tot,valor_acordado:tot,desconto_encargos:0,parcelas:vs.map((v,i)=>({vencimento:v,valor:vals[i]})),obs:$('#r_o').value}});
+  fechaModal();recarrega()}
 
 /* ---------- CRUZAMENTO (só administrador) ---------- */
 const NOMECONF={luis:'Luis',secretaria:'Secretária',legado:'Banco antigo',final:'Final'};

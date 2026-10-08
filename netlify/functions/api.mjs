@@ -341,6 +341,7 @@ async function garanteEsquema() {
       await q(`alter table carteira.eventos drop constraint if exists eventos_tipo_check`);
       await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao'))`);
     }
+    await q(`alter table carteira.acordos add column if not exists tipo text not null default 'acordo'`);
     schemaOk = true;
   } catch (e) { console.error('garanteEsquema', e.message); }
 }
@@ -560,16 +561,16 @@ export default async (req) => {
       const b = body;
       for (const id of b.titulos_origem || []) { const [tt] = await q('select * from carteira.titulos where id=$1', [id]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return json({ erro: b0 }, 409); }
       const [a] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios,
-                           valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs)
-                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id`,
+                           valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo)
+                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) returning id`,
         [b.contrato, conf, b.data_acordo, b.titulos_origem, b.principal, b.multa, b.juros, b.honorarios, b.valor_calculado,
-          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs)]);
+          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), b.tipo === 'repactuacao' ? 'repactuacao' : 'acordo']);
       let i = 0;
       for (const par of b.parcelas) {
         i++;
         await q(`insert into carteira.titulos(contrato, grupo, numero, total, rotulo, vencimento, valor_face, conferente, acordo_id)
                  values ($1,'acordo',$2,$3,$4,$5,$6,$7,$8)`,
-          [b.contrato, i, b.parcelas.length, `Acordo ${b.data_acordo.split('-').reverse().join('/')} — ${i}/${b.parcelas.length}`, par.vencimento, par.valor, conf, a.id]);
+          [b.contrato, i, b.parcelas.length, `${b.tipo === 'repactuacao' ? 'Repactuação' : 'Acordo'} ${b.data_acordo.split('-').reverse().join('/')} — ${i}/${b.parcelas.length}`, par.vencimento, par.valor, conf, a.id]);
       }
       await log(conf, 'acordo_novo', { id: a.id, ...b });
       return json(a);
