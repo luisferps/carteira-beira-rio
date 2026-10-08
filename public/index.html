@@ -598,13 +598,13 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
     const baseG=g=>{const vs=C.titulos.filter(x=>x.grupo===g&&!x.conferente).map(x=>+x.valor_face).filter(v=>v>0);return vs.length?Math.min(...vs):0};
     const ls=C.pagamentos.map(p=>({p,t:C.titulos.find(x=>x.id==p.titulo_id)})).filter(x=>x.t).sort((a,b)=>String(a.p.confirmada_em||a.t.vencimento).localeCompare(String(b.p.confirmada_em||b.t.vencimento)));
     let T={or:0,co:0,mu:0,ju:0,ho:0,pg:0};
-    const rows=ls.map(({p,t})=>{const mu=+p.multa_paga||0,ju=+p.juros_pago||0,ho=+p.honorarios_pago||0,pg=+p.valor_pago||0,parte=r2(pg-mu-ju-ho);
+    const qa=C.titulos.filter(t=>['quitada_acordo','quitada_repact'].includes(estado(t))).map(t=>({t,a:acordoDe(t)}));
+    const its=[...ls.map(x=>({...x,d:String(x.p.confirmada_em||x.t.vencimento)})),...qa.map(x=>({...x,d:String(x.a.data_acordo)}))].sort((x,y)=>x.d.localeCompare(y.d)||String(x.t.vencimento).localeCompare(String(y.t.vencimento)));
+    const rows=its.map(({p,t,a})=>{if(a&&!p)return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td>${dbr(a.data_acordo)}</td><td>Pago pelo ${esc(nomeAc(a))}</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">R$ 0,00</td></tr>`;const mu=+p.multa_paga||0,ju=+p.juros_pago||0,ho=+p.honorarios_pago||0,pg=+p.valor_pago||0,parte=r2(pg-mu-ju-ho);
       const b=(t.grupo==='mensal'||t.grupo==='anual')?baseG(t.grupo):0,or=b&&parte>b?b:parte,co=r2(parte-or);T.or+=or;T.co+=co;T.mu+=mu;T.ju+=ju;T.ho+=ho;T.pg+=pg;
       return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td>${dbr(p.confirmada_em)}</td><td>${esc(p.forma||'')}</td><td class="n">${brl(or)}</td><td class="n">${co?brl(co):'—'}</td><td class="n">${mu?brl(mu):'—'}</td><td class="n">${ju?brl(ju):'—'}</td><td class="n">${ho?brl(ho):'—'}</td><td class="n"><b>${brl(pg)}</b></td></tr>`}).join('');
-    const qa=C.titulos.filter(t=>['quitada_acordo','quitada_repact'].includes(estado(t)));
     corpo=`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th>Pago em</th><th>Forma</th><th class="n">Valor original</th><th class="n">Correção</th><th class="n">Multa</th><th class="n">Juros</th><th class="n">Custo cobr.</th><th class="n">Total pago</th></tr></thead><tbody>${rows}</tbody>
-     <tfoot><tr><td colspan="4">Total (${ls.length} pagamentos)</td><td class="n">${brl(T.or)}</td><td class="n">${brl(T.co)}</td><td class="n">${brl(T.mu)}</td><td class="n">${brl(T.ju)}</td><td class="n">${brl(T.ho)}</td><td class="n">${brl(T.pg)}</td></tr></tfoot></table>
-     ${qa.length?`<p class="obs">Parcelas quitadas por acordo/repactuação (o valor está na linha do acordo): ${qa.map(t=>esc(t.rotulo)+' → '+esc(nomeAc(acordoDe(t)))).join('; ')}.</p>`:''}`}
+     <tfoot><tr><td colspan="4">Total (${ls.length} pagamentos)</td><td class="n">${brl(T.or)}</td><td class="n">${brl(T.co)}</td><td class="n">${brl(T.mu)}</td><td class="n">${brl(T.ju)}</td><td class="n">${brl(T.ho)}</td><td class="n">${brl(T.pg)}</td></tr></tfoot></table>`}
   else{titulo='Relatório de valores em atraso';
     const ts=C.titulos.filter(t=>t.vencimento&&t.vencimento<=hoje&&['vencida','em_atraso'].includes(estado(t))).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
     let T={v:0,co:0,mu:0,ju:0,ho:0,tot:0};
