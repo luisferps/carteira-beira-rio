@@ -170,7 +170,7 @@ function valorNoVenc(t){if(t.grupo!=='mensal'&&t.grupo!=='anual')return valorAno
   const y0=+String(C.contrato.data_assinatura||t.vencimento).slice(0,4);return Math.max(valorAno(t),Math.round(base*fatorAnos(y0,+String(t.vencimento).slice(0,4))*100)/100)}
 /* atraso: dia seguinte ao vencimento entra multa de 2%; juros de 1% a.m. correm dia a dia sobre a parcela; em cada janeiro
    (dia da 1ª parcela do ano) o saldo devido recebe a correção anual e os juros seguem sobre a parcela corrigida; com mais de
-   30 dias entra o custo de cobrança de 10% sobre o débito (cláusula 10.4) */
+   60 dias entra o custo de cobrança de 10% sobre o débito (regra atual; antes era 30) */
 function atrasoDe(t,ate){const v=valorAno(t),vd=valorNoVenc(t),dias=Math.max(0,Math.round((new Date(ate)-new Date(t.vencimento))/864e5));
   if(!dias)return{v,co:vd-v,mu:0,ju:0,ho:0,dias,tot:vd};
   const corr=t.grupo==='mensal'||t.grupo==='anual';const m0=C.titulos.find(x=>x.grupo==='mensal'&&!x.conferente);const dd=String((m0||t).vencimento).slice(8,10);
@@ -178,7 +178,7 @@ function atrasoDe(t,ate){const v=valorAno(t),vd=valorNoVenc(t),dias=Math.max(0,M
   const cresce=ate2=>{const d=Math.max(0,Math.round((new Date(ate2)-new Date(cur))/864e5));ju+=prC*(Math.pow(1.01,d/30)-1);cur=ate2};
   if(corr)for(let y=+cur.slice(0,4)+1;y<=+String(ate).slice(0,4);y++){const dj=`${y}-01-${dd}`;if(dj<=cur||dj>ate)continue;cresce(dj);const f=FATOR_ANO[y]||1;co+=(v+co+mu+ju)*(f-1);prC*=f}
   cresce(String(ate).slice(0,10));
-  const sub=v+co+mu+ju,ho=dias>30?sub*.10:0;return{v,co,mu,ju,ho,dias,tot:sub+ho}}
+  const sub=v+co+mu+ju,ho=dias>60?sub*.10:0;return{v,co,mu,ju,ho,dias,tot:sub+ho}}
 function encDe(v,venc,ate){const dias=Math.max(0,Math.round((new Date(ate)-new Date(venc))/864e5));if(!dias)return{mu:0,ju:0,ho:0,dias};
   const mu=v*.02,ju=v*(Math.pow(1.01,dias/30)-1),ho=dias>60?(v+mu+ju)*.10:0;return{mu,ju,ho,dias}}
 function totais(){
@@ -610,7 +610,7 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
       return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td class="n">${k.dias}</td><td class="n">${brl(k.v)}</td><td class="n">${brl(k.mu)}</td><td class="n">${brl(k.ju)}</td><td class="n">${brl(k.co)}</td><td class="n">${brl(k.ho)}</td><td class="n"><b>${brl(k.tot)}</b></td></tr>`}).join('');
     corpo=ts.length?`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th class="n">Dias de atraso</th><th class="n">Valor da parcela</th><th class="n">Multa 2%</th><th class="n">Juros 1% a.m.</th><th class="n">Correção</th><th class="n">Custo cobr.</th><th class="n">Total</th></tr></thead><tbody>${rows}</tbody>
      <tfoot><tr><td colspan="3">Total (${ts.length} parcela${ts.length==1?'':'s'})</td><td class="n">${brl(T.v)}</td><td class="n">${brl(T.mu)}</td><td class="n">${brl(T.ju)}</td><td class="n">${brl(T.co)}</td><td class="n">${brl(T.ho)}</td><td class="n">${brl(T.tot)}</td></tr></tfoot></table>
-     <p class="obs">Como é calculado: no dia seguinte ao vencimento entra a multa de 2%; os juros de 1% ao mês correm dia a dia; em cada janeiro (data da 1ª parcela do ano) o saldo devido recebe a correção anual do contrato (IGP-M + juros de 2% a.a.: 2024 +2%, 2025 +8,54%, 2026 +2%) e os juros seguem sobre a parcela corrigida; decorridos 30 dias do vencimento entra o custo de cobrança de 10% sobre o débito (cláusula 10.4 do contrato). Valores calculados até ${dbr(hoje)}.</p>`:'<p><b>Nenhuma parcela em atraso nesta data.</b></p>'}
+     <p class="obs">Como é calculado: no dia seguinte ao vencimento entra a multa de 2%; os juros de 1% ao mês correm dia a dia; em cada janeiro (data da 1ª parcela do ano) o saldo devido recebe a correção anual do contrato (IGP-M + juros de 2% a.a.: 2024 +2%, 2025 +8,54%, 2026 +2%) e os juros seguem sobre a parcela corrigida; com mais de 60 dias de atraso entra o custo de cobrança de 10% sobre o débito. Valores calculados até ${dbr(hoje)}.</p>`:'<p><b>Nenhuma parcela em atraso nesta data.</b></p>'}
   const w=window.open('','_blank');
   w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${titulo} — Contrato ${c.numero}</title><style>
    body{font-family:Arial,sans-serif;color:#111;margin:28px;font-size:13px}h1{font-size:19px;margin:0 0 4px}.cab{display:flex;gap:14px;align-items:center;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:12px}.cab img{height:46px}
