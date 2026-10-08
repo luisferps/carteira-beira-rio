@@ -115,7 +115,7 @@ function route(){const h=location.hash.slice(1);COMO='';
 
 /* ---------- LISTA ---------- */
 let FILTRO='todos';
-function statusC(c){if(c.cancelado)return /retom/i.test(c.motivo_enc||'')?'retom':/distrat|devol/i.test(c.motivo_enc||'')?'dev':'canc';if(!+c.conferidas&&+c.vencidas)return 'conf';return +c.em_atraso?(+c.em_atraso_valor>5000?'atrasoG':'atraso'):'dia'}
+function statusC(c){if(c.cancelado)return /retom/i.test(c.motivo_enc||'')?'retom':/distrat|devol/i.test(c.motivo_enc||'')?'dev':'canc';if(!+c.conferidas&&+c.vencidas)return 'conf';return +c.em_atraso?(+(c.devido??c.em_atraso_valor)>5000?'atrasoG':'atraso'):'dia'}
 const STNOME={dia:'Em dia',atraso:'Em atraso',atrasoG:'Em atraso acima de R$ 5 mil',canc:'Cancelado',retom:'Retomado',dev:'Distrato (devolução)',conf:'A conferir'};const GRP=s=>s==='atrasoG'?'atraso':s==='retom'||s==='dev'?'canc':s;
 async function telaLista(){
   app.innerHTML='<div class="card">Carregando…</div>';
@@ -129,10 +129,11 @@ async function telaLista(){
   const desenha=()=>{const t=$('#bus').value.toLowerCase();
     $('#tb').innerHTML=LISTA.filter(c=>(!t||(c.numero+' q'+c.quadra+' l'+c.lote+' q'+c.quadra+'l'+c.lote+' '+(c.titular||'')).toLowerCase().includes(t))&&(FILTRO==='todos'||(FILTRO==='fech'?!!c.fechado_em:GRP(statusC(c))===FILTRO))).map(c=>{
       const st=statusC(c);
-      return `<button class="cb mini st-${st}" title="${STNOME[st]}${GRP(st)==='atraso'?' — '+c.em_atraso+' parcela(s), '+brl(+c.em_atraso_valor):''}" onclick="location.hash='c/${c.numero}'">
+      return `<button class="cb mini st-${st}" title="${STNOME[st]}${GRP(st)==='atraso'?' — '+c.em_atraso+' parcela(s), devendo '+brl(+(c.devido??c.em_atraso_valor))+(c.devido!=null?' com multa, juros e correção':''):''}" onclick="location.hash='c/${c.numero}'">
       <div class="cbt"><b>${c.numero}</b><span>Q${c.quadra||'?'} L${c.lote||'?'}</span></div>
       <div class="cbn">${esc(nome(c.titular))}</div></button>`}).join('')||'<div class="mut">Nenhum contrato nesse filtro.</div>'};
-  $('#bus').oninput=desenha;$('#filt').onclick=e=>{const f=e.target.dataset?.f;if(!f)return;FILTRO=f;document.querySelectorAll('#filt button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));desenha()};desenha();
+  $('#bus').oninput=desenha;
+  (async()=>{for(const c of LISTA.filter(c=>!c.cancelado&&+c.em_atraso>0&&c.devido==null)){try{const d=await api('contrato/'+c.numero),sv=C;C=d;c.devido=totais().at.tot;C=sv}catch(e){}}if(document.getElementById('tb'))desenha()})();$('#filt').onclick=e=>{const f=e.target.dataset?.f;if(!f)return;FILTRO=f;document.querySelectorAll('#filt button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));desenha()};desenha();
 }
 
 /* ---------- CONTRATO: cálculos ---------- */
