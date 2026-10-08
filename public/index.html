@@ -28,7 +28,7 @@ th{font-size:12px;color:var(--mut);font-weight:600}tr.lk{cursor:pointer}tr.lk:ho
 .lin .rot{width:78px;font-size:12px;color:var(--mut)}
 .pc{width:74px;height:50px;border-radius:8px;border:2px solid transparent;font-size:11px;line-height:1.15;padding:3px;color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;position:relative}
 .pc small{font-size:10px;opacity:.9}
-.acl{align-items:stretch}.acl .pc{width:auto;min-width:74px;max-width:340px;height:auto;min-height:50px;padding:3px 8px}
+.acl{align-items:stretch}.acl .pc{width:auto;min-width:74px;max-width:150px;height:auto;min-height:50px;padding:3px 8px}
 .pc.paga{background:var(--pg)}.pc.paga_atraso{background:var(--pa);color:#0f3d1f}.pc.quitada_acordo{background:var(--ac);color:#3a2c00}.pc.em_acordo{background:#fff;color:#3a2c00;border-color:var(--ac)}.pc.quitada_repact{background:var(--rp)}.pc.em_repact{background:#fff;color:#134e4a;border-color:var(--rp)}
 .pc.cancelada{background:var(--ca)}.pc.em_atraso{background:var(--at)}.pc.vencida{background:var(--ve)}.pc.futura{background:var(--fu);color:#333}
 .pc.anual{outline:2px dashed #333;outline-offset:1px}.grid.selmodo .pc{opacity:.3;filter:grayscale(.5);cursor:not-allowed}.grid.selmodo .pc.selok{opacity:1;filter:none;cursor:pointer}
@@ -159,7 +159,8 @@ function estado(t){
 }
 function codTit(t){if(!t)return'?';if(t.grupo==='acordo'){const a=C.acordos.find(x=>x.id==t.acordo_id);return 'R'+(a?numAc(a):'')+(t.total>1?'.'+t.numero:'')}
   return ({mensal:'M',anual:'A',entrada:'E'}[t.grupo]||'P')+t.numero}
-function origensAc(a){return (a.titulos_origem||[]).map(i=>codTit(C.titulos.find(t=>t.id==i))).join('+')}
+function origensAc(a){const g={},ord=[];for(const i of a.titulos_origem||[]){const c=codTit(C.titulos.find(t=>t.id==i)),m=c.match(/^(.*?)(\d+)$/);const k=m?m[1]:c;if(!g[k]){g[k]=[];ord.push(k)}if(m)g[k].push(+m[2])}
+  return ord.map(k=>{const n=[...new Set(g[k])].sort((x,y)=>x-y),r=[];for(let i=0;i<n.length;i++){let j=i;while(j+1<n.length&&n[j+1]===n[j]+1)j++;r.push(j>i?n[i]+'–'+n[j]:''+n[i]);i=j}return k+(r.join(',')||'')}).join(' ')}
 const ehRep=a=>a&&a.tipo==='repactuacao';const nomeAc=a=>(ehRep(a)?'Repactuação ':'Acordo ')+numAc(a);const nomeCurto=a=>(ehRep(a)?'Repact. ':'Acordo ')+numAc(a);
 function numAc(a){const l=[...C.acordos].filter(x=>ehRep(x)===ehRep(a)).sort((x,y)=>String(x.data_acordo).localeCompare(String(y.data_acordo))||x.id-y.id);return l.findIndex(x=>x.id==a.id)+1}
 function acordoDe(t){return C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)))}
