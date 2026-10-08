@@ -369,6 +369,19 @@ export default async (req) => {
   try {
     if (p[0] === 'eu') return json({ conferente: real });
 
+    if (p[0] === 'asaas-busca') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      const de = url.searchParams.get('de'), ate = url.searchParams.get('ate'), campo = url.searchParams.get('campo') || 'paymentDate';
+      const min = Number(url.searchParams.get('min') || 0), max = Number(url.searchParams.get('max') || 1e12);
+      const out = [], nomes = {};
+      for (let off = 0; off < 3000; off += 100) {
+        const r = await asaas(`/payments?${campo}[ge]=${de}&${campo}[le]=${ate}&limit=100&offset=${off}`);
+        for (const g of r?.data || []) if (g.value >= min && g.value <= max) out.push(g);
+        if (!r?.hasMore) break;
+      }
+      for (const g of out) if (!(g.customer in nomes)) { const cu = await asaas('/customers/' + g.customer).catch(() => null); nomes[g.customer] = cu?.name || null; }
+      return json(out.map(g => ({ fatura: g.invoiceNumber, status: g.status, valor: g.value, criada: g.dateCreated, venc: g.dueDate, pago_em: g.paymentDate || g.clientPaymentDate, forma: g.billingType, descricao: g.description, cliente: g.customer, nome: nomes[g.customer], deletado: g.deleted })));
+    }
     if (p[0] === 'asaas-fatura' && p[1]) {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
       const l = await q(`select coalesce(asaas_payment_real_id, asaas_payment_id) id from public.lote_recebimentos_legado_20260911 where numero_fatura=$1 limit 1`, [p[1]]);
