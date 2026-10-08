@@ -185,14 +185,14 @@ function atrasoDe(t,ate){const v=valorAno(t),vd=valorNoVenc(t),dias=Math.max(0,M
 function encDe(v,venc,ate){const dias=Math.max(0,Math.round((new Date(ate)-new Date(venc))/864e5));if(!dias)return{mu:0,ju:0,ho:0,dias};
   const mu=v*.02,ju=v*(Math.pow(1.01,dias/30)-1),ho=dias>60?(v+mu+ju)*.10:0;return{mu,ju,ho,dias}}
 function totais(){
-  let qv=0,esp=0,rec=0,pend=0;const pg={pr:0,mu:0,ju:0,ho:0},at={pr:0,co:0,mu:0,ju:0,ho:0,q:0};
+  let qv=0,esp=0,rec=0,pend=0;const pg={pr:0,mu:0,ju:0,ho:0,de:0,cp:0},at={pr:0,co:0,mu:0,ju:0,ho:0,q:0};
   for(const t of C.titulos){const e=estado(t);const venc=t.vencimento&&t.vencimento<=C.hoje;if(e==='cancelada')continue;
     if(t.grupo!=='acordo'&&venc){qv++;esp+=valorAno(t)}
     if(e==='vencida')pend++;
     if(venc&&(e==='vencida'||e==='em_atraso')){const k=atrasoDe(t,C.hoje);at.q++;at.pr+=k.v;at.co+=k.co;at.mu+=k.mu;at.ju+=k.ju;at.ho+=k.ho}}
   for(const p of C.pagamentos){const v=Number(p.valor_pago||0);rec+=v;
-    const mu=Number(p.multa_paga||0),ju=Number(p.juros_pago||0),ho=Number(p.honorarios_pago||0),base=v-mu-ju-ho;
-    pg.mu+=mu;pg.ju+=ju;pg.ho+=ho;
+    const mu=Number(p.multa_paga||0),ju=Number(p.juros_pago||0),ho=Number(p.honorarios_pago||0),cp=Number(p.compensacao||0),base=v-mu-ju-ho-cp;
+    pg.mu+=mu;pg.ju+=ju;pg.ho+=ho;pg.cp+=cp;pg.de+=Number(p.desconto_dado||0);
     const t=C.titulos.find(x=>x.id==p.titulo_id),a=t&&t.grupo==='acordo'?C.acordos.find(x=>x.id==t.acordo_id):null;
     if(a&&Number(a.valor_acordado)>0){const f=base/Number(a.valor_acordado);pg.pr+=Number(a.principal||0)*f;pg.mu+=Number(a.multa||0)*f;pg.ju+=Number(a.juros||0)*f;pg.ho+=Number(a.honorarios||0)*f}
     else pg.pr+=base}
@@ -245,7 +245,7 @@ function desenhaContrato(){
    ${tt.pend?`<div class="neg"><span class="mut">Vencidas sem nada lançado</span><b>${tt.pend}</b></div>`:''}
    ${(()=>{const ce=C.eventos.filter(e=>e.tipo==='cessao'&&e.dados?.taxa_cessao!=null);if(!ce.length)return'';const pg=ce.filter(e=>e.dados.pago_em).reduce((a,e)=>a+Number(e.dados.valor_pago??e.dados.taxa_cessao),0);return `<div><span class="mut">Despesas acessórias pagas (cessão de direitos)</span><b>${brl(pg)}</b><small class="mut">fora do recebido; não gera dívida</small></div>`})()}</div>
    <div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">Do que já pagou</div>
-   <div class="tot"><div><span class="mut">Principal</span><b>${brl(tt.pg.pr)}</b></div><div><span class="mut">Multa</span><b>${brl(tt.pg.mu)}</b></div><div><span class="mut">Juros</span><b>${brl(tt.pg.ju)}</b></div><div><span class="mut">Custo de cobrança</span><b>${brl(tt.pg.ho)}</b></div></div>
+   <div class="tot"><div><span class="mut">Principal</span><b>${brl(tt.pg.pr)}</b></div><div><span class="mut">Multa</span><b>${brl(tt.pg.mu)}</b></div><div><span class="mut">Juros</span><b>${brl(tt.pg.ju)}</b></div><div><span class="mut">Custo de cobrança</span><b>${brl(tt.pg.ho)}</b></div>${tt.pg.de>0.009||tt.pg.cp>0.009?`<div><span class="mut">Desconto dado</span><b>${brl(tt.pg.de)}</b></div><div><span class="mut">Compensação (pago a mais)</span><b>${brl(tt.pg.cp)}</b></div>`:''}</div>
    <div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">Do que está em atraso (calculado até hoje)</div>
    <div class="tot"><div><span class="mut">Principal</span><b>${brl(tt.at.pr)}</b></div><div><span class="mut">Multa</span><b>${brl(tt.at.mu)}</b></div><div><span class="mut">Juros</span><b>${brl(tt.at.ju)}</b></div><div><span class="mut">Correção anual</span><b>${brl(tt.at.co)}</b></div><div><span class="mut">Custo de cobrança</span><b>${brl(tt.at.ho)}</b></div></div></div>
   <div class="card"><div class="bt">
@@ -321,7 +321,7 @@ const GRUPOS=[
  ['Identificação no Asaas (em pagamento fora do Asaas pode ficar em branco)',[['fatura','Número da fatura'],['situacao_asaas','Situação no Asaas'],['forma','Forma de pagamento','sel'],['cliente_asaas','Cliente no Asaas']]],
  ['Valores',[['valor_cobranca','Valor da cobrança (parcela do contrato + correção)','num'],['valor_pago','Valor pago','num']]],
  ['Datas',[['criada_em','Criada em','date'],['vencimento_original','Vencimento original (da parcela)','date'],['vencimento_boleto','Vencimento do boleto','date'],['confirmada_em','Confirmada / recebida em (dinheiro entrou)','date'],['saque_em','Saque disponível em','date']]],
- ['Encargos pagos neste pagamento (calculado sozinho pela diferença; pode corrigir)',[['multa_paga','Multa paga (R$)','num'],['juros_pago','Juros pagos (R$)','num'],['honorarios_pago','Custo de cobrança pago (R$)','num'],['desconto_dado','Desconto dado (R$)','num']]]];
+ ['Encargos pagos neste pagamento (calculado sozinho pela diferença; pode corrigir)',[['multa_paga','Multa paga (R$)','num'],['juros_pago','Juros pagos (R$)','num'],['honorarios_pago','Custo de cobrança pago (R$)','num'],['desconto_dado','Desconto dado (R$)','num'],['compensacao','Compensação — pago a mais para cobrir desconto anterior (R$)','num']]]];
 const CAMPOS=GRUPOS.flatMap(g=>g[1]);
 const FORMAS=['Boleto Bancário','Pix','Cartão de crédito','Pagamento à construtora','Transferência bancária','Dinheiro','Cheque','Veículo (dação)','Outro'];
 let PRINT=null;
@@ -449,7 +449,7 @@ async function lerIA(){
   if(!PRINT&&!$('#f_descricao').value.trim()){$('#iast').textContent='Cole o print primeiro (Ctrl+V).';return}
   $('#iast').textContent='Lendo…';$('#bia').disabled=true;
   try{const d=await api('ler-print',{method:'POST',body:{imagem:PRINT,descricao:$('#f_descricao').value}});
-    for(const [k,,tp] of CAMPOS){if(['vencimento_original','valor_cobranca','multa_paga','juros_pago','honorarios_pago','desconto_dado'].includes(k))continue;if(d[k]!=null&&d[k]!==''){if(k==='forma'){const f=FORMAS.find(x=>x.toLowerCase().startsWith(String(d[k]).toLowerCase().slice(0,5)));if(f)$('#f_forma').value=f}else $('#f_'+k).value=tp==='num'?(numBR(d[k])!=null?brl(numBR(String(d[k]).includes(',')?d[k]:String(d[k]).replace('.',','))):d[k]):d[k]}}
+    for(const [k,,tp] of CAMPOS){if(['vencimento_original','valor_cobranca','multa_paga','juros_pago','honorarios_pago','desconto_dado','compensacao'].includes(k))continue;if(d[k]!=null&&d[k]!==''){if(k==='forma'){const f=FORMAS.find(x=>x.toLowerCase().startsWith(String(d[k]).toLowerCase().slice(0,5)));if(f)$('#f_forma').value=f}else $('#f_'+k).value=tp==='num'?(numBR(d[k])!=null?brl(numBR(String(d[k]).includes(',')?d[k]:String(d[k]).replace('.',','))):d[k]):d[k]}}
     if(!$('#f_confirmada_em').value&&d.saque_em)$('#f_confirmada_em').value=d.saque_em;
     window._IA={parcelas:(d.parcelas_citadas||[]).map(x=>{const m=String(x).match(/(\d{1,3})\s*\/\s*(\d{1,3})/);return m?{txt:+m[1]+'/'+m[2],n:+m[1],tot:+m[2]}:null}).filter(Boolean),contrato:d.contrato?String(d.contrato).padStart(4,'0'):null,quadra:d.quadra?String(d.quadra).padStart(2,'0'):null,lote:d.lote?String(d.lote).padStart(2,'0'):null};
     calcEncargos();

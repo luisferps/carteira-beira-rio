@@ -39,7 +39,7 @@ const CAMPOS_PAG = ['forma', 'fatura', 'situacao_asaas', 'valor_cobranca', 'valo
   'vencimento_boleto', 'confirmada_em', 'saque_em', 'cliente_asaas', 'descricao', 'obs',
   'id_asaas', 'link_fatura', 'nosso_numero', 'linha_digitavel', 'valor_liquido', 'vencimento_original', 'pago_cliente_em',
   'juros_mes_pct', 'multa_pct', 'desconto_valor', 'id_cliente_asaas', 'id_parcelamento_asaas',
-  'multa_paga', 'juros_pago', 'honorarios_pago', 'desconto_dado'];
+  'multa_paga', 'juros_pago', 'honorarios_pago', 'desconto_dado', 'compensacao'];
 
 function limpa(v) { return v === '' || v === undefined ? null : v; }
 
@@ -342,6 +342,7 @@ async function garanteEsquema() {
       await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao'))`);
     }
     await q(`alter table carteira.acordos add column if not exists tipo text not null default 'acordo'`);
+    await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
     schemaOk = true;
   } catch (e) { console.error('garanteEsquema', e.message); }
 }
