@@ -66,6 +66,7 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .pc.corr{outline:3px solid #7c3aed;outline-offset:2px}
 .pc.ces{box-shadow:0 0 0 3px #fff,0 0 0 6px #ea580c}
 .pc.corr.ces{outline:3px solid #7c3aed;box-shadow:0 0 0 6px #ea580c}
+.pc:has(.orig){height:auto;min-height:50px}.orig{display:block;text-align:center;max-width:100%;white-space:normal;overflow-wrap:break-word;line-height:1.15;font-size:10px}
 </style>
 </head>
 <body>
@@ -189,7 +190,7 @@ function btn(t){
   const corr=t.grupo!=='acordo'&&C.correcoes.some(k=>k.grupo===t.grupo&&+k.a_partir===+t.numero);
   const ces=C.eventos.some(e=>e.tipo==='cessao'&&+e.a_partir_titulo===+t.id);
   return `<button class="pc ${e} ${t.grupo==='anual'?'anual':''} ${SEL.has(+t.id)?'sel':''} ${SELMODO&&podeAcordo(t)?'selok':''} ${corr?'corr':''} ${ces?'ces':''}" title="${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${NOMES[e]}${corr?' — começa correção aqui':''}${ces?' — primeira parcela do novo titular (cessão)':''}" onclick="clicaTitulo(${t.id})">
-  ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo')&&acordoDe(t)?'Acordo '+numAc(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small>${t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?`<small style="font-weight:700">${esc(origensAc(C.acordos.find(a=>a.id==t.acordo_id)))}</small>`:''}</button>`;
+  ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo')&&acordoDe(t)?'Acordo '+numAc(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small>${t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?`<small class="orig" style="font-weight:700">${esc(origensAc(C.acordos.find(a=>a.id==t.acordo_id))).replace(/\+/g,'+&#8203;')}</small>`:''}</button>`;
 }
 function desenhaContrato(){
   const c=C.contrato,tt=totais(),T=C.titulos,base=T.filter(t=>t.grupo!=='acordo');
