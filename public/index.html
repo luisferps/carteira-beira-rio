@@ -210,7 +210,7 @@ function btn(t){
   const corr=t.grupo!=='acordo'&&C.correcoes.some(k=>k.grupo===t.grupo&&+k.a_partir===+t.numero);
   const ces=C.eventos.some(e=>e.tipo==='cessao'&&+e.a_partir_titulo===+t.id);const rep=C.eventos.some(e=>e.tipo==='repactuacao'&&+e.a_partir_titulo===+t.id);
   return `<button class="pc ${e} ${t.grupo==='anual'?'anual':''} ${SEL.has(+t.id)?'sel':''} ${SELMODO&&podeAcordo(t)?'selok':''} ${corr?'corr':''} ${ces?'ces':''} ${rep?'rep':''}" title="${esc(t.rotulo)}${rep?' — repactuada (parcelada sem atraso)':''} — ${dbr(t.vencimento)} — ${NOMES[e]}${corr?' — começa correção aqui':''}${ces?' — primeira parcela do novo titular (cessão)':''}" onclick="clicaTitulo(${t.id})">
-  ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo'||e==='quitada_repact'||e==='em_repact')&&acordoDe(t)?nomeCurto(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small>${t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?`<small class="orig" style="font-weight:700">${esc(origensAc(C.acordos.find(a=>a.id==t.acordo_id))).replace(/\+/g,'+&#8203;')}</small>`:''}</button>`;
+  ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo'||e==='quitada_repact'||e==='em_repact')&&acordoDe(t)?nomeCurto(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small>${t.grupo==='acordo'&&t.total>1&&C.acordos.find(a=>a.id==t.acordo_id)?`<small>total ${brl(C.acordos.find(a=>a.id==t.acordo_id).valor_acordado).replace('R$','').trim()}</small>`:''}${t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?`<small class="orig" style="font-weight:700">${esc(origensAc(C.acordos.find(a=>a.id==t.acordo_id))).replace(/\+/g,'+&#8203;')}</small>`:''}</button>`;
 }
 function desenhaContrato(){
   const c=C.contrato,tt=totais(),T=C.titulos,base=T.filter(t=>t.grupo!=='acordo');
@@ -264,7 +264,7 @@ function desenhaContrato(){
 function verAcordo(id){const a=C.acordos.find(x=>x.id==id),T=C.titulos;const orig=(a.titulos_origem||[]).map(i=>T.find(t=>t.id==i)?.rotulo||'?').join(', ');
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${nomeAc(a)} — de ${dbr(a.data_acordo)} — ${brl(a.valor_acordado)}</h3><button onclick="fechaModal()">Fechar</button></div>
   <div><b>Englobou:</b> ${esc(orig)}</div><div class="mut" style="margin:6px 0">Principal ${brl(a.principal)} · Multa ${brl(a.multa)} · Juros ${brl(a.juros)} · Custo de cobrança ${brl(a.honorarios)} · ${a.qtd_parcelas} parcela(s)</div>
-  <div style="margin:8px 0"><b>Parcelas do acordo e pagamentos</b>${T.filter(t=>t.acordo_id==a.id).sort((x,y)=>x.numero-y.numero).map(t=>{const ps=C.pagamentos.filter(p=>p.titulo_id==t.id);return `<div class="mut">${t.numero}/${t.total} — vence ${dbr(t.vencimento)} — ${brl(t.valor_face)} → ${ps.length?ps.map(p=>'pago '+brl(p.valor_pago)+' em '+dbr(p.confirmada_em||p.pago_cliente_em)+' (fatura '+esc(p.fatura||'—')+')').join('; '):'<b style="color:var(--at)">sem pagamento</b>'}</div>`}).join('')}<div class="mut"><b>Total pago: ${brl(T.filter(t=>t.acordo_id==a.id).reduce((s,t)=>s+C.pagamentos.filter(p=>p.titulo_id==t.id).reduce((x,p)=>x+Number(p.valor_pago||0),0),0))}</b></div></div>
+  ${resumoAc(a)}
   ${a.obs?`<div class="mut">Obs.: ${esc(a.obs)}</div>`:''}<div class="mut">Lançado ${new Date(a.salvo_em).toLocaleString('pt-BR')}</div>
   <div class="bt" style="margin-top:10px"><button class="pri" onclick="modalAcordo(${a.id})">Editar</button><button class="per" onclick="apagar('acordo',${a.id})">Apagar</button></div>`)}
 const IGPM_ANO={2023:0,2024:0,2025:6.54,2026:0};
@@ -380,13 +380,16 @@ function fichaPag(p,id){
    <div class="desc">${esc(p.descricao||'')||'<span class="mut">Sem descrição</span>'}</div>
    ${p.obs?`<div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Observação</div><div class="desc">${esc(p.obs)}</div>`:''}</div>`;
 }
+function resumoAc(a){const T=C.titulos,ps=T.filter(t=>t.acordo_id==a.id).sort((x,y)=>x.numero-y.numero);let tp=0;
+  const lin=ps.map(t=>{const pg=C.pagamentos.filter(p=>p.titulo_id==t.id);pg.forEach(p=>tp+=Number(p.valor_pago||0));return `<div class="mut">Parcela ${t.numero}/${t.total} — vence ${dbr(t.vencimento)} — ${brl(t.valor_face)} → ${pg.length?pg.map(p=>'pago '+brl(p.valor_pago)+' em '+dbr(p.confirmada_em||p.pago_cliente_em)+' (fatura '+esc(p.fatura||'—')+')').join('; '):'<b style="color:var(--at)">sem pagamento</b>'}</div>`}).join('');
+  return `<div style="margin:8px 0;padding:8px;border:1px solid #e5e7eb;border-radius:8px"><b>Valor total do ${nomeAc(a)}: ${brl(a.valor_acordado)} em ${ps.length} parcela(s) · Total pago: ${brl(tp)}</b>${lin}</div>`}
 function modalTitulo(id,editId,novo){
   const t=C.titulos.find(x=>x.id==id),pags=C.pagamentos.filter(p=>p.titulo_id==id),sit=C.situacoes.find(s=>s.titulo_id==id);
   const ed=editId?pags.find(p=>p.id==editId):null;PRINT=null;
   const cab=`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
   ${t.grupo==='acordo'?(()=>{const ac=C.acordos.find(x=>x.id==t.acordo_id);if(!ac)return'';const d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v}</b></div>`;
     return `<div class="ficha" style="border-left-color:#c79a00;background:rgba(199,154,0,.06);margin:8px 0">
-     <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">${nomeAc(ac)} — feito em ${dbr(ac.data_acordo)}</b><button onclick="vaiPara(()=>verAcordo(${ac.id}),()=>modalTitulo(${id}))">Dados do ${nomeAc(ac)}</button></div>
+     <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">${nomeAc(ac)} — feito em ${dbr(ac.data_acordo)}</b><button onclick="vaiPara(()=>verAcordo(${ac.id}),()=>modalTitulo(${id}))">Dados do ${nomeAc(ac)}</button></div>${resumoAc(ac)}
      <div class="mut" style="margin:4px 0;font-weight:600;color:var(--tx)">Parcelas quitadas por este acordo</div>
      <div>${ac.titulos_origem.map(o=>{const to=C.titulos.find(x=>x.id==o);return to?`<button style="margin:2px" onclick="vaiPara(()=>modalTitulo(${to.id}),()=>modalTitulo(${id}))">${esc(to.rotulo)} — ${brl(valorAno(to))}</button>`:''}).join('')}</div>
      <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Como o valor foi formado</div>
