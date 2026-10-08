@@ -482,14 +482,14 @@ export default async (req) => {
                (select fechado_em from carteira.fechamentos f where f.contrato=c.numero and f.conferente=$1) as fechado_em,
                exists(select 1 from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='encerramento') as cancelado,
                (select e.motivo from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='encerramento' order by e.id desc limit 1) as motivo_enc,
-               (select count(*) from carteira.titulos t
+               ea.n as em_atraso, ea.v as em_atraso_valor
+        from carteira.contratos c cross join lateral (select count(*) as n, coalesce(sum(t.valor_face),0) as v from carteira.titulos t
                   where t.contrato=c.numero and (t.conferente is null or t.conferente=$1) and t.vencimento <= current_date
                     and not exists(select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente=$1)
                     and not exists(select 1 from carteira.acordos a where a.contrato=c.numero and a.conferente=$1 and t.id = any(a.titulos_origem))
                     and not exists(select 1 from carteira.conferencia_titulo ct where ct.titulo_id=t.id and ct.conferente=$1 and ct.situacao='cancelada')
                     and not exists(select 1 from carteira.eventos e join carteira.titulos t0 on t0.id=e.a_partir_titulo
-                                   where e.contrato=c.numero and e.conferente=$1 and e.tipo='encerramento' and t.grupo<>'acordo' and t.vencimento >= t0.vencimento)) as em_atraso
-        from carteira.contratos c order by c.numero`, [conf]);
+                                   where e.contrato=c.numero and e.conferente=$1 and e.tipo='encerramento' and t.grupo<>'acordo' and t.vencimento >= t0.vencimento)) ea order by c.numero`, [conf]);
       return json(rows);
     }
 

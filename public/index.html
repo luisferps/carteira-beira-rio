@@ -49,7 +49,7 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .mut{color:var(--mut);font-size:12px}.r{text-align:right}.hid{display:none}
 .cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
 .cb{text-align:left;background:#fff;border:1px solid var(--ln);border-left:5px solid var(--fu);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px;min-height:140px}
-.cb:hover{border-color:var(--az);box-shadow:0 2px 10px rgba(0,0,0,.06)}.cb.st-dia{background:#bbf7d0;border-color:#16a34a;border-left-color:#16a34a}.cb.st-atraso{background:#fecaca;border-color:#dc2626;border-left-color:#dc2626}.cb.st-canc{background:#000;border-color:#000;border-left-color:#000;color:#fff;opacity:.45}.cb.st-canc:hover{opacity:.8}.cb.st-retom{background:#3b0764;border-color:#3b0764;border-left-color:#3b0764;color:#fff;opacity:.45}.cb.st-dev{background:#a16207;border-color:#a16207;border-left-color:#a16207;color:#fff;opacity:.6}.cb.st-retom:hover,.cb.st-dev:hover{opacity:.8}.cb.st-retom .cbt b,.cb.st-retom .cbn,.cb.st-dev .cbt b,.cb.st-dev .cbn{color:#fff}.cb.st-retom .cbt span,.cb.st-dev .cbt span{color:#e5e7eb}.cb.st-canc .cbt b,.cb.st-canc .cbn{color:#fff}.cb.st-canc .cbt span{color:#9ca3af}.cb.st-conf{background:#fff;border-left-color:var(--fu)}
+.cb:hover{border-color:var(--az);box-shadow:0 2px 10px rgba(0,0,0,.06)}.cb.st-dia{background:#bbf7d0;border-color:#16a34a;border-left-color:#16a34a}.cb.st-atraso{background:#fecaca;border-color:#dc2626;border-left-color:#dc2626}.cb.st-atrasoG{background:#b91c1c;border-color:#7f1d1d;border-left-color:#7f1d1d;color:#fff}.cb.st-atrasoG .cbt b,.cb.st-atrasoG .cbn{color:#fff}.cb.st-atrasoG .cbt span{color:#fecaca}.cb.st-canc{background:#000;border-color:#000;border-left-color:#000;color:#fff;opacity:.45}.cb.st-canc:hover{opacity:.8}.cb.st-retom{background:#3b0764;border-color:#3b0764;border-left-color:#3b0764;color:#fff;opacity:.45}.cb.st-dev{background:#a16207;border-color:#a16207;border-left-color:#a16207;color:#fff;opacity:.6}.cb.st-retom:hover,.cb.st-dev:hover{opacity:.8}.cb.st-retom .cbt b,.cb.st-retom .cbn,.cb.st-dev .cbt b,.cb.st-dev .cbn{color:#fff}.cb.st-retom .cbt span,.cb.st-dev .cbt span{color:#e5e7eb}.cb.st-canc .cbt b,.cb.st-canc .cbn{color:#fff}.cb.st-canc .cbt span{color:#9ca3af}.cb.st-conf{background:#fff;border-left-color:var(--fu)}
 .cb.mini{min-height:0;height:96px;padding:8px 10px;gap:2px;overflow:hidden;justify-content:flex-start}.cb.mini .cbn{font-size:13px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .cgrid.mini{grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
 .filtros{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.filtros button.on{background:var(--tx);color:#fff}
@@ -114,8 +114,8 @@ function route(){const h=location.hash.slice(1);COMO='';
 
 /* ---------- LISTA ---------- */
 let FILTRO='todos';
-function statusC(c){if(c.cancelado)return /retom/i.test(c.motivo_enc||'')?'retom':/distrat|devol/i.test(c.motivo_enc||'')?'dev':'canc';if(!+c.conferidas&&+c.vencidas)return 'conf';return +c.em_atraso?'atraso':'dia'}
-const STNOME={dia:'Em dia',atraso:'Em atraso',canc:'Cancelado',retom:'Retomado',dev:'Distrato (devolução)',conf:'A conferir'};const GRP=s=>s==='retom'||s==='dev'?'canc':s;
+function statusC(c){if(c.cancelado)return /retom/i.test(c.motivo_enc||'')?'retom':/distrat|devol/i.test(c.motivo_enc||'')?'dev':'canc';if(!+c.conferidas&&+c.vencidas)return 'conf';return +c.em_atraso?(+c.em_atraso_valor>5000?'atrasoG':'atraso'):'dia'}
+const STNOME={dia:'Em dia',atraso:'Em atraso',atrasoG:'Em atraso acima de R$ 5 mil',canc:'Cancelado',retom:'Retomado',dev:'Distrato (devolução)',conf:'A conferir'};const GRP=s=>s==='atrasoG'?'atraso':s==='retom'||s==='dev'?'canc':s;
 async function telaLista(){
   app.innerHTML='<div class="card">Carregando…</div>';
   LISTA=await api('contratos');
@@ -128,7 +128,7 @@ async function telaLista(){
   const desenha=()=>{const t=$('#bus').value.toLowerCase();
     $('#tb').innerHTML=LISTA.filter(c=>(!t||(c.numero+' q'+c.quadra+' l'+c.lote+' q'+c.quadra+'l'+c.lote+' '+(c.titular||'')).toLowerCase().includes(t))&&(FILTRO==='todos'||(FILTRO==='fech'?!!c.fechado_em:GRP(statusC(c))===FILTRO))).map(c=>{
       const st=statusC(c);
-      return `<button class="cb mini st-${st}" title="${STNOME[st]}${st==='atraso'?' — '+c.em_atraso+' parcela(s)':''}" onclick="location.hash='c/${c.numero}'">
+      return `<button class="cb mini st-${st}" title="${STNOME[st]}${GRP(st)==='atraso'?' — '+c.em_atraso+' parcela(s), '+brl(+c.em_atraso_valor):''}" onclick="location.hash='c/${c.numero}'">
       <div class="cbt"><b>${c.numero}</b><span>Q${c.quadra||'?'} L${c.lote||'?'}</span></div>
       <div class="cbn">${esc(nome(c.titular))}</div></button>`}).join('')||'<div class="mut">Nenhum contrato nesse filtro.</div>'};
   $('#bus').oninput=desenha;$('#filt').onclick=e=>{const f=e.target.dataset?.f;if(!f)return;FILTRO=f;document.querySelectorAll('#filt button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));desenha()};desenha();
