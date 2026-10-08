@@ -1,0 +1,67 @@
+/* Importador Asaas -> conferência (uso interno do Claude no navegador) */
+window.parse=(d,C)=>{d=(d||'').replace(/\s+/g,' ');const sem=d.replace(/á Servi[cç]o.*$/i,'').replace(/Q\s*\d{1,2}\s*L\s*\d{1,2}/gi,' ').replace(/\d{2}\/\d{2}\/\d{4}/g,' ');
+ const ctm=d.match(/Beira\s*Rio\s*-\s*(\d{3,4})/i)||d.match(/Contrato\s*(\d{3,4})/i);const ql=d.match(/Q\s*(\d{1,2})\s*L\s*(\d{1,2})/i);
+ const outro=(ctm&&ctm[1].padStart(4,'0')!==C.contrato.numero)||(ql&&(ql[1].padStart(2,'0')!==C.contrato.quadra||ql[2].padStart(2,'0')!==C.contrato.lote));
+ const ps=[...sem.matchAll(/(?<![\d\/])(\d{1,3})\s*\/\s*(\d{1,3})(?![\d\/])/g)].map(m=>({n:+m[1],tot:+m[2]}));
+ const tipo=/cess[aã]o/i.test(d)?'cessao':/renegocia|acordo/i.test(d)?'reneg':/anual/i.test(d)?'anual':/entrada|sinal/i.test(d)?'entrada':'mensal';
+ const ex=()=>new Set(ps.map(x=>x.n+'/'+x.tot));
+ let m=sem.match(/(\d{1,3}(?:\s*,\s*\d{1,3})+(?:\s*e\s*\d{1,3})?|\d{1,3}\s*e\s*\d{1,3})\s*\/\s*(\d{1,3})(?![\d\/])/);if(m){const ns=m[1].split(/\s*,\s*|\s*e\s*/).map(Number);const tot=+m[2];const e=ex();for(const n of ns)if(!e.has(n+'/'+tot))ps.push({n,tot})}
+ m=sem.match(/(\d{1,3})\s*(?:à|a|até)\s*(\d{1,3})\s*\/\s*(\d{1,3})/i);if(m){const a=+m[1],b=+m[2],tot=+m[3];if(b>a&&b-a<40){const e=ex();for(let n=a;n<=b;n++)if(!e.has(n+'/'+tot))ps.push({n,tot})}}
+ return {outro,ps,tipo}};
+window.mapa=(A,C)=>{const tit=C.titulos.filter(t=>!t.conferente);const out=[];
+ for(const p of A.pagamentos){const r=parse(p.descricao,C);const pago=['RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(p.status);
+  const ts=r.outro&&!r.ps.length?[]:r.ps.map(x=>tit.find(t=>t.total==x.tot&&t.numero==x.n&&(r.tipo==='anual'?t.grupo==='anual':r.tipo==='entrada'?t.grupo==='entrada':t.grupo!=='entrada'&&(x.tot<=12&&tit.some(y=>y.grupo==='anual'&&y.total==x.tot)?t.grupo==='anual':t.grupo==='mensal')))).filter(Boolean);
+  out.push({p,r,pago,ts})}
+ const V=x=>[x.p.venc,x.p.venc_original].filter(Boolean);const usado=(x,id)=>out.some(z=>z!==x&&!z.r.outro&&z.ts.some(y=>y.id==id));
+ for(const x of out){if(x.r.outro||x.r.tipo!=='anual'||x.ts.length!==1)continue;if(V(x).some(v=>x.ts[0].vencimento.slice(0,7)===v.slice(0,7)))continue;const c=tit.filter(t=>t.grupo==='anual'&&V(x).some(v=>t.vencimento.slice(0,7)===v.slice(0,7)));if(c.length===1)x.ts=[c[0]]}
+ for(const x of out){if(x.r.outro||x.ts.length||x.r.tipo==='reneg'||x.r.tipo==='cessao')continue;
+  const c=x.r.tipo==='anual'?tit.filter(t=>t.grupo==='anual'&&V(x).some(v=>t.vencimento.slice(0,7)===v.slice(0,7))):tit.filter(t=>V(x).includes(t.vencimento)&&(x.r.tipo==='entrada'?t.grupo==='entrada':true));
+  if(c.length===1&&!usado(x,c[0].id))x.ts=[c[0]]}
+ const cnt={};out.filter(x=>!x.r.outro&&x.pago&&x.r.tipo!=='reneg'&&x.r.tipo!=='cessao'&&x.ts.length===1).forEach(x=>(cnt[x.ts[0].id]=cnt[x.ts[0].id]||[]).push(x));
+ for(const xs of Object.values(cnt)){if(xs.length<2)continue;for(const x of xs){const t=x.ts[0];if(V(x).includes(t.vencimento))continue;const alt=tit.find(y=>y.grupo===t.grupo&&V(x).includes(y.vencimento)&&!out.some(z=>z.ts.length===1&&z.ts[0].id==y.id));if(alt)x.ts=[alt]}}
+ return out};
+window.ENTC=async(n,num)=>{const _H={'x-pin':localStorage.cbr_pin};const H={..._H,'content-type':'application/json'};const C=await fetch('/api/contrato/'+n,{headers:_H}).then(r=>r.json());const out=[];for(const e of C.titulos.filter(t=>t.grupo==='entrada'&&(!num||num.includes(t.numero)))){if(C.pagamentos.some(p=>p.titulo_id==e.id)){out.push(e.rotulo+' já paga');continue}const r=await fetch('/api/pagamento',{method:'POST',headers:H,body:JSON.stringify({titulo_id:+e.id,forma:'Pagamento à construtora',valor_cobranca:e.valor_face,valor_pago:e.valor_face,vencimento_boleto:e.vencimento,confirmada_em:e.vencimento,pago_cliente_em:e.vencimento,descricao:'Entrada paga diretamente à construtora',obs:'Informado pelo Luis: paga à construtora (data exata não informada; usada a data de vencimento)'})}).then(r=>r.json());out.push(e.rotulo+' '+(r.id?'ok':JSON.stringify(r)))}return out};
+window.FECHA=n=>fetch('/api/fechar',{method:'POST',headers:{'x-pin':localStorage.cbr_pin,'content-type':'application/json'},body:JSON.stringify({contrato:n})}).then(r=>r.status);
+window.PAG=async n=>{const H={'x-pin':localStorage.cbr_pin};const C=await fetch('/api/contrato/'+n,{headers:H}).then(r=>r.json());const nn=s=>(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/\s+/g,' ').trim();const ok=new Set([...(C.contrato.compradores||[]).map(x=>nn(x.nome)),...C.eventos.filter(e=>e.tipo==='cessao').flatMap(e=>((e.dados||{}).novos_titulares||'').split(/\s+E\s+|\s+e\s+|,/).map(nn))]);return [...new Set(C.pagamentos.map(p=>p.cliente_asaas).filter(Boolean))].filter(x=>!ok.has(nn(x)))};
+window.IMP3=async(n,dry)=>{
+const H={'x-pin':localStorage.getItem('cbr_pin'),'content-type':'application/json'};
+const call=async(path,method,body)=>{const r=await fetch('/api/'+path,{method:method||'GET',headers:H,body:body?JSON.stringify(body):undefined});const t=await r.text();if(!r.ok)throw new Error(path+' '+r.status+' '+t);return JSON.parse(t)};
+const R2=x=>Math.round(x*100)/100;const log=[];let C=await call('contrato/'+n);const A=await call('asaas-contrato/'+n);
+if(C.pagamentos.length||C.acordos.length||C.correcoes.length||C.situacoes.length||C.eventos.some(e=>e.tipo!=='cessao'))throw new Error('contrato já tem lançamentos');
+let M=mapa(A,C).filter(x=>!(window.IGNORAR||[]).includes(String(x.p.fatura)));const fora=M.filter(x=>x.r.outro);M=M.filter(x=>!x.r.outro);
+const estranhos=M.filter(x=>x.pago&&x.r.tipo!=='cessao'&&x.r.tipo!=='reneg'&&x.ts.length!==1);
+const cnt={};M.filter(x=>x.pago&&x.r.tipo!=='cessao'&&x.r.tipo!=='reneg'&&x.ts.length===1).forEach(x=>cnt[x.ts[0].id]=(cnt[x.ts[0].id]||0)+1);
+const dup=Object.entries(cnt).filter(([k,v])=>v>1).map(([k])=>C.titulos.find(t=>t.id==k).rotulo);
+if(dry)return {clientes:A.nomes,n:A.pagamentos.length,fora:fora.map(x=>[x.p.fatura,x.p.status,x.p.valor,x.p.venc,x.p.descricao.replace(/\s+/g,' ').slice(0,70)]),estranhos:estranhos.map(x=>[x.p.fatura,x.p.status,x.p.valor,x.p.venc,x.p.descricao.replace(/\s+/g,' ').slice(0,90)]),dup,reneg:M.filter(x=>x.r.tipo==='reneg').map(x=>[x.p.fatura,x.p.status,x.p.valor,x.ts.map(t=>t.rotulo).join('+'),x.p.descricao.replace(/\s+/g,' ').slice(20,110)]),cessao:M.filter(x=>x.r.tipo==='cessao').map(x=>[x.p.fatura,x.p.status,x.p.valor,x.p.nome]),evCessao:C.eventos.filter(e=>e.tipo==='cessao').map(e=>[e.data,(e.dados||{}).novos_titulares])};
+if(estranhos.length||dup.length)throw new Error('há casos estranhos — rodar dry');
+const vano=t=>{const cs=C.correcoes.filter(x=>x.grupo===t.grupo&&+x.a_partir<=t.numero).sort((a,b)=>b.a_partir-a.a_partir);return cs.length?+cs[0].novo_valor:+t.valor_face};
+const IG={2023:0,2024:0,2025:6.54,2026:0};
+for(const g of ['mensal','anual']){const base=C.titulos.filter(t=>!t.conferente&&t.grupo===g).sort((a,b)=>a.numero-b.numero);if(!base.length)continue;
+ const ser=M.filter(x=>x.pago&&x.r.tipo!=='reneg'&&x.r.tipo!=='cessao'&&x.ts.length===1&&x.ts[0].grupo===g&&x.ts[0].vencimento<=C.hoje&&(x.p.original!=null||x.p.pago_em<=x.p.venc)).map(x=>({n:x.ts[0].numero,v:+(x.p.original??x.p.valor)})).sort((a,b)=>a.n-b.n);
+ let atual=+base[0].valor_face,ultN=0;
+ for(let i=0;i<ser.length;i++){const s=ser[i];if(Math.abs(s.v-atual)>0.01){const prox=ser[i+1];if(prox&&Math.abs(prox.v-s.v)>0.01&&(Math.abs(prox.v-atual)<0.01||Math.abs(prox.v/atual-1.02)<0.002||Math.abs(prox.v/atual-1.0854)<0.002)&&Math.abs(s.v/atual-1)<0.015)continue;
+   if(s.v<atual-0.01){log.push(`IGNOREI queda de valor na ${g} ${s.n}: ${atual} → ${s.v}`);continue}
+   let a=s.n;if(g==='mensal'){const jan=base.filter(t=>t.numero>ultN&&t.numero<=s.n&&t.vencimento.slice(5,7)==='01').pop();if(jan)a=jan.numero}
+   const t0=base.find(t=>t.numero===a);const tot=R2((s.v/atual-1)*100);const ig=IG[+t0.vencimento.slice(0,4)]??tot;await call('correcao','POST',{contrato:n,grupo:g,a_partir:a,data:t0.vencimento,igpm_pct:ig,juros_pct:R2(tot-ig),novo_valor:s.v,obs:'Valor tirado dos boletos do Asaas'});log.push(`correção ${g} a partir da ${a}: ${atual} → ${s.v} (${tot}%)`);atual=s.v}
+  ultN=s.n}}
+C=await call('contrato/'+n);
+const FORMA={BOLETO:'Boleto Bancário',PIX:'Pix',CREDIT_CARD:'Cartão de crédito',UNDEFINED:'Boleto Bancário'},SIT={RECEIVED:'Recebida',CONFIRMED:'Confirmada',RECEIVED_IN_CASH:'Recebida em dinheiro'};
+const enc=(cob,pago,vo,dt)=>{const dias=vo&&dt?Math.max(0,Math.round((new Date(dt)-new Date(vo))/864e5)):0;let dif=R2(pago-cob),mu=0,ju=0,ho=0,de=0;if(dif<0)de=-dif;else if(dif>0&&dias>0){mu=Math.min(dif,R2(cob*.02));const j=R2(cob*(Math.pow(1.01,dias/30)-1));ju=Math.min(R2(dif-mu),j);ho=R2(dif-mu-ju)}return{multa_paga:mu,juros_pago:ju,honorarios_pago:ho,desconto_dado:de}};
+const corpo=(p,t,cob)=>{const conf=p.confirmada||p.pago_em;return{titulo_id:t.id,fatura:String(p.fatura),situacao_asaas:SIT[p.status]||p.status,forma:FORMA[p.forma]||p.forma,cliente_asaas:p.nome,valor_cobranca:cob,valor_pago:p.valor,criada_em:p.criada,vencimento_original:t.vencimento,vencimento_boleto:p.venc,confirmada_em:conf,saque_em:p.credito||null,descricao:p.descricao,id_asaas:p.id,id_cliente_asaas:p.cliente,obs:'Lançado pelo Claude direto do Asaas',...enc(cob,p.valor,t.vencimento,conf)}};
+for(const x of M.filter(x=>x.r.tipo==='reneg'&&x.pago)){const p=x.p,ts=x.ts.map(t=>C.titulos.find(y=>y.id==t.id));if(!ts.length){log.push('PULEI renegociação '+p.fatura);continue}
+ let pr=0,mu=0,ju=0;for(const t of ts){const v=vano(t);pr+=v;const d=Math.max(0,Math.round((new Date(p.criada)-new Date(t.vencimento))/864e5));if(d>0){mu+=v*.02;ju+=v*(Math.pow(1.01,d/30)-1)}}
+ pr=R2(pr);mu=R2(mu);ju=R2(ju);const v=+(p.original??p.valor);let ho=R2(v-pr-mu-ju),m2=mu,j2=ju;if(ho<0){let f=-ho;ho=0;const dj=Math.min(j2,f);j2=R2(j2-dj);f=R2(f-dj);m2=R2(m2-Math.min(m2,f))}
+ const calc=R2(pr+mu+ju+(ts.some(t=>(new Date(p.criada)-new Date(t.vencimento))/864e5>30)?(pr+mu+ju)*.1:0));
+ const a=await call('acordo','POST',{contrato:n,data_acordo:p.criada,titulos_origem:ts.map(t=>+t.id),principal:pr,multa:m2,juros:j2,honorarios:ho,valor_calculado:calc,valor_acordado:v,desconto_encargos:R2(Math.max(0,calc-v)),parcelas:[{valor:v,vencimento:p.venc}],obs:'Renegociação lida do Asaas — fatura '+p.fatura});
+ C=await call('contrato/'+n);const ta=C.titulos.find(t=>t.acordo_id==a.id);await call('pagamento','POST',corpo(p,ta,v));log.push(`acordo ${ts.map(t=>t.rotulo).join('+')} em ${p.criada} pago ${v}`)}
+C=await call('contrato/'+n);
+let k=0;for(const x of M.filter(x=>x.pago&&x.r.tipo!=='reneg'&&x.r.tipo!=='cessao'&&x.ts.length===1)){const t=C.titulos.find(y=>y.id==x.ts[0].id);await call('pagamento','POST',corpo(x.p,t,R2(vano(t))));k++}log.push('pagas pelo Asaas: '+k);
+for(const x of M.filter(x=>x.r.tipo==='cessao')){const dt=x.p.criada;const pg0=['RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(x.p.status);const ja=C.eventos.filter(e=>e.tipo==='cessao').sort((a,b)=>Math.abs(new Date(a.data)-new Date(dt))-Math.abs(new Date(b.data)-new Date(dt)))[0];if(ja&&Math.abs(new Date(ja.data)-new Date(dt))<150*864e5){const dd={...(ja.dados||{}),taxa_cessao:x.p.original??x.p.valor,fatura:String(x.p.fatura),vencimento:x.p.venc,forma:FORMA[x.p.forma]||x.p.forma,pago_em:pg0?x.p.pago_em:null,valor_pago:pg0?x.p.valor:null};await call('evento/'+ja.id,'PUT',{a_partir_titulo:ja.a_partir_titulo,data:ja.data,dados:dd,obs:ja.obs});log.push(`taxa de cessão ${x.p.valor} ligada à cessão de ${ja.data} (${pg0?'paga':'NÃO paga'})`);continue}const t=C.titulos.filter(t=>!t.conferente&&t.grupo==='mensal'&&t.vencimento>=dt).sort((a,b)=>a.vencimento<b.vencimento?-1:1)[0];
+ const outros=A.clientes.filter(c=>c!==x.p.cliente);const de=outros.length?A.nomes[outros[0]]:'';
+ await call('evento','POST',{contrato:n,tipo:'cessao',a_partir_titulo:+t.id,data:dt,dados:{novos_titulares:x.p.nome,antes:de,taxa_cessao:x.p.original??x.p.valor,fatura:String(x.p.fatura),vencimento:x.p.venc,forma:FORMA[x.p.forma]||x.p.forma,pago_em:pg0?x.p.pago_em:null,valor_pago:pg0?x.p.valor:null},obs:`Cessão lida do Asaas (boleto da taxa ${x.p.fatura}).`});log.push(`cessão NOVA (não estava na pasta) a partir da ${t.rotulo}: ${de} → ${x.p.nome}, taxa ${x.p.valor} ${pg0?'paga':'NÃO paga'}`)}
+C=await call('contrato/'+n);const tem=new Set([...C.pagamentos.map(x=>+x.titulo_id),...C.situacoes.map(s=>+s.titulo_id),...C.acordos.flatMap(a=>a.titulos_origem.map(Number))]);const vermelhas=[];
+for(const t of C.titulos.filter(t=>!t.conferente&&t.grupo!=='acordo'&&t.vencimento<=C.hoje&&!tem.has(+t.id))){if(t.grupo==='entrada'&&t.numero==1)continue;await call('situacao','POST',{titulo_id:+t.id,situacao:'em_atraso',obs:'Sem pagamento no Asaas (conferido pelo Claude)'});vermelhas.push(t.rotulo+' ('+t.vencimento+', '+t.valor_face+')')}
+log.push('vermelhas: '+(vermelhas.join('; ')||'nenhuma'));
+return log};
+window.RUN=n=>{window._LX=null;IMP3(n,true).then(r=>{window._LX={dry:r};if(!r.dup.length&&!r.estranhos.length&&r.n>0)return IMP3(n).then(async l=>{const e=await ENTC(n,[1]);const pg=await PAG(n);window._LX={feito:l,entrada1:e,pagadoresEstranhos:pg,fora:r.fora.map(f=>f[4].slice(0,45)),clientes:r.clientes}})}).catch(e=>window._LX='ERRO '+e)};
+'importador ok';
