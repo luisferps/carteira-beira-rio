@@ -28,6 +28,7 @@ th{font-size:12px;color:var(--mut);font-weight:600}tr.lk{cursor:pointer}tr.lk:ho
 .lin .rot{width:78px;font-size:12px;color:var(--mut)}
 .pc{width:74px;height:50px;border-radius:8px;border:2px solid transparent;font-size:11px;line-height:1.15;padding:3px;color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;position:relative}
 .pc small{font-size:10px;opacity:.9}
+.acl{align-items:stretch}.acl .pc{width:auto;min-width:74px;max-width:340px;height:auto;min-height:50px;padding:3px 8px}
 .pc.paga{background:var(--pg)}.pc.paga_atraso{background:var(--pa);color:#0f3d1f}.pc.quitada_acordo{background:var(--ac);color:#3a2c00}.pc.em_acordo{background:#fff;color:#3a2c00;border-color:var(--ac)}.pc.quitada_repact{background:var(--rp)}.pc.em_repact{background:#fff;color:#134e4a;border-color:var(--rp)}
 .pc.cancelada{background:var(--ca)}.pc.em_atraso{background:var(--at)}.pc.vencida{background:var(--ve)}.pc.futura{background:var(--fu);color:#333}
 .pc.anual{outline:2px dashed #333;outline-offset:1px}.grid.selmodo .pc{opacity:.3;filter:grayscale(.5);cursor:not-allowed}.grid.selmodo .pc.selok{opacity:1;filter:none;cursor:pointer}
@@ -223,7 +224,7 @@ function desenhaContrato(){
   const ces=C.eventos.filter(e=>e.tipo==='cessao'&&e.dados?.novos_titulares).sort((x,y)=>String(x.data).localeCompare(String(y.data)));
   const tit=ces.length?`<b>${esc(nome(ces[ces.length-1].dados.novos_titulares))}</b> <span class="mut">(titular atual, por cessão em ${dbr(ces[ces.length-1].data)})</span><div class="mut" style="font-size:12px">Comprador original: ${(c.compradores||[]).map(x=>esc(nome(x.nome))).join(', ')||esc(nome(c.nome_planilha))}${ces.length>1?' · cessões anteriores: '+ces.slice(0,-1).map(e=>esc(nome(e.dados.novos_titulares))+' ('+dbr(e.data)+')').join(', '):''}</div>`:comp;
   const ACS=C.acordos.filter(a=>!ehRep(a)),RPS=C.acordos.filter(ehRep);
-  const ac=ACS.length?'<div class="lin">'+[...ACS].sort((x,y)=>numAc(x)-numAc(y)).map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);
+  const ac=ACS.length?'<div class="lin acl">'+[...ACS].sort((x,y)=>numAc(x)-numAc(y)).map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);
     return `${ts.length?ts.map(btn).join(''):`<button class="pc ev evac" onclick="verAcordo(${a.id})"><b>${nomeAc(a)}</b><small>${dbr(a.data_acordo).slice(0,5)}</small><small>sem parcelas</small></button>`}`}).join('')+'</div>':'<div class="mut">Nenhum acordo lançado.</div>';
   const rp=RPS.length?'<div class="lin">'+[...RPS].sort((x,y)=>numAc(x)-numAc(y)).map(a=>T.filter(t=>t.acordo_id==a.id).map(btn).join('')).join('<span style="width:14px"></span>')+'</div>':'<div class="mut">Nenhuma repactuação lançada.</div>';
   const co=C.correcoes.length?`<div class="lin">${C.correcoes.map(k=>`<button class="pc ev evco" onclick="verCorrecao(${k.id})"><b>${/^Diluição/.test(k.obs||'')?'Diluição':'Corr.'} ${k.grupo==='mensal'?'M':'A'} ${k.a_partir}</b><small>${k.data?dbr(k.data).slice(0,5)+'/'+String(k.data).slice(2,4):'—'}</small><small>${brl(k.novo_valor).replace('R$','').trim()}</small>${/^Diluição/.test(k.obs||'')?'<small class="orig">anuais nas mensais</small>':(P=>`<small class="orig">IGP-M ${pf(P.ig)}</small><small class="orig">Juros ${pf(P.ju)}</small>`)(pctCorr(k))}</button>`).join('')}</div>`:'<div class="mut">Nenhuma correção lançada.</div>';
