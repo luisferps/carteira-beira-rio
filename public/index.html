@@ -261,7 +261,7 @@ function desenhaContrato(){
 }
 function verAcordo(id){const a=C.acordos.find(x=>x.id==id),T=C.titulos;const orig=(a.titulos_origem||[]).map(i=>T.find(t=>t.id==i)?.rotulo||'?').join(', ');
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${nomeAc(a)} — de ${dbr(a.data_acordo)} — ${brl(a.valor_acordado)}</h3><button onclick="fechaModal()">Fechar</button></div>
-  <div><b>Englobou:</b> ${esc(orig)}</div><div class="mut" style="margin:6px 0">Principal ${brl(a.principal)} · Multa ${brl(a.multa)} · Juros ${brl(a.juros)} · Custo de cobrança ${brl(a.honorarios)}${Number(a.desconto_encargos)?' · Desconto nos encargos '+brl(a.desconto_encargos):''} · ${a.qtd_parcelas} parcela(s)</div>
+  <div><b>Englobou:</b> ${esc(orig)}</div><div class="mut" style="margin:6px 0">Principal ${brl(a.principal)} · Multa ${brl(a.multa)} · Juros ${brl(a.juros)} · Custo de cobrança ${brl(a.honorarios)} · ${a.qtd_parcelas} parcela(s)</div>
   ${a.obs?`<div class="mut">Obs.: ${esc(a.obs)}</div>`:''}<div class="mut">Lançado ${new Date(a.salvo_em).toLocaleString('pt-BR')}</div>
   <div class="bt" style="margin-top:10px"><button class="pri" onclick="modalAcordo(${a.id})">Editar</button><button class="per" onclick="apagar('acordo',${a.id})">Apagar</button></div>`)}
 const IGPM_ANO={2023:0,2024:0,2025:6.54,2026:0};
@@ -388,7 +388,7 @@ function modalTitulo(id,editId,novo){
      <div>${ac.titulos_origem.map(o=>{const to=C.titulos.find(x=>x.id==o);return to?`<button style="margin:2px" onclick="vaiPara(()=>modalTitulo(${to.id}),()=>modalTitulo(${id}))">${esc(to.rotulo)} — ${brl(valorAno(to))}</button>`:''}).join('')}</div>
      <div class="mut" style="margin:8px 0 4px;font-weight:600;color:var(--tx)">Como o valor foi formado</div>
      <div class="f2">${d('Principal (valor original)',brl(ac.principal))}${d('Multa',brl(ac.multa))}${d('Juros',brl(ac.juros))}${d('Custo de cobrança',brl(ac.honorarios))}</div>
-     <div class="f2" style="margin-top:8px">${d('Valor calculado',brl(ac.valor_calculado))}${d('Desconto nos encargos',brl(ac.desconto_encargos||0))}${d('Valor acordado',brl(ac.valor_acordado))}${d('Parcelas do acordo',ac.qtd_parcelas)}</div></div>`})():''}
+     <div class="f2" style="margin-top:8px">${d('Valor calculado',brl(ac.valor_calculado))}${d('Valor acordado',brl(ac.valor_acordado))}${d('Parcelas do acordo',ac.qtd_parcelas)}</div></div>`})():''}
   <div class="mut">Situação atual: <b>${NOMES[estado(t)]}</b>${sit?' · marcada em '+new Date(sit.salvo_em).toLocaleString('pt-BR'):''}${sit?.obs?' · '+esc(sit.obs):''}</div>`;
   const acs=(C.acordos||[]).filter(a=>a.titulos_origem.map(Number).includes(+id));
   if(acs.length&&!pags.length&&!ed&&!novo){
@@ -496,7 +496,7 @@ function modalAcordo(aid){
   <div><label>Quantas parcelas</label><input id="a_qtd" type="number" min="1" value="${pars.length||1}"></div></div>
   <div class="mut" style="margin:12px 0 4px;font-weight:600;color:var(--tx)">Como o valor foi formado <span class="mut" id="a_ate" style="font-weight:400"></span></div>
   <div class="f2">${campo('a_pr','Principal (valor original)')}${campo('a_mu','Multa (2%)')}${campo('a_ju','Juros (1% ao mês, ao dia)')}${campo('a_ho','Custo de cobrança')}</div>
-  <div class="f2" style="margin-top:8px">${campo('a_de','Desconto (calculado − acordado)')}<div class="dado"><span>Valor calculado pelo sistema</span><b id="a_calc"></b></div><div class="dado"><span>Soma (principal + multa + juros + cobrança)</span><b id="a_som2"></b></div></div>
+  <div class="f2" style="margin-top:8px"><input id="a_de" type="hidden"><div class="dado"><span>Valor calculado pelo sistema</span><b id="a_calc"></b></div><div class="dado"><span>Soma (principal + multa + juros + cobrança)</span><b id="a_som2"></b></div></div>
   <details style="margin-top:6px"><summary class="mut">Ver a conta parcela por parcela</summary><div id="a_det" class="mut" style="font-size:12px"></div></details>
   <div id="a_av"></div>
   <table style="margin-top:8px"><thead><tr><th>#</th><th>Vencimento</th><th>Valor</th></tr></thead><tbody id="a_pars"></tbody></table><div id="a_soma" class="mut"></div>
@@ -505,10 +505,10 @@ function modalAcordo(aid){
   let P=pars.slice();const num=s=>numBR(s)||0;let B;
   const calc=()=>calcAcordo(ids,$('#a_data').value);
   const mostraB=(skip)=>{for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])if(id!==skip)$('#'+id).value=brl(B[k]);
-    const c=calc();$('#a_calc').textContent=brl(c.total);B.de=r2(Math.max(0,c.total-(B.pr+B.mu+B.ju+B.ho)));if(skip!=='a_de')$('#a_de').value=brl(B.de);$('#a_som2').textContent=brl(r2(B.pr+B.mu+B.ju+B.ho));
+    const c=calc();$('#a_calc').textContent=brl(c.total);B.de=0;if(skip!=='a_de')$('#a_de').value=brl(B.de);$('#a_som2').textContent=brl(r2(B.pr+B.mu+B.ju+B.ho));
     $('#a_ate').textContent=`— multa e juros calculados até ${dbr($('#a_data').value)}, a data do acordo`;
     $('#a_det').innerHTML=orig.map(t=>{const v=valorAno(t),d=Math.max(0,Math.round((new Date($('#a_data').value)-new Date(t.vencimento))/864e5));return `${esc(t.rotulo)}: ${brl(v)} · venceu ${dbr(t.vencimento)} · ${d} dia(s) de atraso · multa ${brl(d?v*.02:0)} · juros ${brl(d?v*(Math.pow(1.01,d/30)-1):0)}`}).join('<br>');
-    $('#a_av').innerHTML=num($('#a_val').value)<B.pr-0.009?`<div class="aviso">O valor acordado é menor que o principal (${brl(B.pr)}). Isso é desconto na dívida — confirme antes de salvar.</div>`:''};
+    $('#a_av').innerHTML=num($('#a_val').value)<B.pr-0.009?`<div class="aviso">O valor acordado é menor que o principal. Ele quita as parcelas mesmo assim (vai todo para o principal).</div>`:''};
   const deCalc=()=>{const c=calc();B={pr:c.principal,mu:c.multa,ju:c.juros,ho:c.honorarios,de:0};$('#a_val').value=brl(c.total)};
   const peloValor=()=>{const c=calc(),v=num($('#a_val').value),q=repartir({principal:c.principal,multa:c.multa,juros:c.juros},v);B={pr:Math.min(c.principal,v),mu:q.multa,ju:q.juros,ho:q.honorarios,de:q.desconto}};
   const refazPars=()=>{const q=Math.max(1,Number($('#a_qtd').value)||1),v=num($('#a_val').value),base=r2(v/q);const d0=$('#a_data').value;
@@ -532,12 +532,11 @@ function modalAcordo(aid){
       valor_calculado:calc().total,valor_acordado:num($('#a_val').value),desconto_encargos:r2(B.de),parcelas:window._P,obs:$('#a_obs').value});
 }
 /* regra: principal, multa e juros calculados; o que sobrar é o custo de cobrança. Se não der, o que faltar sai dos juros e depois da multa (desconto). */
-function repartir(c,v){let mu=c.multa,ju=c.juros,ho=r2(v-c.principal-mu-ju),de=0;
-  if(ho<0){let falta=-ho;ho=0;const dj=Math.min(ju,falta);ju=r2(ju-dj);falta=r2(falta-dj);const dm=Math.min(mu,falta);mu=r2(mu-dm);falta=r2(falta-dm);de=r2(-(v-c.principal-c.multa-c.juros))}
-  return {multa:r2(mu),juros:r2(ju),honorarios:r2(ho),desconto:de}}
+/* regra do Luis: o valor pago quita na ordem principal → multa → juros → custo de cobrança; o que não cobrir fica quitado, nunca vira desconto */
+function repartir(c,v){let r=r2(v-Math.min(c.principal,v));const mu=Math.min(c.multa,r);r=r2(r-mu);const ju=Math.min(c.juros,r);r=r2(r-ju);
+  return {multa:r2(mu),juros:r2(ju),honorarios:r2(r),desconto:0}}
 async function salvaAcordo(aid){const b=window._salvaAcordoDados();
   const s=r2(b.parcelas.reduce((a,p)=>a+Number(p.valor||0),0));if(Math.abs(s-b.valor_acordado)>0.009)return alert('A soma das parcelas precisa ser igual ao valor acordado.');
-  if(b.valor_acordado<calcAcordo(b.titulos_origem,b.data_acordo).principal-0.009&&!confirm('Valor acordado menor que o principal. Confirmar desconto na dívida?'))return;
   await api(aid?'acordo/'+aid:'acordo',{method:aid?'PUT':'POST',body:b});
   SEL.clear();SELMODO=false;fechaModal();recarrega()}
 
