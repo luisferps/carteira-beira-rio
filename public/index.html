@@ -213,7 +213,7 @@ function desenhaContrato(){
   <div class="card"><div class="bt" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">Contrato ${c.numero} · Q${c.quadra} L${c.lote}</h2>
   <div>${tit}</div><div class="mut">Assinado em ${dbr(c.data_assinatura)} · Imóvel ${brl(c.valor_imovel)} · Fonte: ${esc(c.fonte)} "${esc(c.arquivo)}"</div></div>
   ${C.fechamento?`<span class="tag ok">Conferência fechada em ${new Date(C.fechamento.fechado_em).toLocaleString('pt-BR')}</span>`:''}</div>
-  ${(c.alertas||[]).length?`<div class="aviso"><b>Pontos de atenção do contrato:</b><ul style="margin:4px 0 0 18px;padding:0">${c.alertas.map(a=>'<li>'+esc(a)+'</li>').join('')}</ul></div>`:''}
+  ${(c.alertas||[]).filter(a=>!/planilha/i.test(a)).length?`<div class="aviso"><b>Pontos de atenção do contrato:</b><ul style="margin:4px 0 0 18px;padding:0">${c.alertas.filter(a=>!/planilha/i.test(a)).map(a=>'<li>'+esc(a)+'</li>').join('')}</ul></div>`:''}
   <details><summary>Condições de pagamento (texto do contrato)</summary><ul>${itens}</ul></details></div>
   <div class="card"><div class="tot">
    <div><span class="mut">Parcelas vencidas</span><b>${tt.qv}</b></div><div><span class="mut">Deveria ter entrado</span><b>${brl(tt.esp)}</b></div>
