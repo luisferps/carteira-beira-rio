@@ -422,7 +422,7 @@ export default async (req) => {
     if (p[0] === 'cruzamento') {
       if (real !== 'luis') return json({ erro: 'Só o administrador acessa o cruzamento' }, 403);
       if (!p[1] && m === 'GET') {
-        const cs = await q(`select c.numero, c.quadra, c.lote, coalesce(c.compradores->0->>'nome', c.nome_planilha) as titular,
+        const cs = await q(`select c.numero, c.quadra, c.lote, coalesce((select nullif(string_agg(x->>'nome', ' e ' order by o), '') from jsonb_array_elements(case when jsonb_typeof(c.compradores)='array' then c.compradores else '[]'::jsonb end) with ordinality as j(x,o)), c.nome_planilha) as titular,
           (select array_agg(conferente) from carteira.fechamentos f where f.contrato=c.numero) as fechados
           from carteira.contratos c order by c.numero`);
         const soFechados = url.searchParams.get('todos') !== '1';
@@ -456,7 +456,7 @@ export default async (req) => {
     if (p[0] === 'contratos' && m === 'GET') {
       const rows = await q(`
         select c.numero, c.quadra, c.lote, c.valor_imovel, c.data_assinatura,
-               coalesce((select e.dados->>'novos_titulares' from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='cessao' and coalesce(e.dados->>'novos_titulares','')<>'' order by e.data desc nulls last, e.id desc limit 1), c.compradores->0->>'nome', c.nome_planilha) as titular,
+               coalesce((select e.dados->>'novos_titulares' from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='cessao' and coalesce(e.dados->>'novos_titulares','')<>'' order by e.data desc nulls last, e.id desc limit 1), (select nullif(string_agg(x->>'nome', ' e ' order by o), '') from jsonb_array_elements(case when jsonb_typeof(c.compradores)='array' then c.compradores else '[]'::jsonb end) with ordinality as j(x,o)), c.nome_planilha) as titular,
                jsonb_array_length(c.alertas) as n_alertas,
                (select count(*) from carteira.titulos t where t.contrato=c.numero and t.conferente is null and t.vencimento <= current_date) as vencidas,
                (select count(distinct t.id) from carteira.titulos t
