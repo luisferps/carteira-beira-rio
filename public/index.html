@@ -616,7 +616,7 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
   const w=window.open('','_blank');
   w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${titulo} — Contrato ${c.numero}</title><style>
    body{font-family:Arial,sans-serif;color:#111;margin:28px;font-size:13px}h1{font-size:19px;margin:0 0 4px}.cab{display:flex;gap:14px;align-items:center;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:12px}.cab img{height:46px}
-   .mut{color:#555}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #ccc;padding:5px 6px;text-align:left}th{background:#f1f5f9}.n{text-align:right;white-space:nowrap}tfoot td{font-weight:700;background:#f8fafc}.obs{font-size:11px;color:#444;margin-top:10px}
+   .mut{color:#555}table{width:auto;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #ccc;padding:4px 10px;text-align:left;white-space:nowrap}.obs{max-width:900px}th{background:#f1f5f9}.n{text-align:right;white-space:nowrap}tfoot td{font-weight:700;background:#f8fafc}.obs{font-size:11px;color:#444;margin-top:10px}
    .bt{margin-bottom:12px}@media print{.bt{display:none}body{margin:10mm}}</style></head><body>
    <div class="bt"><button onclick="print()">Imprimir / salvar em PDF</button></div>
    <div class="cab"><img src="${location.origin}/logo.png" alt=""><div><h1>${titulo}</h1><div class="mut">Inerente Gestão Imobiliária · Condomínio de Chácaras Beira Rio</div></div></div>
