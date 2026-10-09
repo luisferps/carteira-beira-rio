@@ -401,7 +401,14 @@ export default async (req) => {
         const doc = String(cp.cpf || '').replace(/\D/g, '');
         if (doc.length >= 11) { const r = await asaas('/customers?cpfCnpj=' + doc + '&limit=20').catch(() => null); (r?.data || []).forEach(c => porCpf.push(c.id)); }
       }
-      const clientes = [...new Set([...cl.map(x => x.c), ...extra, ...porCpf])];
+      const porNome = [];
+      const evc = await q(`select dados->>'novos_titulares' t from carteira.eventos where contrato=$1 and tipo='cessao' and coalesce(dados->>'novos_titulares','')<>''`, [n]).catch(() => []);
+      const sem = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+      for (const e of evc) for (const nome of String(e.t).split(/\s+e\s+|,/i).map(x => x.trim()).filter(x => x.length > 5)) {
+        const r = await asaas('/customers?name=' + encodeURIComponent(nome) + '&limit=10').catch(() => null);
+        (r?.data || []).filter(c => sem(c.name) === sem(nome)).forEach(c => porNome.push(c.id));
+      }
+      const clientes = [...new Set([...cl.map(x => x.c), ...extra, ...porCpf, ...porNome])];
       const out = [], nomes = {};
       for (const c of clientes) {
         const cu = await asaas('/customers/' + c).catch(() => null); nomes[c] = cu?.name || null;
