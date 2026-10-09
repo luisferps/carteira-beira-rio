@@ -36,7 +36,7 @@ if(dry)return {clientes:A.nomes,n:A.pagamentos.length,fora:fora.map(x=>[x.p.fatu
 if(estranhos.length||dup.length)throw new Error('há casos estranhos — rodar dry');
 const vano=t=>{const cs=C.correcoes.filter(x=>x.grupo===t.grupo&&+x.a_partir<=t.numero).sort((a,b)=>b.a_partir-a.a_partir);return cs.length?+cs[0].novo_valor:+t.valor_face};
 const IG={2023:0,2024:0,2025:6.54,2026:0};
-for(const g of ['mensal','anual']){const base=C.titulos.filter(t=>!t.conferente&&t.grupo===g).sort((a,b)=>a.numero-b.numero);if(!base.length)continue;
+for(const g of ['mensal']){const base=C.titulos.filter(t=>!t.conferente&&t.grupo===g).sort((a,b)=>a.numero-b.numero);if(!base.length)continue;
  const ser=M.filter(x=>x.pago&&x.r.tipo!=='reneg'&&x.r.tipo!=='cessao'&&x.ts.length===1&&x.ts[0].grupo===g&&x.ts[0].vencimento<=C.hoje&&(x.p.original!=null||x.p.pago_em<=x.p.venc)).map(x=>({n:x.ts[0].numero,v:+(x.p.original??x.p.valor)})).sort((a,b)=>a.n-b.n);
  let atual=+base[0].valor_face,ultN=0;
  for(let i=0;i<ser.length;i++){const s=ser[i];if(Math.abs(s.v-atual)>0.01){const prox=ser[i+1];if(prox&&Math.abs(prox.v-s.v)>0.01&&(Math.abs(prox.v-atual)<0.01||Math.abs(prox.v/atual-1.02)<0.002||Math.abs(prox.v/atual-1.0854)<0.002)&&Math.abs(s.v/atual-1)<0.015)continue;
