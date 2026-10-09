@@ -144,8 +144,11 @@ function fatoresMensais(){const ms=C.correcoes.filter(c=>c.grupo==='mensal').sor
     if(!/^Diluição/.test(k.obs||'')&&prev>0)out.push({data,f:nv/prev});prev=nv}return out}
 function valorAno(t){
   if(t.grupo!=='mensal'&&t.grupo!=='anual')return Number(t.valor_face||0);
-  if(t.grupo==='anual'&&C.correcoes.some(c=>c.grupo==='anual'&&!/^Diluição/.test(c.obs||''))){const cs=C.correcoes.filter(c=>c.grupo==='anual'&&+c.a_partir<=+t.numero).sort((a,b)=>a.a_partir-b.a_partir);return cs.length?+cs[cs.length-1].novo_valor:+t.valor_face}
-  if(t.grupo==='anual'){let v=Number(t.valor_face||0);for(const x of fatoresMensais())if(x.data&&t.vencimento&&x.data<=t.vencimento)v*=x.f;return Math.round(v*100)/100}
+  if(t.grupo==='anual'){const pgA=C.pagamentos.find(p=>p.titulo_id==t.id&&+p.valor_cobranca>0);if(pgA&&t.vencimento<=C.hoje)return +pgA.valor_cobranca;}
+  if(t.grupo==='anual'){/* histórico: vale o que já foi cobrado (correção de anual registrada); daqui pra frente, herda as correções de janeiro posteriores */
+    const cs=C.correcoes.filter(c=>c.grupo==='anual'&&!/^Diluição/.test(c.obs||'')&&+c.a_partir<=+t.numero).sort((a,b)=>a.a_partir-b.a_partir);let v=Number(t.valor_face||0),desde='';
+    if(cs.length){const k=cs[cs.length-1];v=+k.novo_valor;const ta=C.titulos.find(x=>x.grupo==='anual'&&!x.conferente&&+x.numero===+k.a_partir);desde=k.data||ta?.vencimento||''}
+    for(const x of fatoresMensais())if(x.data&&t.vencimento&&x.data>desde&&x.data<=t.vencimento&&!(desde&&x.data.slice(0,4)===desde.slice(0,4)))v*=x.f;return Math.round(v*100)/100}
   const cs=C.correcoes.filter(c=>c.grupo===t.grupo&&c.a_partir<=t.numero).sort((a,b)=>a.a_partir-b.a_partir);
   return cs.length?Number(cs[cs.length-1].novo_valor):Number(t.valor_face||0);
 }
