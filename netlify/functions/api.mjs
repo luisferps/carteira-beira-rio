@@ -374,10 +374,10 @@ export default async (req) => {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
       const de = url.searchParams.get('de'), ate = url.searchParams.get('ate'), campo = url.searchParams.get('campo') || 'paymentDate';
       const min = Number(url.searchParams.get('min') || 0), max = Number(url.searchParams.get('max') || 1e12);
-      const out = [], nomes = {};
+      const out = [], nomes = {}; const qs = url.searchParams.get('q'); const qre = qs ? new RegExp(qs, 'i') : null;
       for (let off = 0; off < 3000; off += 100) {
         const r = await asaas(`/payments?${campo}[ge]=${de}&${campo}[le]=${ate}&limit=100&offset=${off}`);
-        for (const g of r?.data || []) if (g.value >= min && g.value <= max) out.push(g);
+        for (const g of r?.data || []) if (g.value >= min && g.value <= max && (!qre || qre.test(g.description || ''))) out.push(g);
         if (!r?.hasMore) break;
       }
       for (const g of out) if (!(g.customer in nomes)) { const cu = await asaas('/customers/' + g.customer).catch(() => null); nomes[g.customer] = cu?.name || null; }
