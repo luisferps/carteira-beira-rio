@@ -133,7 +133,7 @@ async function telaLista(){
       <div class="cbt"><b>${c.numero}</b><span>Q${c.quadra||'?'} L${c.lote||'?'}</span></div>
       <div class="cbn">${esc(nome(c.titular))}</div></button>`}).join('')||'<div class="mut">Nenhum contrato nesse filtro.</div>'};
   $('#bus').oninput=desenha;
-  (async()=>{for(const c of LISTA.filter(c=>!c.cancelado&&+c.em_atraso>0&&c.devido==null)){try{const d=await api('contrato/'+c.numero),sv=C;C=d;c.devido=totais().at.tot;C=sv}catch(e){}}if(document.getElementById('tb'))desenha()})();$('#filt').onclick=e=>{const f=e.target.dataset?.f;if(!f)return;FILTRO=f;document.querySelectorAll('#filt button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));desenha()};desenha();
+  (async()=>{const fila=LISTA.filter(c=>!c.cancelado&&+c.em_atraso>0&&c.devido==null&&statusC(c)!=='conf');await Promise.all(fila.map(async c=>{try{const d=await api('contrato/'+c.numero),sv=C;C=d;c.devido=totais().at.tot;C=sv;if(document.getElementById('tb'))desenha()}catch(e){}}))})();$('#filt').onclick=e=>{const f=e.target.dataset?.f;if(!f)return;FILTRO=f;document.querySelectorAll('#filt button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));desenha()};desenha();
 }
 
 /* ---------- CONTRATO: cálculos ---------- */
