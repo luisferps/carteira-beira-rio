@@ -197,15 +197,16 @@ function correcoesAno(){const fm=fatoresMensais(),m0=C.titulos.find(x=>x.grupo==
   return out.sort((x,y)=>x.data.localeCompare(y.data))}
 /* atraso, na ordem do tempo: principal (valor cobrado no vencimento) -> multa 2% -> juros 1% a.m. dia a dia sobre o principal
    -> com mais de 60 dias, custo de cobrança 10%. Em todo 1º de janeiro depois do vencimento, a correção do ano incide sobre TUDO
-   o que está devido naquele dia; depois disso os juros seguem sobre o principal corrigido. */
+   o que está devido naquele dia (principal, multa, juros e custo de cobrança, se já passou de 60 dias); depois disso os juros seguem sobre o principal corrigido. */
 function atrasoDe(t,ate){const v=valorAno(t),dias=Math.max(0,Math.round((new Date(ate)-new Date(t.vencimento))/864e5));
   if(!dias)return{v,co:0,mu:0,ju:0,ho:0,dias,tot:v};
   const corr=t.grupo==='mensal'||t.grupo==='anual',venc=String(t.vencimento).slice(0,10),fim=String(ate).slice(0,10);
   const fa={};for(const k of correcoesAno()){const y=+k.data.slice(0,4);if(!(y in fa))fa[y]=k.f}
-  const mu=v*.02;let pr=v,ju=0,co=0,cur=venc;
+  const mu=v*.02;let pr=v,ju=0,co=0,coH=0,cur=venc;
   const cresce=d2=>{const d=Math.max(0,Math.round((new Date(d2)-new Date(cur))/864e5));ju+=pr*(Math.pow(1.01,d/30)-1);cur=d2};
-  if(corr)for(let y=+venc.slice(0,4)+1;y<=+fim.slice(0,4);y++){const dj=`${y}-01-01`;if(dj>fim)break;const f=fa[y]||FATOR_ANO[y]||1;cresce(dj);co+=(v+co+mu+ju)*(f-1);pr*=f}
-  cresce(fim);const sub=v+co+mu+ju,ho=dias>60?sub*.10:0;return{v,co,mu,ju,ho,dias,tot:sub+ho}}
+  if(corr)for(let y=+venc.slice(0,4)+1;y<=+fim.slice(0,4);y++){const dj=`${y}-01-01`;if(dj>fim)break;const f=fa[y]||FATOR_ANO[y]||1;cresce(dj);const inc=(v+co+mu+ju)*(f-1);co+=inc;if((new Date(dj)-new Date(venc))/864e5>60)coH+=inc*.10;pr*=f}
+  cresce(fim);const sub=v+co+mu+ju,ho=dias>60?sub*.10:0;/* a parte da correção que incidiu sobre o custo de cobrança aparece na coluna correção */
+  return{v,co:co+coH,mu,ju,ho:ho-coH,dias,tot:sub+ho}}
 function encDe(v,venc,ate){const dias=Math.max(0,Math.round((new Date(ate)-new Date(venc))/864e5));if(!dias)return{mu:0,ju:0,ho:0,dias};
   const mu=v*.02,ju=v*(Math.pow(1.01,dias/30)-1),ho=dias>60?(v+mu+ju)*.10:0;return{mu,ju,ho,dias}}
 function totais(){
