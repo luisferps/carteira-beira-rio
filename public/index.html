@@ -140,7 +140,7 @@ async function telaLista(){
 /* correção é UMA por ano, lançada na mensal de janeiro; as anuais herdam o mesmo percentual de todas as correções lançadas antes do vencimento delas */
 function fatoresMensais(){const ms=C.correcoes.filter(c=>c.grupo==='mensal').sort((a,b)=>a.a_partir-b.a_partir);
   const base=Math.min(...C.titulos.filter(t=>t.grupo==='mensal'&&!t.conferente).map(t=>+t.valor_face).filter(v=>v>0));let prev=base;const out=[];
-  for(const k of ms){const t=C.titulos.find(x=>x.grupo==='mensal'&&!x.conferente&&+x.numero===+k.a_partir);const data=k.data||t?.vencimento;const nv=+k.novo_valor;
+  for(const k of ms){const t=C.titulos.find(x=>x.grupo==='mensal'&&!x.conferente&&+x.numero===+k.a_partir);const data=t?.vencimento||k.data;const nv=+k.novo_valor;
     if(!/^Diluição/.test(k.obs||'')&&prev>0)out.push({data,f:nv/prev});prev=nv}return out}
 function valorAno(t){
   if(t.grupo!=='mensal'&&t.grupo!=='anual')return Number(t.valor_face||0);
