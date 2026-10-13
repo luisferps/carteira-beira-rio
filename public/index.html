@@ -496,11 +496,9 @@ async function verPrint(id){const d=await api('print/'+id);const w=window.open('
 
 /* acordo */
 function calcAcordo(ids,data){
-  let pr=0,mu=0,ju=0,maxd=0;
-  for(const id of ids){const t=C.titulos.find(x=>x.id==id);const v=valorAno(t);pr+=v;
-    const dias=Math.max(0,Math.round((new Date(data)-new Date(t.vencimento))/864e5));maxd=Math.max(maxd,dias);
-    if(dias>0){mu+=v*.02;ju+=v*(Math.pow(1.01,dias/30)-1)}}
-  const ho=maxd>30?(pr+mu+ju)*.10:0;return {principal:r2(pr),multa:r2(mu),juros:r2(ju),honorarios:r2(ho),total:r2(pr+mu+ju+ho)};
+  let pr=0,mu=0,ju=0,ho=0;
+  for(const id of ids){const t=C.titulos.find(x=>x.id==id);if(!t)continue;const k=atrasoDe(t,data);pr+=k.v+k.co;mu+=k.mu;ju+=k.ju;ho+=k.ho}
+  return {principal:r2(pr),multa:r2(mu),juros:r2(ju),honorarios:r2(ho),total:r2(pr+mu+ju+ho)};
 }
 function modalAcordo(aid){
   const a=aid?C.acordos.find(x=>x.id==aid):null;
@@ -515,7 +513,7 @@ function modalAcordo(aid){
   <div><label>Forma</label><select id="a_forma"><option value="1">Pagamento único</option><option value="n">Parcelado</option></select></div>
   <div><label>Quantas parcelas</label><input id="a_qtd" type="number" min="1" value="${pars.length||1}"></div></div>
   <div class="mut" style="margin:12px 0 4px;font-weight:600;color:var(--tx)">Como o valor foi formado <span class="mut" id="a_ate" style="font-weight:400"></span></div>
-  <div class="f2">${campo('a_pr','Principal (valor original)')}${campo('a_mu','Multa (2%)')}${campo('a_ju','Juros (1% ao mês, ao dia)')}${campo('a_ho','Custo de cobrança')}</div>
+  <div class="f2">${campo('a_pr','Principal (com correção)')}${campo('a_mu','Multa (2%)')}${campo('a_ju','Juros (1% ao mês, ao dia)')}${campo('a_ho','Custo de cobrança')}</div>
   <div class="f2" style="margin-top:8px"><input id="a_de" type="hidden"><div class="dado"><span>Valor calculado pelo sistema</span><b id="a_calc"></b></div><div class="dado"><span>Soma (principal + multa + juros + cobrança)</span><b id="a_som2"></b></div></div>
   <details style="margin-top:6px"><summary class="mut">Ver a conta parcela por parcela</summary><div id="a_det" class="mut" style="font-size:12px"></div></details>
   <div id="a_av"></div>
@@ -527,7 +525,7 @@ function modalAcordo(aid){
   const mostraB=(skip)=>{for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])if(id!==skip)$('#'+id).value=brl(B[k]);
     const c=calc();$('#a_calc').textContent=brl(c.total);B.de=0;if(skip!=='a_de')$('#a_de').value=brl(B.de);$('#a_som2').textContent=brl(r2(B.pr+B.mu+B.ju+B.ho));
     $('#a_ate').textContent=`— multa e juros calculados até ${dbr($('#a_data').value)}, a data do acordo`;
-    $('#a_det').innerHTML=orig.map(t=>{const v=valorAno(t),d=Math.max(0,Math.round((new Date($('#a_data').value)-new Date(t.vencimento))/864e5));return `${esc(t.rotulo)}: ${brl(v)} · venceu ${dbr(t.vencimento)} · ${d} dia(s) de atraso · multa ${brl(d?v*.02:0)} · juros ${brl(d?v*(Math.pow(1.01,d/30)-1):0)}`}).join('<br>');
+    $('#a_det').innerHTML=orig.map(t=>{const k=atrasoDe(t,$('#a_data').value);return `${esc(t.rotulo)}: ${brl(k.v)} + correção ${brl(k.co)} · venceu ${dbr(t.vencimento)} · ${k.dias} dia(s) de atraso · multa ${brl(k.mu)} · juros ${brl(k.ju)} · cobrança ${brl(k.ho)} · total ${brl(k.tot)}`}).join('<br>');
     $('#a_av').innerHTML=num($('#a_val').value)<B.pr-0.009?`<div class="aviso">O valor acordado é menor que o principal. Ele quita as parcelas mesmo assim (vai todo para o principal).</div>`:''};
   const deCalc=()=>{const c=calc();B={pr:c.principal,mu:c.multa,ju:c.juros,ho:c.honorarios,de:0};$('#a_val').value=brl(c.total)};
   const peloValor=()=>{const c=calc(),v=num($('#a_val').value),q=repartir({principal:c.principal,multa:c.multa,juros:c.juros},v);B={pr:Math.min(c.principal,v),mu:q.multa,ju:q.juros,ho:q.honorarios,de:q.desconto}};
