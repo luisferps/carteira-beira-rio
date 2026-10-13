@@ -179,20 +179,22 @@ function acordoDe(t){return C.acordos.find(a=>(a.titulos_origem||[]).map(Number)
 const NOMES={paga:'Paga em dia',paga_atraso:'Paga com atraso',quitada_acordo:'Paga em cobrança (acordo)',em_acordo:'Em acordo (sem pagamento ainda)',quitada_repact:'Paga por repactuação',em_repact:'Repactuada (boletos em aberto)',cancelada:'Cancelada',em_atraso:'Não paga (conferido)',vencida:'Vencida sem nada lançado',futura:'A vencer'};
 const FATOR_ANO={2024:1.02,2025:1.0854,2026:1.02};
 function fatorAnos(y0,y1){let f=1;for(let y=y0+1;y<=y1;y++)f*=FATOR_ANO[y]||1;return f}
-function valorNoVenc(t){if(t.grupo!=='mensal'&&t.grupo!=='anual')return valorAno(t);
-  const vs=C.titulos.filter(x=>x.grupo===t.grupo&&!x.conferente).map(x=>+x.valor_face).filter(v=>v>0);const base=vs.length?Math.min(...vs):+t.valor_face;
-  const y0=+String(C.contrato.data_assinatura||t.vencimento).slice(0,4);return Math.max(valorAno(t),Math.round(base*fatorAnos(y0,+String(t.vencimento).slice(0,4))*100)/100)}
-/* atraso: dia seguinte ao vencimento entra multa de 2%; juros de 1% a.m. correm dia a dia sobre a parcela; em cada janeiro
-   (dia da 1ª parcela do ano) o saldo devido recebe a correção anual e os juros seguem sobre a parcela corrigida; com mais de
-   60 dias entra o custo de cobrança de 10% sobre o débito (regra atual; antes era 30) */
-function atrasoDe(t,ate){const v=valorAno(t),vd=valorNoVenc(t),dias=Math.max(0,Math.round((new Date(ate)-new Date(t.vencimento))/864e5));
-  if(!dias)return{v,co:vd-v,mu:0,ju:0,ho:0,dias,tot:vd};
-  const corr=t.grupo==='mensal'||t.grupo==='anual';const m0=C.titulos.find(x=>x.grupo==='mensal'&&!x.conferente);const dd=String((m0||t).vencimento).slice(8,10);
-  let prC=vd,mu=vd*.02,ju=0,co=vd-v,cur=String(t.vencimento).slice(0,10);
-  const cresce=ate2=>{const d=Math.max(0,Math.round((new Date(ate2)-new Date(cur))/864e5));ju+=prC*(Math.pow(1.01,d/30)-1);cur=ate2};
-  if(corr)for(let y=+cur.slice(0,4)+1;y<=+String(ate).slice(0,4);y++){const dj=`${y}-01-${dd}`;if(dj<=cur||dj>ate)continue;cresce(dj);const f=FATOR_ANO[y]||1;co+=(v+co+mu+ju)*(f-1);prC*=f}
-  cresce(String(ate).slice(0,10));
-  const sub=v+co+mu+ju,ho=dias>60?sub*.10:0;return{v,co,mu,ju,ho,dias,tot:sub+ho}}
+/* correções de janeiro do contrato: a lançada (vinda do Asaas) em cada ano; se o ano não tem nenhuma lançada, usa o índice da tabela */
+function correcoesAno(){const fm=fatoresMensais(),m0=C.titulos.find(x=>x.grupo==='mensal'&&!x.conferente),dd=String(m0?.vencimento||'2000-01-10').slice(8,10);
+  const y0=+String(C.contrato.data_assinatura||m0?.vencimento||'2000').slice(0,4),out=[],anos=new Set();
+  for(const x of fm)if(x.data){out.push(x);anos.add(+x.data.slice(0,4))}
+  for(const y in FATOR_ANO)if(+y>y0&&!anos.has(+y))out.push({data:`${y}-01-${dd}`,f:FATOR_ANO[y]});
+  return out.sort((x,y)=>x.data.localeCompare(y.data))}
+/* atraso: valor da parcela = o que foi cobrado no vencimento (já com a correção do ano dela). Multa 2% sobre esse valor.
+   Juros 1% a.m. ao dia. Correção: só quando passa uma correção de janeiro DEPOIS do vencimento — corrige o valor da parcela
+   uma vez por ano, e os juros seguem sobre o valor corrigido. Custo de cobrança 10% só com mais de 60 dias. */
+function atrasoDe(t,ate){const v=valorAno(t),dias=Math.max(0,Math.round((new Date(ate)-new Date(t.vencimento))/864e5));
+  if(!dias)return{v,co:0,mu:0,ju:0,ho:0,dias,tot:v};
+  const corr=t.grupo==='mensal'||t.grupo==='anual',venc=String(t.vencimento).slice(0,10),fim=String(ate).slice(0,10);
+  let pr=v,ju=0,cur=venc;const mu=r2(v*.02);
+  const cresce=d2=>{const d=Math.max(0,Math.round((new Date(d2)-new Date(cur))/864e5));ju+=pr*(Math.pow(1.01,d/30)-1);cur=d2};
+  if(corr)for(const k of correcoesAno())if(k.data>venc&&k.data<=fim){cresce(k.data);pr*=k.f}
+  cresce(fim);const co=pr-v,sub=v+co+mu+ju,ho=dias>60?sub*.10:0;return{v,co,mu,ju,ho,dias,tot:sub+ho}}
 function encDe(v,venc,ate){const dias=Math.max(0,Math.round((new Date(ate)-new Date(venc))/864e5));if(!dias)return{mu:0,ju:0,ho:0,dias};
   const mu=v*.02,ju=v*(Math.pow(1.01,dias/30)-1),ho=dias>60?(v+mu+ju)*.10:0;return{mu,ju,ho,dias}}
 function totais(){
