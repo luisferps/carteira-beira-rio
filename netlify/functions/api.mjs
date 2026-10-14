@@ -684,6 +684,18 @@ export default async (req) => {
       return json({ ok: true });
     }
 
+    if (p[0] === 'zerar' && m === 'POST') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      const n = body.contrato, sub = 'select id from carteira.titulos where contrato=$1';
+      const r = {};
+      r.pagamentos = (await q(`delete from carteira.pagamentos where conferente=$2 and titulo_id in (${sub}) returning id`, [n, conf])).length;
+      await q(`delete from carteira.conferencia_titulo where conferente=$2 and titulo_id in (${sub})`, [n, conf]);
+      await q(`delete from carteira.titulos where contrato=$1 and grupo='acordo' and conferente=$2`, [n, conf]);
+      for (const t of ['acordos', 'correcoes', 'eventos', 'fechamentos']) r[t] = (await q(`delete from carteira.${t} where contrato=$1 and conferente=$2 returning 1`, [n, conf])).length;
+      await log(real, 'zerar_contrato', { contrato: n, ...r });
+      return json(r);
+    }
+
     if (p[0] === 'fechar' && p[1] && m === 'DELETE') {
       await q('delete from carteira.fechamentos where contrato=$1 and conferente=$2', [p[1], conf]);
       await log(conf, 'reabrir', { contrato: p[1] });
