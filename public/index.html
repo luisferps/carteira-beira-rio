@@ -324,6 +324,7 @@ function verEvento(id){const e=C.eventos.find(x=>x.id==id),d=e.dados||{};const d
 const totCred=()=>C.eventos.filter(e=>e.tipo==='credito').reduce((a,e)=>a+Number(e.dados?.valor||0),0);
 const totDev=()=>C.eventos.filter(e=>e.tipo==='devolucao').reduce((a,e)=>a+Number(e.dados?.valor||0),0);
 const saldoCred=()=>r2(totCred()-totDev());
+const saldoRecebido=(semPag)=>r2(C.eventos.filter(e=>e.tipo==='cessao'&&e.dados?.subtipo==='credito').reduce((a,e)=>a+Number(e.dados.valor||0),0)-C.pagamentos.filter(p=>p.forma==='Crédito'&&p.id!=semPag).reduce((a,p)=>a+Number(p.valor_pago||0),0));
 /* crédito do cliente (gerado por distrato/devolução) e cada pagamento desse crédito (Pix, dinheiro, cessão para outro contrato...) */
 function modalCredito(tipo,eid){const e=eid?C.eventos.find(x=>x.id==eid):null,d=e?.dados||{};const enc=C.eventos.find(x=>x.tipo==='encerramento');
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${tipo==='credito'?'Crédito (a devolver)':'Pagamento do crédito'}${e?' — editar':''}</h3><button onclick="fechaModal()">Fechar</button></div>
@@ -345,7 +346,11 @@ function modalCredito(tipo,eid){const e=eid?C.eventos.find(x=>x.id==eid):null,d=
 async function salvaCredito(tipo,eid){const v=numBR($('#c_v').value);if(!v)return alert('Informe o valor.');const old=eid?C.eventos.find(x=>x.id==eid)?.dados||{}:{};
   const dados=tipo==='credito'?{...old,valor:v,origem:$('#c_or').value,pago_cliente:numBR($('#c_pc').value),retido:numBR($('#c_rt').value)}:{...old,valor:v,forma:$('#c_f').value,destino:$('#c_dest').value.trim()||null,parcelas:$('#c_par').value.trim()||null,documento:$('#c_doc').value.trim()||null};
   const enc=C.eventos.find(x=>x.tipo==='encerramento');const body={contrato:C.contrato.numero,tipo,motivo:tipo==='credito'?dados.origem:dados.forma,a_partir_titulo:enc?.a_partir_titulo||null,data:$('#c_d').value||null,dados,obs:$('#c_o').value};
-  await api(eid?'evento/'+eid:'evento',{method:eid?'PUT':'POST',body});fechaModal();recarrega()}
+  await api(eid?'evento/'+eid:'evento',{method:eid?'PUT':'POST',body});
+  if(!eid&&tipo==='devolucao'&&dados.forma==='Cessão para outro contrato'&&dados.destino){/* o crédito transferido aparece sozinho no contrato que recebeu */
+    const dn=String(dados.destino).replace(/\D/g,'').padStart(4,'0');try{const D=await api('contrato/'+dn);const t0=D.titulos.filter(t=>t.grupo!=='acordo').sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)))[0];
+      await api('evento',{method:'POST',body:{contrato:dn,tipo:'cessao',motivo:null,a_partir_titulo:t0?.id||null,data:body.data,dados:{subtipo:'credito',origem:C.contrato.numero,valor:dados.valor},obs:'Crédito transferido do contrato '+C.contrato.numero+(dados.documento?' — '+dados.documento:'')}})}catch(e){alert('O crédito foi lançado aqui, mas não consegui lançar no contrato '+dn+': '+e.message)}}
+  fechaModal();recarrega()}
 async function puxarDesc(){
   const r=await api('descricoes',{method:'POST',body:{contrato:C.contrato.numero}});
   alert(`Descrições atualizadas: ${r.preenchidas} (direto do Asaas: ${r.do_asaas})`+(r.sem_descricao.length?`\nSem descrição (${r.sem_descricao.length}): `+r.sem_descricao.map(x=>x.parcela).join(', '):'')+(r.erro_asaas?`\n\nAtenção: ${r.erro_asaas}`:''));
@@ -532,6 +537,7 @@ function conferePag(tid,pid){
 }
 async function salvaPag(tid,pid){
   const o=pegaForm();o.titulo_id=tid;if(PRINT)o.print=PRINT;
+  if(o.forma==='Crédito'){const sd=saldoRecebido(pid);if(sd<=0.009)return alert('Este contrato não tem crédito disponível. Lance primeiro o crédito recebido (vem do contrato que transferiu).');if(Number(o.valor_pago||0)>sd+0.009)return alert('O valor passa do crédito disponível ('+brl(sd)+').')}
   if(!o.valor_pago)return alert('Informe o valor pago.');if(!o.confirmada_em)return alert('Informe a data em que o dinheiro entrou (Confirmada em).');
   const dup=(o.fatura&&C.pagamentos.find(p=>p.fatura===o.fatura&&p.id!=pid))||(o.id_asaas&&C.pagamentos.find(p=>p.id_asaas===o.id_asaas&&p.id!=pid));
   if(dup&&!confirm('Essa fatura já foi lançada em outra parcela deste contrato. Salvar mesmo assim?'))return;
