@@ -21,11 +21,11 @@ window.LOTE=async(ns,conc=2)=>{const B=window._BATCH=window._BATCH||{};const fil
   const um=async n=>{B[n]={st:'rodando'};try{
       const r=await IMP3(n,true);if(r.dup.length||r.estranhos.length||!r.n){B[n]={st:'lista',motivo:'importação: '+(r.dup.length?r.dup.length+' boleto(s) duplicado(s) ':'')+(r.estranhos.length?r.estranhos.length+' boleto(s) estranho(s) ':'')+(!r.n?'nenhum boleto no Asaas':'')};return}
       const l=await IMP3(n);await ENTC(n,[1]);const pg=await PAG(n);const d=await DIV(n);
-      const avisos=[];if(pg&&pg.length)avisos.push('pagador que não é comprador: '+pg.map(x=>typeof x==='string'?x:JSON.stringify(x)).join('; ').slice(0,200));const fp=(r.fora||[]).filter(f=>/RECEIVED|CONFIRMED/.test(f[1]));if(fp.length)avisos.push(fp.length+' boleto(s) PAGO(s) com descrição de outro contrato: '+fp.map(f=>f[0]+' R$ '+f[2]+' '+f[4]).join('; ').slice(0,300));
+      const avisos=[];if(pg&&pg.length)avisos.push('pagador que não é comprador: '+pg.map(x=>typeof x==='string'?x:JSON.stringify(x)).join('; ').slice(0,200));/* boletos com descrição de outro contrato são importados no contrato deles */
       if(!d.length&&!avisos.length){const s=await FECHA(n);B[n]={st:s===200?'fechado':'erro ao fechar '+s}}
       else B[n]={st:'lista',div:d,avisos,feito:(l||[]).filter(x=>!/IGNOREI queda/.test(x))};
     }catch(e){B[n]={st:'lista',motivo:'erro: '+e.message}}
     try{localStorage.lote_batch=JSON.stringify(B)}catch(e){}};
   await Promise.all(Array.from({length:conc},async()=>{while(fila.length){await um(fila.shift())}}));window._BATCH_FIM=true;return B};
 
-window.REDIV=async()=>{const B=window._BATCH;for(const [n,v] of Object.entries(B)){if(v.st!=='lista'||v.motivo)continue;const d=await DIV(n);v.div=d;if(!d.length&&!(v.avisos||[]).length){const s=await FECHA(n);B[n]={st:s===200?'fechado':'erro ao fechar '+s}}}try{localStorage.lote_batch=JSON.stringify(B)}catch(e){}return B};
+window.REDIV=async()=>{const B=window._BATCH;for(const [n,v] of Object.entries(B)){if(v.st!=='lista'||v.motivo)continue;const d=await DIV(n);v.div=d;v.avisos=(v.avisos||[]).filter(a=>!/descrição de outro contrato/.test(a));if(!d.length&&!v.avisos.length){const s=await FECHA(n);B[n]={st:s===200?'fechado':'erro ao fechar '+s}}}try{localStorage.lote_batch=JSON.stringify(B)}catch(e){}return B};
