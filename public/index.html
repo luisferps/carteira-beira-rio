@@ -237,14 +237,16 @@ async function abrirContrato(n){
 /* composição do acordo pela regra de hoje (mesma conta do relatório de atraso, na data do acordo, com as correções lançadas).
    Se o valor acordado ficou abaixo, a diferença sai em cascata: custo de cobrança -> juros -> multa -> principal (nunca vira desconto). */
 function composicaoAcordo(a){const k=calcAcordo(a.titulos_origem.map(Number),String(a.data_acordo).slice(0,10));let {principal:pr,multa:mu,juros:ju,honorarios:ho,total}=k;
-  const ac=r2(+a.valor_acordado);let falta=r2(total-ac);if(falta<-0.05)return{sobra:r2(-falta),principal:pr,multa:mu,juros:ju,honorarios:ho,total};
+  const ac=r2(+a.valor_acordado);let falta=r2(total-ac);if(falta<-0.05)return{sobra:r2(-falta),principal:pr,multa:mu,juros:ju,honorarios:r2(ac-pr-mu-ju),total:ac};/* acordo acima da conta de hoje (custo de cobrança da regra antiga, 30 dias): o excesso fica no custo de cobrança */
   if(falta>0){const t1=Math.min(ho,falta);ho=r2(ho-t1);falta=r2(falta-t1);const t2=Math.min(ju,falta);ju=r2(ju-t2);falta=r2(falta-t2);const t3=Math.min(mu,falta);mu=r2(mu-t3);falta=r2(falta-t3);pr=r2(pr-falta)}
   else{ho=r2(ho-falta)}/* diferença de centavos */
   return{sobra:0,principal:pr,multa:mu,juros:ju,honorarios:ho,total:ac}}
-/* acordos (não repactuações) com composição diferente da regra são acertados ao abrir o contrato; acordo acima da conta fica como está (avisa no console) */
+/* acordo com composição impossível é refeito ao abrir o contrato: custo de cobrança acima de 10% (sobra jogada ali) ou principal abaixo do valor das parcelas com correção */
 async function acertaAcordos(){let mud=0;
-  for(const a of C.acordos||[]){if(ehRep(a)||!a.conferente||!(a.titulos_origem||[]).length)continue;const c=composicaoAcordo(a);if(c.sobra){console.warn('acordo acima da conta',a.id,c);continue}
-    if(['principal','multa','juros','honorarios'].every(x=>Math.abs((+a[x]||0)-c[x])<0.02)&&Math.abs((+a.valor_calculado||0)-c.total)<0.02&&!(+a.desconto_encargos))continue;
+  for(const a of C.acordos||[]){if(ehRep(a)||!a.conferente||!(a.titulos_origem||[]).length)continue;
+    const pr=+a.principal||0,mu=+a.multa||0,ju=+a.juros||0,ho=+a.honorarios||0,base=a.titulos_origem.map(Number).reduce((s,id)=>{const t=C.titulos.find(x=>x.id==id);return s+(t?valorAno(t):0)},0);
+    if(!(ho>0.1001*(pr+mu+ju)+0.05||pr<base-1))continue;
+    const c=composicaoAcordo(a);if(['principal','multa','juros','honorarios'].every(x=>Math.abs((+a[x]||0)-c[x])<0.05))continue;
     const pars=C.titulos.filter(t=>t.acordo_id==a.id).sort((x,y)=>x.numero-y.numero).map(t=>({vencimento:t.vencimento,valor:+t.valor_face}));if(!pars.length)continue;
     await api('acordo/'+a.id,{method:'PUT',body:{contrato:C.contrato.numero,data_acordo:String(a.data_acordo).slice(0,10),titulos_origem:a.titulos_origem.map(Number),principal:c.principal,multa:c.multa,juros:c.juros,honorarios:c.honorarios,valor_calculado:c.total,valor_acordado:+a.valor_acordado,desconto_encargos:0,parcelas:pars,obs:a.obs}});mud++}
   return mud}
