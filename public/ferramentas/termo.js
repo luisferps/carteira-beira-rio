@@ -19,12 +19,12 @@ async function pasta(){if(!window.showDirectoryPicker)return null;
     if(h&&db)db.transaction('h','readwrite').objectStore('h').put(h,'pasta')}
   return h}
 
-window.emitirTermo=async function(){
+window.emitirTermo=async function(A0,modo){
   await carrega('/ferramentas/docx.js');
   const D=window.docx,{Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,WidthType,AlignmentType,BorderStyle,ShadingType,ImageRun,Header,Footer,PageNumber,HorizontalPositionRelativeFrom,VerticalPositionRelativeFrom,TextWrappingType,HorizontalPositionAlign,VerticalPositionAlign}=D;
-  const A=window._salvaAcordoDados(),c=C.contrato;
+  const A=A0||window._salvaAcordoDados(),c=C.contrato;
   if(!A.parcelas||!A.parcelas.length){alert('Defina as parcelas do acordo antes de emitir o termo.');return}
-  let num=(A.termo||'').trim();if(!num){num=document.querySelector('#a_termo').placeholder;document.querySelector('#a_termo').value=num}
+  let num=(A.termo||'').trim();if(!num){num=window.proxTermo();A.termo=num;const it=document.querySelector('#a_termo');if(it)it.value=num}
   const ces=(C.eventos||[]).filter(e=>e.tipo==='cessao'&&e.dados?.subtipo!=='credito'&&e.dados?.novos_titulares&&!/não informado/.test(e.dados.novos_titulares)).sort((a,b)=>String(b.data).localeCompare(String(a.data)))[0];
   const dev=ces?ces.dados.novos_titulares.split(/\s+e\s+/).map(n=>({nome:n.trim().toUpperCase(),cpf:''})):(c.compradores||[]).map(x=>({nome:x.nome,cpf:x.cpf||''}));
   const fcpf=s=>{const d=String(s||'').replace(/\D/g,'');return d.length===11?d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4'):'___.___.___-__'};
@@ -89,9 +89,10 @@ window.emitirTermo=async function(){
   const blob=await Packer.toBlob(doc);
   const nome1=(dev[0]?.nome||'').toLowerCase().replace(/(^|\s)\S/g,m=>m.toUpperCase()).replace(/\s(De|Da|Do|Dos|Das|E)\s/g,m=>m.toLowerCase());
   const pastaNome=`${num} - Q${c.quadra} L${c.lote} - ${nome1}`.replace(/[\\/:*?"<>|]/g,''),arq=`${num} - Termo de Renegociação - ${nome1}.docx`.replace(/[\\/:*?"<>|]/g,'');
-  const h=await pasta();
+  const h=modo==='pasta'?(window._pastaTermo||await pasta()):null;window._pastaTermo=null;
   if(h){try{const sub=await h.getDirectoryHandle(pastaNome,{create:true});const f=await sub.getFileHandle(arq,{create:true});const w=await f.createWritable();await w.write(blob);await w.close();
-      alert(`Termo ${num} salvo em Renegociações\\${pastaNome}\\${arq}.\nAbra no Word se quiser editar. Depois clique em "Salvar acordo".`);return}catch(e){console.error(e)}}
+      alert(`Termo ${num} salvo em Renegociações\\${pastaNome}\\${arq}.`);return true}catch(e){console.error(e)}}
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=arq;a.click();
-  alert(`Termo ${num} baixado (${arq}). Mova para Renegociações\\${pastaNome}.`)};
+  if(modo==='pasta')alert(`Não consegui gravar na pasta. O termo foi baixado (${arq}); mova para Renegociações\\${pastaNome}.`);return true};
+window.escolhePastaTermo=async()=>{window._pastaTermo=await pasta();return !!window._pastaTermo};
 })();

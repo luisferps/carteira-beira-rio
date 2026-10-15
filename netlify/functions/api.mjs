@@ -113,7 +113,8 @@ async function carregar(n, conf) {
   const correcoes = await q('select * from carteira.correcoes where contrato=$1 and conferente=$2 order by grupo, a_partir', [n, conf]);
   const eventos = await q('select * from carteira.eventos where contrato=$1 and conferente=$2 order by data, id', [n, conf]);
   const [fechamento] = await q('select * from carteira.fechamentos where contrato=$1 and conferente=$2', [n, conf]);
-  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, fechamento: fechamento || null, hoje: new Date().toISOString().slice(0, 10), conferente: conf };
+  const propostas = await q('select * from carteira.propostas where contrato=$1 and conferente=$2 order by id', [n, conf]).catch(() => []);
+  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, fechamento: fechamento || null, hoje: new Date().toISOString().slice(0, 10), conferente: conf };
 }
 
 /* ---------- cruzamento ---------- */
@@ -344,6 +345,7 @@ async function garanteEsquema() {
     await q(`alter table carteira.acordos add column if not exists tipo text not null default 'acordo'`);
     await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
     await q(`alter table carteira.acordos add column if not exists termo text`);
+    await q(`create table if not exists carteira.propostas(id serial primary key, contrato text not null, conferente text not null, dados jsonb not null, criado_em timestamptz default now())`);
     schemaOk = true;
   } catch (e) { console.error('garanteEsquema', e.message); }
 }
@@ -586,6 +588,17 @@ export default async (req) => {
                     on conflict (conferente, titulo_id) do update set situacao=excluded.situacao, obs=excluded.obs, salvo_em=now()`,
         [conf, t.id, body.situacao, limpa(body.obs)]);
       await log(conf, 'situacao', body);
+      return json({ ok: true });
+    }
+
+    if (p[0] === 'proposta' && m === 'POST') {
+      const [r] = await q('insert into carteira.propostas(contrato, conferente, dados) values ($1,$2,$3) returning id', [body.contrato, conf, body.dados]);
+      await log(conf, 'proposta_nova', { id: r.id, contrato: body.contrato });
+      return json(r);
+    }
+    if (p[0] === 'proposta' && p[1] && m === 'DELETE') {
+      await q('delete from carteira.propostas where id=$1 and conferente=$2', [p[1], conf]);
+      await log(conf, 'proposta_apagada', { id: p[1] });
       return json({ ok: true });
     }
 
