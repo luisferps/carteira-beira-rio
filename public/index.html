@@ -632,11 +632,9 @@ function modalAcordo(aid){
   $('#a_val').oninput=()=>{peloValor();mostraB();refazPars()};
   for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])$('#'+id).oninput=e=>{B[k]=num(e.target.value);$('#a_val').value=brl(r2(B.pr+B.mu+B.ju+B.ho));mostraB(id);refazPars()};
   $('#a_qtd').oninput=()=>{$('#a_forma').value=(+$('#a_qtd').value>1)?'n':'1';refazPars()};$('#a_forma').onchange=()=>{if($('#a_forma').value==='1')$('#a_qtd').value=1;refazPars()};
-  let LIVRE=false;const trava=()=>{for(const id of ['a_val','a_pr','a_mu','a_ju','a_ho'])$('#'+id).readOnly=!LIVRE;$('#a_de').readOnly=true;
+  let LIVRE=EU==='luis';const trava=()=>{for(const id of ['a_val','a_pr','a_mu','a_ju','a_ho'])$('#'+id).readOnly=!LIVRE;$('#a_de').readOnly=true;
     const bt=$('#a_edit');if(bt)bt.style.display=LIVRE?'none':'';const av=$('#a_livre');if(av)av.style.display=LIVRE?'':'none'};
   window._travaAcordo=trava;
-  $('#a_pr').closest('.f2').insertAdjacentHTML('beforebegin',EU==='luis'?'<div style="margin:4px 0 8px"><button id="a_edit">Editar valores do acordo</button><span id="a_livre" class="mut" style="display:none">Valores liberados para edição.</span></div>':'');
-  if($('#a_edit'))$('#a_edit').onclick=()=>{LIVRE=true;trava()};
   mostraB();if(P.length)desPars();else refazPars();trava();
   window._salvaAcordoDados=()=>({contrato:C.contrato.numero,data_acordo:$('#a_data').value,titulos_origem:ids,principal:r2(B.pr),multa:r2(B.mu),juros:r2(B.ju),honorarios:r2(B.ho),
       valor_calculado:calc().total,valor_acordado:num($('#a_val').value),desconto_encargos:r2(B.de),parcelas:window._P,obs:$('#a_obs').value,termo:$('#a_termo').value.trim()});
