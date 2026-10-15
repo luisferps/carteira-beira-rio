@@ -607,7 +607,7 @@ function modalAcordo(aid){
   <details style="margin-top:6px"><summary class="mut">Ver a conta parcela por parcela</summary><div id="a_det" class="mut" style="font-size:12px"></div></details>
   <div id="a_av"></div>
   <div class="mut" style="margin-top:8px;font-size:12px">Mudou o valor de uma parcela (ex.: entrada maior)? As outras se ajustam sozinhas para fechar o valor acordado.</div><table style="margin-top:4px"><thead><tr><th>#</th><th>Vencimento</th><th>Valor</th></tr></thead><tbody id="a_pars"></tbody></table><div id="a_soma" class="mut"></div>
-  <div class="f2" style="margin-top:8px"><div><label>Termo de renegociação nº</label><input id="a_termo" placeholder="ex.: 0001" value="${esc(a?.termo||'')}"></div><div><label>Observação</label><input id="a_obs" value="${esc(a?.obs||'')}"></div></div>
+  <div class="f2" style="margin-top:8px"><div><label>Termo de renegociação nº</label><input id="a_termo" placeholder="${C.contrato.numero}-${String(C.acordos.filter(x=>x.termo).length+1).padStart(3,'0')}" value="${esc(a?.termo||'')}"><small class="mut">Formato: contrato-sequência (ex.: ${C.contrato.numero}-${String(C.acordos.filter(x=>x.termo).length+1).padStart(3,'0')}). Deixe vazio se não houver termo.</small></div><div><label>Observação</label><input id="a_obs" value="${esc(a?.obs||'')}"></div></div>
   <div class="bt" style="margin-top:12px"><button class="pri" onclick="salvaAcordo(${aid||'null'})">Salvar acordo</button></div>`);
   let P=pars.slice();const num=s=>numBR(s)||0;let B;
   const calc=()=>calcAcordo(ids,$('#a_data').value);
