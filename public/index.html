@@ -452,6 +452,9 @@ function modalTitulo(id,editId,novo){
   const t=C.titulos.find(x=>x.id==id),pags=C.pagamentos.filter(p=>p.titulo_id==id),sit=C.situacoes.find(s=>s.titulo_id==id);
   const ed=editId?pags.find(p=>p.id==editId):null;PRINT=null;
   const cab=`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
+  ${!pags.length&&['vencida','em_atraso'].includes(estado(t))?(()=>{const k=atrasoDe(t,C.hoje),d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v}</b></div>`;
+    return `<div class="ficha" style="border-left-color:#c0392b;background:rgba(192,57,43,.06);margin:8px 0"><b style="font-size:16px">Valor para pagar hoje (${dbr(C.hoje)}): ${brl(k.tot)}</b>
+     <div class="f2" style="margin-top:6px">${d('Valor da parcela',brl(k.v))}${k.co?d('Correção',brl(k.co)):''}${d('Multa 2%',brl(k.mu))}${d('Juros 1% a.m.',brl(k.ju))}${d('Custo de cobrança',k.ho?brl(k.ho):'— (até 60 dias)')}${d('Dias de atraso',k.dias)}</div></div>`})():''}
   ${t.grupo==='acordo'?(()=>{const ac=C.acordos.find(x=>x.id==t.acordo_id);if(!ac)return'';const d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v}</b></div>`;
     return `<div class="ficha" style="border-left-color:#c79a00;background:rgba(199,154,0,.06);margin:8px 0">
      <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">${nomeAc(ac)} — feito em ${dbr(ac.data_acordo)}</b><button onclick="vaiPara(()=>verAcordo(${ac.id}),()=>modalTitulo(${id}))">Dados do ${nomeAc(ac)}</button></div>${resumoAc(ac)}
