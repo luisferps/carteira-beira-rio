@@ -1,7 +1,7 @@
 /* Importador Asaas -> conferência (uso interno do Claude no navegador) */
 window.parse=(d,C)=>{d=(d||'').replace(/\s+/g,' ');const sem=d.replace(/á Servi[cç]o.*$/i,'').replace(/Q\s*\d{1,2}\s*L\s*\d{1,2}/gi,' ').replace(/\d{2}\/\d{2}\/\d{4}/g,' ');
  const ctm=d.match(/Beira\s*Rio\s*-\s*(\d{3,4})/i)||d.match(/Contrato\s*(\d{3,4})/i);const ql=d.match(/Q\s*(\d{1,2})\s*L\s*(\d{1,2})/i);
- const outro=(ctm&&ctm[1].padStart(4,'0')!==C.contrato.numero)||(ql&&(ql[1].padStart(2,'0')!==C.contrato.quadra||ql[2].padStart(2,'0')!==C.contrato.lote));
+ const outro=ctm?ctm[1].padStart(4,'0')!==C.contrato.numero:!!(ql&&(ql[1].padStart(2,'0')!==C.contrato.quadra||ql[2].padStart(2,'0')!==C.contrato.lote));
  const ps=[...sem.matchAll(/(?<![\d\/])(\d{1,3})\s*\/\s*(\d{1,3})(?![\d\/])/g)].map(m=>({n:+m[1],tot:+m[2]}));
  const tipo=/cess[aã]o/i.test(d)?'cessao':/renegocia|acordo/i.test(d)?'reneg':/anual/i.test(d)?'anual':/entrada|sinal/i.test(d)?'entrada':'mensal';
  const ex=()=>new Set(ps.map(x=>x.n+'/'+x.tot));
