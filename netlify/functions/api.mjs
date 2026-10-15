@@ -343,6 +343,7 @@ async function garanteEsquema() {
     }
     await q(`alter table carteira.acordos add column if not exists tipo text not null default 'acordo'`);
     await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
+    await q(`alter table carteira.acordos add column if not exists termo text`);
     schemaOk = true;
   } catch (e) { console.error('garanteEsquema', e.message); }
 }
@@ -592,10 +593,10 @@ export default async (req) => {
       const b = body;
       for (const id of b.titulos_origem || []) { const [tt] = await q('select * from carteira.titulos where id=$1', [id]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return json({ erro: b0 }, 409); }
       const [a] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios,
-                           valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo)
-                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) returning id`,
+                           valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo, termo)
+                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) returning id`,
         [b.contrato, conf, b.data_acordo, b.titulos_origem, b.principal, b.multa, b.juros, b.honorarios, b.valor_calculado,
-          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), b.tipo === 'repactuacao' ? 'repactuacao' : 'acordo']);
+          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), b.tipo === 'repactuacao' ? 'repactuacao' : 'acordo', limpa(b.termo)]);
       let i = 0;
       for (const par of b.parcelas) {
         i++;
@@ -610,10 +611,10 @@ export default async (req) => {
     if (p[0] === 'acordo' && p[1] && m === 'PUT') {
       const b = body;
       await q(`update carteira.acordos set data_acordo=$3, titulos_origem=$4, principal=$5, multa=$6, juros=$7, honorarios=$8,
-               valor_calculado=$9, valor_acordado=$10, desconto_encargos=$11, qtd_parcelas=$12, obs=$13, salvo_em=now()
+               valor_calculado=$9, valor_acordado=$10, desconto_encargos=$11, qtd_parcelas=$12, obs=$13, termo=$14, salvo_em=now()
                where id=$1 and conferente=$2`,
         [p[1], conf, b.data_acordo, b.titulos_origem, b.principal, b.multa, b.juros, b.honorarios, b.valor_calculado,
-          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs)]);
+          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), limpa(b.termo)]);
       const atuais = await q('select * from carteira.titulos where acordo_id=$1 and conferente=$2 order by numero', [p[1], conf]);
       for (let i = 0; i < b.parcelas.length; i++) {
         const par = b.parcelas[i], rot = `Acordo ${b.data_acordo.split('-').reverse().join('/')} — ${i + 1}/${b.parcelas.length}`;
