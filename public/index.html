@@ -606,7 +606,7 @@ function modalAcordo(aid){
   <div class="f2" style="margin-top:8px"><input id="a_de" type="hidden"><div class="dado"><span>Valor calculado pelo sistema</span><b id="a_calc"></b></div><div class="dado"><span>Soma (principal + multa + juros + cobrança)</span><b id="a_som2"></b></div></div>
   <details style="margin-top:6px"><summary class="mut">Ver a conta parcela por parcela</summary><div id="a_det" class="mut" style="font-size:12px"></div></details>
   <div id="a_av"></div>
-  <table style="margin-top:8px"><thead><tr><th>#</th><th>Vencimento</th><th>Valor</th></tr></thead><tbody id="a_pars"></tbody></table><div id="a_soma" class="mut"></div>
+  <div class="mut" style="margin-top:8px;font-size:12px">Mudou o valor de uma parcela (ex.: entrada maior)? As outras se ajustam sozinhas para fechar o valor acordado.</div><table style="margin-top:4px"><thead><tr><th>#</th><th>Vencimento</th><th>Valor</th></tr></thead><tbody id="a_pars"></tbody></table><div id="a_soma" class="mut"></div>
   <label style="margin-top:8px">Observação</label><input id="a_obs" value="${esc(a?.obs||'')}">
   <div class="bt" style="margin-top:12px"><button class="pri" onclick="salvaAcordo(${aid||'null'})">Salvar acordo</button></div>`);
   let P=pars.slice();const num=s=>numBR(s)||0;let B;
@@ -621,7 +621,10 @@ function modalAcordo(aid){
   const refazPars=()=>{const q=Math.max(1,Number($('#a_qtd').value)||1),v=num($('#a_val').value),base=r2(v/q);const d0=$('#a_data').value;
     P=Array.from({length:q},(_,i)=>{const d=new Date(d0+'T12:00');d.setMonth(d.getMonth()+i);return {valor:i===q-1?r2(v-base*(q-1)):base,vencimento:d.toISOString().slice(0,10)}});desPars()};
   const desPars=()=>{window._P=P;$('#a_pars').innerHTML=P.map((p,i)=>`<tr><td>${i+1}</td><td><input type="date" data-i="${i}" data-k="vencimento" value="${p.vencimento}"></td><td><input data-i="${i}" data-k="valor" inputmode="decimal" value="${brl(p.valor)}"></td></tr>`).join('');
-    window._travaAcordo&&window._travaAcordo();$('#a_pars').oninput=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;if(i==null)return;P[i][k]=k==='valor'?num(e.target.value):e.target.value;if(k==='valor'){$('#a_val').value=brl(r2(P.reduce((a,p)=>a+Number(p.valor||0),0)));peloValor();mostraB()}soma()};soma()};
+    window._travaAcordo&&window._travaAcordo();$('#a_pars').oninput=e=>{const i=e.target.dataset.i,k=e.target.dataset.k;if(i==null)return;P[i][k]=k==='valor'?num(e.target.value):e.target.value;if(k==='valor'){P[i].fixo=true;const tot=num($('#a_val').value),livres=P.filter(p=>!p.fixo);
+      if(livres.length){const rest=r2(tot-P.filter(p=>p.fixo).reduce((a,p)=>a+Number(p.valor||0),0)),base=r2(rest/livres.length);livres.forEach((p,j)=>p.valor=j===livres.length-1?r2(rest-base*(livres.length-1)):base);
+        document.querySelectorAll('#a_pars input[data-k=valor]').forEach(x=>{if(x!==e.target)x.value=brl(P[x.dataset.i].valor)})}
+      else{$('#a_val').value=brl(r2(P.reduce((a,p)=>a+Number(p.valor||0),0)));peloValor();mostraB()}}soma()};soma()};
   const soma=()=>{const s=r2(P.reduce((a,p)=>a+Number(p.valor||0),0)),v=num($('#a_val').value);$('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> ${Math.abs(s-v)>0.009?'<span style="color:var(--at)">— diferente do valor acordado</span>':''}`};
   if(a){B={pr:Number(a.principal||0),mu:Number(a.multa||0),ju:Number(a.juros||0),ho:Number(a.honorarios||0),de:Number(a.desconto_encargos||0)};$('#a_val').value=brl(a.valor_acordado)}else deCalc();
   $('#a_forma').value=(pars.length>1)?'n':'1';
@@ -629,7 +632,7 @@ function modalAcordo(aid){
   $('#a_val').oninput=()=>{peloValor();mostraB();refazPars()};
   for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])$('#'+id).oninput=e=>{B[k]=num(e.target.value);$('#a_val').value=brl(r2(B.pr+B.mu+B.ju+B.ho));mostraB(id);refazPars()};
   $('#a_qtd').oninput=()=>{$('#a_forma').value=(+$('#a_qtd').value>1)?'n':'1';refazPars()};$('#a_forma').onchange=()=>{if($('#a_forma').value==='1')$('#a_qtd').value=1;refazPars()};
-  let LIVRE=false;const trava=()=>{for(const id of ['a_val','a_pr','a_mu','a_ju','a_ho'])$('#'+id).readOnly=!LIVRE;$('#a_de').readOnly=true;document.querySelectorAll('#a_pars input[data-k=valor]').forEach(i=>i.readOnly=!LIVRE);
+  let LIVRE=false;const trava=()=>{for(const id of ['a_val','a_pr','a_mu','a_ju','a_ho'])$('#'+id).readOnly=!LIVRE;$('#a_de').readOnly=true;
     const bt=$('#a_edit');if(bt)bt.style.display=LIVRE?'none':'';const av=$('#a_livre');if(av)av.style.display=LIVRE?'':'none'};
   window._travaAcordo=trava;
   $('#a_pr').closest('.f2').insertAdjacentHTML('beforebegin',EU==='luis'?'<div style="margin:4px 0 8px"><button id="a_edit">Editar valores do acordo</button><span id="a_livre" class="mut" style="display:none">Valores liberados para edição.</span></div>':'');
