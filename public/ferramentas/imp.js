@@ -90,5 +90,7 @@ window.FUROS=()=>{const out=[];const R=s=>String(s||'').replace(/\/\d+$/,'').rep
   const rep=C.acordos.filter(x=>x.tipo==='repactuacao').flatMap(x=>x.titulos_origem.map(Number));
   for(const a of acs){const d=String(a.data_acordo).slice(0,10);const cob=new Set();for(const b of C.acordos)if(String(b.data_acordo).slice(0,10)<=d)b.titulos_origem.forEach(i=>cob.add(+i));
     const fora=C.titulos.filter(t=>t.vencimento&&t.vencimento<d&&!cob.has(+t.id)&&!rep.includes(+t.id)&&!pagoAte(t,d)&&t.acordo_id!=a.id&&C.situacoes.find(s=>s.titulo_id==t.id)?.situacao!=='cancelada');
+    const quitada=t=>C.pagamentos.some(p=>p.titulo_id==t.id)||C.acordos.some(b=>b.titulos_origem.map(Number).includes(+t.id)&&C.titulos.some(x=>x.acordo_id==b.id&&C.pagamentos.some(p=>p.titulo_id==x.id)));
+    const ruim=fora.filter(t=>!quitada(t));if(!ruim.length&&fora.length){out.push(d+': ok (ficou de fora '+fora.map(t=>R(t.rotulo)).join(', ')+', mas foi quitada depois)');continue}fora.splice(0,fora.length,...ruim);
     out.push(d+' ('+a.titulos_origem.map(i=>R(C.titulos.find(t=>t.id==i)?.rotulo)).join('+')+'): '+(fora.length?'FORA '+fora.map(t=>R(t.rotulo)+'('+t.vencimento+')').join(', '):'ok'))}
   return out};
