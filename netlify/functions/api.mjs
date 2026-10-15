@@ -337,9 +337,9 @@ async function garanteEsquema() {
   if (schemaOk) return;
   try {
     const [r] = await q(`select pg_get_constraintdef(oid) d from pg_constraint where conname='eventos_tipo_check'`);
-    if (!r || !/devolucao/.test(r.d)) {
+    if (!r || !/pendencia/.test(r.d)) {
       await q(`alter table carteira.eventos drop constraint if exists eventos_tipo_check`);
-      await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao','credito','devolucao'))`);
+      await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao','credito','devolucao','pendencia'))`);
     }
     await q(`alter table carteira.acordos add column if not exists tipo text not null default 'acordo'`);
     await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
@@ -512,6 +512,7 @@ export default async (req) => {
                (select fechado_em from carteira.fechamentos f where f.contrato=c.numero and f.conferente=$1) as fechado_em,
                exists(select 1 from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='encerramento') as cancelado,
                (select e.motivo from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='encerramento' order by e.id desc limit 1) as motivo_enc,
+               (select string_agg(coalesce(e.obs,''),' | ' order by e.id) from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='pendencia') as pendencia,
                ea.n as em_atraso, ea.v as em_atraso_valor
         from carteira.contratos c cross join lateral (select count(*) as n, coalesce(sum(t.valor_face),0) as v from carteira.titulos t
                   where t.contrato=c.numero and (t.conferente is null or t.conferente=$1) and t.vencimento <= current_date
