@@ -230,8 +230,24 @@ function totais(){
 /* ---------- CONTRATO: tela ---------- */
 async function abrirContrato(n){
   app.innerHTML='<div class="card">Carregando…</div>';
-  C=await api('contrato/'+n);SEL.clear();SELMODO=false;desenhaContrato();
+  C=await api('contrato/'+n);SEL.clear();SELMODO=false;
+  try{if(await acertaAcordos())C=await api('contrato/'+n)}catch(e){console.warn('acertaAcordos',e)}
+  desenhaContrato();
 }
+/* composição do acordo pela regra de hoje (mesma conta do relatório de atraso, na data do acordo, com as correções lançadas).
+   Se o valor acordado ficou abaixo, a diferença sai em cascata: custo de cobrança -> juros -> multa -> principal (nunca vira desconto). */
+function composicaoAcordo(a){const k=calcAcordo(a.titulos_origem.map(Number),String(a.data_acordo).slice(0,10));let {principal:pr,multa:mu,juros:ju,honorarios:ho,total}=k;
+  const ac=r2(+a.valor_acordado);let falta=r2(total-ac);if(falta<-0.05)return{sobra:r2(-falta),principal:pr,multa:mu,juros:ju,honorarios:ho,total};
+  if(falta>0){const t1=Math.min(ho,falta);ho=r2(ho-t1);falta=r2(falta-t1);const t2=Math.min(ju,falta);ju=r2(ju-t2);falta=r2(falta-t2);const t3=Math.min(mu,falta);mu=r2(mu-t3);falta=r2(falta-t3);pr=r2(pr-falta)}
+  else{ho=r2(ho-falta)}/* diferença de centavos */
+  return{sobra:0,principal:pr,multa:mu,juros:ju,honorarios:ho,total:ac}}
+/* acordos (não repactuações) com composição diferente da regra são acertados ao abrir o contrato; acordo acima da conta fica como está (avisa no console) */
+async function acertaAcordos(){let mud=0;
+  for(const a of C.acordos||[]){if(ehRep(a)||!a.conferente||!(a.titulos_origem||[]).length)continue;const c=composicaoAcordo(a);if(c.sobra){console.warn('acordo acima da conta',a.id,c);continue}
+    if(['principal','multa','juros','honorarios'].every(x=>Math.abs((+a[x]||0)-c[x])<0.02)&&Math.abs((+a.valor_calculado||0)-c.total)<0.02&&!(+a.desconto_encargos))continue;
+    const pars=C.titulos.filter(t=>t.acordo_id==a.id).sort((x,y)=>x.numero-y.numero).map(t=>({vencimento:t.vencimento,valor:+t.valor_face}));if(!pars.length)continue;
+    await api('acordo/'+a.id,{method:'PUT',body:{contrato:C.contrato.numero,data_acordo:String(a.data_acordo).slice(0,10),titulos_origem:a.titulos_origem.map(Number),principal:c.principal,multa:c.multa,juros:c.juros,honorarios:c.honorarios,valor_calculado:c.total,valor_acordado:+a.valor_acordado,desconto_encargos:0,parcelas:pars,obs:a.obs}});mud++}
+  return mud}
 function btn(t){
   const e=estado(t),conf=C.pagamentos.filter(p=>p.titulo_id==t.id).length||C.situacoes.find(s=>s.titulo_id==t.id);
   const lab=t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?nomeCurto(C.acordos.find(a=>a.id==t.acordo_id))+(t.total>1?' · '+t.numero+'/'+t.total:''):t.grupo==='mensal'?'M '+t.numero:t.grupo==='anual'?'A '+t.numero:t.grupo==='entrada'?'E '+t.numero:t.grupo==='acordo'?'Ac '+t.numero:'P '+t.numero;
@@ -394,10 +410,15 @@ function lerDescricao(t){
   const ql=t.match(/Q(?:d|uadra)?\.?\s*0?(\d{1,2})\s*L(?:t|ote)?\.?\s*0?(\d{1,2})/i);if(ql){r.quadra=ql[1].padStart(2,'0');r.lote=ql[2].padStart(2,'0')}
   r.parcelas=[...t.matchAll(/(?<![\d.\/-])(\d{1,3})\s*\/\s*(\d{1,3})(?![\d.\/-])/g)].filter(x=>+x[1]>0&&+x[1]<=+x[2]).map(x=>({txt:x[1]+'/'+x[2],n:+x[1],tot:+x[2]}));return r;
 }
+/* valor atualizado de uma parcela não paga, para emitir boleto: mesma conta do relatório de atraso */
+function boxHoje(t){return `<div class="ficha" style="border-left-color:#c0392b;background:rgba(192,57,43,.06);margin:8px 0"><div class="bt" style="align-items:center"><b style="flex:1;font-size:15px">Valor atualizado para pagar em</b><input type="date" id="vh_d" value="${C.hoje}" style="width:auto" onchange="calcHoje(${t.id})"></div><div id="vh_r">${linhaHoje(t,C.hoje)}</div></div>`}
+function linhaHoje(t,d){const k=atrasoDe(t,d),c=(l,v)=>`<div class="dado"><span>${l}</span><b>${v}</b></div>`;
+  return `<div class="f2" style="margin-top:6px">${c('Valor da parcela',brl(k.v))}${k.co?c('Correção',brl(k.co)):''}${c('Multa 2%',k.dias?brl(k.mu):'—')}${c('Juros 1% a.m.',k.dias?brl(k.ju):'—')}${c('Custo de cobrança 10%',k.ho?brl(k.ho):'— (só depois de 60 dias)')}${c('Dias de atraso',k.dias)}</div><div style="font-size:18px;font-weight:800;margin-top:6px">Total: ${brl(k.tot)}</div>`}
+function calcHoje(id){const t=C.titulos.find(x=>x.id==id),d=$('#vh_d').value||C.hoje;$('#vh_r').innerHTML=linhaHoje(t,d<t.vencimento?t.vencimento:d)}
 function formPag(p,t){
   const campo=([k,l,tp])=>`<div><label>${l}</label>${tp==='sel'?`<select id="f_${k}">${FORMAS.map(f=>`<option ${p[k]===f?'selected':''}>${f}</option>`).join('')}</select>`
    :`<input id="f_${k}" type="${tp==='date'?'date':'text'}" ${tp==='num'?'inputmode="decimal"':''} value="${esc(tp==='date'?(p[k]||'').slice(0,10):(tp==='num'&&p[k]!=null&&p[k]!==''?brl(p[k]):p[k]??''))}">`}</div>`;
-  return GRUPOS.map(([g,cs])=>`<div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">${g}</div><div class="f2">${cs.map(campo).join('')}</div>`).join('')+`
+  return GRUPOS.map(([g,cs])=>`<div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">${g}</div><div class="f2">${cs.map(campo).join('')}</div>${/^Valores/.test(g)&&t&&!C.pagamentos.some(x=>x.titulo_id==t.id)&&t.vencimento?boxHoje(t):''}`).join('')+`
   <div id="encInfo"></div><label style="margin-top:10px">Descrição completa — cole do Asaas (lá: clique na descrição, Ctrl+A, Ctrl+C)</label><textarea id="f_descricao">${esc(p.descricao||'')}</textarea><div id="descInfo"></div>
   <label>Observação</label><input id="f_obs" value="${esc(p.obs||'')}">`;
 }
@@ -452,9 +473,6 @@ function modalTitulo(id,editId,novo){
   const t=C.titulos.find(x=>x.id==id),pags=C.pagamentos.filter(p=>p.titulo_id==id),sit=C.situacoes.find(s=>s.titulo_id==id);
   const ed=editId?pags.find(p=>p.id==editId):null;PRINT=null;
   const cab=`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
-  ${!pags.length&&['vencida','em_atraso'].includes(estado(t))?(()=>{const k=atrasoDe(t,C.hoje),d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v}</b></div>`;
-    return `<div class="ficha" style="border-left-color:#c0392b;background:rgba(192,57,43,.06);margin:8px 0"><b style="font-size:16px">Valor para pagar hoje (${dbr(C.hoje)}): ${brl(k.tot)}</b>
-     <div class="f2" style="margin-top:6px">${d('Valor da parcela',brl(k.v))}${k.co?d('Correção',brl(k.co)):''}${d('Multa 2%',brl(k.mu))}${d('Juros 1% a.m.',brl(k.ju))}${d('Custo de cobrança',k.ho?brl(k.ho):'— (até 60 dias)')}${d('Dias de atraso',k.dias)}</div></div>`})():''}
   ${t.grupo==='acordo'?(()=>{const ac=C.acordos.find(x=>x.id==t.acordo_id);if(!ac)return'';const d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v}</b></div>`;
     return `<div class="ficha" style="border-left-color:#c79a00;background:rgba(199,154,0,.06);margin:8px 0">
      <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">${nomeAc(ac)} — feito em ${dbr(ac.data_acordo)}</b><button onclick="vaiPara(()=>verAcordo(${ac.id}),()=>modalTitulo(${id}))">Dados do ${nomeAc(ac)}</button></div>${resumoAc(ac)}
