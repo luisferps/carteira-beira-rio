@@ -608,7 +608,7 @@ function modalAcordo(aid){
   <div id="a_av"></div>
   <div class="mut" style="margin-top:8px;font-size:12px">Mudou o valor de uma parcela (ex.: entrada maior)? As outras se ajustam sozinhas para fechar o valor acordado.</div><table style="margin-top:4px"><thead><tr><th>#</th><th>Vencimento</th><th>Valor</th></tr></thead><tbody id="a_pars"></tbody></table><div id="a_soma" class="mut"></div>
   <div class="f2" style="margin-top:8px"><div><label>Termo de renegociação nº</label><input id="a_termo" placeholder="${C.contrato.numero}-${String(C.acordos.filter(x=>x.termo).length+1).padStart(3,'0')}" value="${esc(a?.termo||'')}"><small class="mut">Formato: contrato-sequência (ex.: ${C.contrato.numero}-${String(C.acordos.filter(x=>x.termo).length+1).padStart(3,'0')}). Deixe vazio se não houver termo.</small></div><div><label>Observação</label><input id="a_obs" value="${esc(a?.obs||'')}"></div></div>
-  <div class="bt" style="margin-top:12px"><button class="pri" onclick="salvaAcordo(${aid||'null'})">Salvar acordo</button></div>`);
+  <div class="bt" style="margin-top:12px"><button onclick="emiteTermo()">Emitir termo</button><button class="pri" onclick="salvaAcordo(${aid||'null'})">Salvar acordo</button></div>`);
   let P=pars.slice();const num=s=>numBR(s)||0;let B;
   const calc=()=>calcAcordo(ids,$('#a_data').value);
   const mostraB=(skip)=>{for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])if(id!==skip)$('#'+id).value=brl(B[k]);
@@ -644,6 +644,7 @@ function modalAcordo(aid){
 /* regra do Luis: o valor pago quita na ordem principal → multa → juros → custo de cobrança; o que não cobrir fica quitado, nunca vira desconto */
 function repartir(c,v){let r=r2(v-Math.min(c.principal,v));const mu=Math.min(c.multa,r);r=r2(r-mu);const ju=Math.min(c.juros,r);r=r2(r-ju);
   return {multa:r2(mu),juros:r2(ju),honorarios:r2(r),desconto:0}}
+async function emiteTermo(){if(!window.emitirTermo)await new Promise((ok,er)=>{const x=document.createElement('script');x.src='/ferramentas/termo.js?'+Date.now();x.onload=ok;x.onerror=er;document.head.appendChild(x)});try{await window.emitirTermo()}catch(e){console.error(e);alert('Erro ao emitir o termo: '+e.message)}}
 async function salvaAcordo(aid){const b=window._salvaAcordoDados();
   const s=r2(b.parcelas.reduce((a,p)=>a+Number(p.valor||0),0));if(Math.abs(s-b.valor_acordado)>0.009)return alert('A soma das parcelas precisa ser igual ao valor acordado.');
   await api(aid?'acordo/'+aid:'acordo',{method:aid?'PUT':'POST',body:b});
