@@ -68,6 +68,12 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .pc.ces{box-shadow:0 0 0 3px #fff,0 0 0 6px #ea580c}
 .pc.corr.ces{outline:3px solid #7c3aed;box-shadow:0 0 0 6px #ea580c}
 .pc:has(.orig){height:auto;min-height:50px}.orig{display:block;text-align:center;max-width:100%;white-space:normal;overflow-wrap:break-word;line-height:1.15;font-size:10px}
+.mods{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;max-width:900px;margin:30px auto}
+.mod{text-align:left;background:var(--card);border:1px solid var(--ln);border-left:6px solid #1d4ed8;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:8px;cursor:pointer;min-height:150px}
+.mod:hover{box-shadow:0 4px 16px rgba(0,0,0,.08)}.mod b{font-size:20px}.mod span{color:#666}
+.tcl{width:100%;border-collapse:collapse}.tcl td,.tcl th{border-bottom:1px solid var(--ln);padding:7px 8px;text-align:left;vertical-align:top}.tcl tr.lk{cursor:pointer}.tcl tr.lk:hover{background:rgba(29,78,216,.05)}
+.chip{display:inline-block;border:1px solid var(--ln);border-radius:20px;padding:1px 8px;margin:1px 3px 1px 0;font-size:12px;cursor:pointer;background:#fff}.chip.at{border-color:#2e9e4f;color:#166534;font-weight:700}.chip.old{color:#999;text-decoration:line-through}
+.org{font-size:11px;border-radius:6px;padding:0 6px;margin-left:6px;background:#eef2ff;color:#3730a3}.org.pl{background:#fef3c7;color:#92400e}.org.mn{background:#dcfce7;color:#166534}
 .pc.rep{outline:3px dotted #0d9488;outline-offset:2px}
 </style>
 </head>
@@ -102,7 +108,7 @@ function telaLogin(msg){
 async function iniciar(){
   if(!PIN)return telaLogin();
   try{const d=await api('eu');EU=d.conferente}catch(e){return}
-  $('#quem').innerHTML=EU==='luis'?'<button onclick="location.hash=\'\'">Minha conferência</button> <button onclick="location.hash=\'x\'">Cruzamento</button>':'Conferência da Secretária';
+  $('#quem').innerHTML=EU==='luis'?'<button onclick="location.hash=\'\'">Início</button> <button onclick="location.hash=\'x\'">Cruzamento</button>':'<button onclick="location.hash=\'\'">Início</button> Conferência da Secretária';
   $('#sair').classList.remove('hid');$('#sair').onclick=()=>{PIN='';try{localStorage.removeItem('cbr_pin')}catch(e){};telaLogin()};
   route();
 }
@@ -111,10 +117,79 @@ function route(){const h=location.hash.slice(1);COMO='';
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
-  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else telaLista()}
+  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function novaPend(){const t=prompt('Descreva a pendência deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
 async function resolvePend(id){if(!confirm('Marcar esta pendência como resolvida (some do contrato)?'))return;await api('evento/'+id,{method:'DELETE'});recarrega()}
+/* ---------- MÓDULOS ---------- */
+function telaModulos(){
+  app.innerHTML=`<div class="mods">
+   <div class="mod" onclick="location.hash='contratos'"><b>Contratos</b><span>Carteira do Beira Rio: parcelas, pagamentos, acordos, cessões, relatórios e conferência.</span></div>
+   <div class="mod" style="border-left-color:#2e9e4f" onclick="location.hash='clientes'"><b>Clientes</b><span>Cadastro dos clientes: telefones, e-mails, endereço, documentos e os contratos de cada um.</span></div>
+  </div>`}
+
+/* ---------- CLIENTES ---------- */
+let CLI=[],CLIQ='',CLIF='todos';
+const digs=v=>String(v??'').replace(/\D/g,'');
+function fone(v){let d=digs(v);if(d.length>11&&d.startsWith('55'))d=d.slice(2);if(d.length===11)return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;if(d.length===10)return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;return d||''}
+function cpfF(v){const d=digs(v);return d.length===11?d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4'):d.length===14?d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,'$1.$2.$3/$4-$5'):d}
+function cliDados(c){const P=c.planilha||{},A=c.asaas||{},M=c.manual||{};
+  const tel=[],ja=new Set();const addT=(v,o,tipo)=>{const d=digs(v);if(d.length<8)return;const k=d.slice(-8);if(ja.has(k))return;ja.add(k);tel.push({v:fone(d),o,tipo})};
+  addT(M.telefone,'Editado','');addT(A.mobilePhone,'Asaas','celular');addT(A.phone,'Asaas','fixo');addT(P.fone,'Planilha','pessoal');addT(P.fone_com,'Planilha','comercial');addT(P.fone_ref,'Planilha','referência');
+  const em=[],je=new Set();const addE=(v,o)=>String(v||'').split(/[,;\s]+/).forEach(x=>{x=x.trim().toLowerCase();if(!x.includes('@')||je.has(x))return;je.add(x);em.push({v:x,o})});
+  addE(M.email,'Editado');addE(A.email,'Asaas');addE(A.additionalEmails,'Asaas');addE(P.email,'Planilha');
+  const eA=A.address?[A.address,A.addressNumber,A.complement,A.province,[A.cityName,A.state].filter(Boolean).join('/'),A.postalCode?'CEP '+A.postalCode:''].filter(x=>x&&String(x).trim()).join(', '):'';
+  const eP=P.logradouro?[P.logradouro,P.numero,P.complemento,P.bairro,[P.cidade,P.uf].filter(Boolean).join('/'),P.cep?'CEP '+P.cep:''].filter(x=>x&&String(x).trim()&&x!=='0'&&x!==0).join(', '):'';
+  const end=[];if(M.endereco)end.push({v:M.endereco,o:'Editado'});if(eA)end.push({v:eA,o:'Asaas'});if(eP&&(!eA||!digs(eA).includes(digs(P.cep))))end.push({v:eP,o:'Planilha'});
+  return{nome:nome(c.nome||A.name||P.nome),cpf:cpfF(c.cpf||A.cpfCnpj||P.cpf),tel,em,end,P,A,M}}
+const orgT=o=>`<span class="org ${o==='Planilha'?'pl':o==='Editado'?'mn':''}">${o}</span>`;
+async function telaClientes(){app.innerHTML='<div class="card">Carregando…</div>';CLI=await api('clientes');desenhaClientes()}
+function desenhaClientes(){
+  const q=CLIQ.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(),qd=digs(CLIQ);
+  const L=CLI.map(c=>({c,d:cliDados(c)})).filter(({c,d})=>{
+    if(CLIF==='ativos'&&!c.contratos.some(k=>k.atual))return false;
+    if(CLIF==='semtel'&&d.tel.length)return false;
+    if(!q)return true;const t=(d.nome+' '+d.em.map(x=>x.v).join(' ')).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    return t.includes(q)||(qd.length>=3&&(digs(d.cpf).includes(qd)||d.tel.some(x=>digs(x.v).includes(qd))||c.contratos.some(k=>k.numero.includes(qd.padStart(4,'0'))||k.numero===qd.padStart(4,'0'))))});
+  const at=CLI.filter(c=>c.contratos.some(k=>k.atual)).length;
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
+  <div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Clientes (${CLI.length})</h3>${EU==='luis'?'<button onclick="sincAsaas()">Atualizar com o Asaas</button>':''}</div>
+  <div class="bt" style="margin-top:10px;align-items:center"><input id="cq" placeholder="Buscar por nome, CPF, telefone, e-mail ou nº do contrato" value="${esc(CLIQ)}" style="flex:1;min-width:240px">
+   <select id="cf"><option value="todos">Todos</option><option value="ativos" ${CLIF==='ativos'?'selected':''}>Só quem tem contrato ativo (${at})</option><option value="semtel" ${CLIF==='semtel'?'selected':''}>Sem telefone</option></select></div>
+  <div class="mut" style="margin:6px 0">${L.length} cliente${L.length==1?'':'s'}</div>
+  <div style="overflow:auto"><table class="tcl"><thead><tr><th>Nome</th><th>CPF</th><th>Telefone</th><th>E-mail</th><th>Contratos</th></tr></thead><tbody>
+  ${L.slice(0,400).map(({c,d})=>`<tr class="lk" onclick="location.hash='cl/${c.id}'"><td><b>${esc(d.nome)}</b></td><td>${esc(d.cpf)}</td><td>${d.tel[0]?esc(d.tel[0].v)+(d.tel.length>1?` <span class="mut">+${d.tel.length-1}</span>`:''):'<span class="mut">—</span>'}</td><td>${d.em[0]?esc(d.em[0].v):'<span class="mut">—</span>'}</td>
+   <td>${c.contratos.map(k=>`<span class="chip ${k.atual?'at':k.encerrado||!k.atual?'old':''}" title="${k.papel}${k.atual?' — titular atual':k.encerrado?' — contrato encerrado':' — já não é titular'}" onclick="event.stopPropagation();location.hash='c/${k.numero}'">${k.numero}</span>`).join('')}</td></tr>`).join('')}
+  </tbody></table></div>${L.length>400?'<div class="mut">Mostrando 400. Use a busca para achar os outros.</div>':''}</div>`;
+  const cq=$('#cq');cq.oninput=()=>{CLIQ=cq.value;const p=cq.selectionStart;desenhaClientes();const n=$('#cq');n.focus();n.setSelectionRange(p,p)};
+  $('#cf').onchange=e=>{CLIF=e.target.value;desenhaClientes()}}
+async function sincAsaas(){let off=0,n=0;const b=event.target;b.disabled=true;
+  try{while(off!=null){b.textContent='Buscando no Asaas… '+n;const r=await api('clientes/asaas',{method:'POST',body:{offset:off}});n+=r.n;off=r.proximo}}finally{b.disabled=false}
+  alert(n+' clientes atualizados com o Asaas.');telaClientes()}
+async function fichaCliente(id){if(!CLI.length||!CLI.find(c=>c.id==id)){app.innerHTML='<div class="card">Carregando…</div>';CLI=await api('clientes')}
+  const c=CLI.find(c=>c.id==id);if(!c){app.innerHTML='<div class="card">Cliente não encontrado.</div>';return}
+  const d=cliDados(c),P=d.P,A=d.A;const dd=(l,v)=>v!=null&&v!==''&&v!=='-'?`<div class="dado"><span>${l}</span><b>${esc(v)}</b></div>`:'';
+  const nasc=P.nascimento?dbr(P.nascimento):A.birthDate?dbr(A.birthDate):'';
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='clientes'">← Clientes</button></div>
+  <div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">${esc(d.nome)}</h3><button onclick="editaCliente(${c.id})">Editar contato</button></div>
+   <h4>Contratos</h4>${c.contratos.length?c.contratos.map(k=>`<div style="margin:4px 0"><span class="chip ${k.atual?'at':'old'}" onclick="location.hash='c/${k.numero}'">Contrato ${k.numero}</span> Quadra ${k.quadra} · Lote ${k.lote} · ${k.papel}${k.atual?' · <b>titular atual</b>':k.encerrado?' · contrato encerrado':' · já não é titular (cedeu)'}</div>`).join(''):'<div class="mut">Nenhum contrato ligado a este cliente.</div>'}
+   <h4>Telefones</h4>${d.tel.length?d.tel.map((t,i)=>`<div style="margin:3px 0">${i?'':'<b>'}<a href="https://wa.me/55${digs(t.v)}" target="_blank">${esc(t.v)}</a>${i?'':'</b>'} <span class="mut">${t.tipo}</span>${orgT(t.o)}</div>`).join(''):'<div class="mut">Sem telefone.</div>'}
+   <h4>E-mails</h4>${d.em.length?d.em.map((e,i)=>`<div style="margin:3px 0">${i?'':'<b>'}${esc(e.v)}${i?'':'</b>'}${orgT(e.o)}</div>`).join(''):'<div class="mut">Sem e-mail.</div>'}
+   <h4>Endereço</h4>${d.end.length?d.end.map((e,i)=>`<div style="margin:3px 0">${i?'':'<b>'}${esc(e.v)}${i?'':'</b>'}${orgT(e.o)}</div>`).join(''):'<div class="mut">Sem endereço.</div>'}
+   <h4>Dados pessoais</h4><div class="cgrid mini">${dd('CPF',d.cpf)}${dd('RG / CNH',[P.rg,P.emissor].filter(Boolean).join(' '))}${dd('Nascimento',nasc)}${dd('Estado civil',P.estado_civil)}${dd('Sexo',P.sexo)}${dd('Naturalidade',[P.naturalidade,P.uf_nat].filter(Boolean).join('/'))}${dd('Nacionalidade',P.nacionalidade)}${dd('Profissão',P.profissao)}${dd('Empresa',P.empresa||A.company)}${dd('Renda',P.renda?brl(+P.renda):'')}</div>
+   ${d.M.obs||A.observations?`<h4>Observações</h4>${d.M.obs?`<div>${esc(d.M.obs)}${orgT('Editado')}</div>`:''}${A.observations?`<div>${esc(A.observations)}${orgT('Asaas')}</div>`:''}`:''}
+   <div class="mut" style="margin-top:12px">Contato: o que vem do Asaas tem prioridade; o da planilha aparece embaixo quando é diferente.</div></div>`}
+function editaCliente(id){const c=CLI.find(c=>c.id==id),M=c.manual||{};
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Editar contato</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="info">O que você colocar aqui fica como principal, acima do Asaas e da planilha. Deixe em branco para não mudar.</div>
+  <label>Telefone principal</label><input id="ce_t" value="${esc(M.telefone||'')}">
+  <label>E-mail principal</label><input id="ce_e" value="${esc(M.email||'')}">
+  <label>Endereço</label><input id="ce_d" value="${esc(M.endereco||'')}">
+  <label>Observação</label><input id="ce_o" value="${esc(M.obs||'')}">
+  <div class="bt"><button class="pri" onclick="salvaCliente(${id})">Salvar</button></div>`)}
+async function salvaCliente(id){const manual={telefone:$('#ce_t').value.trim(),email:$('#ce_e').value.trim(),endereco:$('#ce_d').value.trim(),obs:$('#ce_o').value.trim()};
+  await api('cliente/'+id,{method:'PUT',body:{manual}});const c=CLI.find(c=>c.id==id);c.manual=manual;$('#modal').innerHTML='';fichaCliente(id)}
+
 /* ---------- LISTA ---------- */
 let FILTRO='todos';
 function statusC(c){if(c.cancelado)return /reaproveit/i.test(c.motivo_enc||'')?'troca':/retom/i.test(c.motivo_enc||'')?'retom':/distrat|devol/i.test(c.motivo_enc||'')?'dev':'canc';if(!+c.conferidas&&+c.vencidas)return 'conf';return +c.em_atraso?(+(c.devido??c.em_atraso_valor)>5000?'atrasoG':'atraso'):'dia'}
@@ -289,7 +364,7 @@ function desenhaContrato(){
   const EVS=C.eventos.filter(e=>e.tipo!=='repactuacao'&&e.tipo!=='pendencia');const dilT=DIL.map(k=>`<button class="pc ev evdil" onclick="verCorrecao(${k.id})"><b>Diluição</b><small>a partir ${k.grupo==='mensal'?'M':'A'} ${k.a_partir}</small><small>${k.data?dbr(k.data).slice(0,5)+'/'+String(k.data).slice(2,4):'—'}</small><small>${brl(k.novo_valor).replace('R$','').trim()}</small><small class="orig">anuais nas mensais</small></button>`).join('');const evCD=e=>{const d=e.dados||{};return `<button class="pc ev ${e.tipo==='credito'?'evcred':'evdev'}" onclick="verEvento(${e.id})"><b>${e.tipo==='credito'?'Crédito':'Pagto. do crédito'}</b><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small><small style="font-weight:700">${brl(d.valor).replace('R$','').trim()}</small><small class="orig">${e.tipo==='credito'?'saldo '+brl(saldoCred()).replace('R$','').trim():esc(d.forma||'')+(d.destino?' → '+esc(d.destino):'')}</small></button>`};
   const ev=(EVS.length||DIL.length)?`<div class="lin lst">${dilT}${EVS.map(e=>(e.tipo==='credito'||e.tipo==='devolucao')?evCD(e):`<button class="pc ev ${e.tipo==='cessao'?'evces':'evenc'}" onclick="verEvento(${e.id})"><b>${e.tipo==='encerramento'?(/reaproveit/i.test(e.motivo||'')?'Troca de lote':'Encerr.'):e.tipo==='repactuacao'?'Repact.':e.dados?.subtipo==='alteracao'?'Alteração':e.dados?.subtipo==='credito'?'Crédito recebido':'Cessão'}</b><small>${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo.replace(/^(Mensal|Anual|Entrada) /,(m,g)=>g[0]+' ').replace(/\/\d+$/,'')||'?')}</small><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small>${e.tipo==='repactuacao'&&e.dados?.boletos?`<small style="font-weight:700">${e.dados.boletos} boletos</small>`:''}${e.tipo==='cessao'&&e.dados?.taxa_cessao!=null?`<small style="font-weight:700">${brl(e.dados.taxa_cessao).replace('R$','').trim()} ${e.dados.pago_em?'✓':'✗'}</small>`:''}</button>`).join('')}</div>`:'<div class="mut">Nenhum evento.</div>';
   const itens=(c.itens||[]).map(i=>`<li>${esc(i.texto)}</li>`).join('');
-  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='${COMO?'x/'+c.numero:''}'">${COMO?'← Voltar ao cruzamento':'← Contratos'}</button></div>
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='${COMO?'x/'+c.numero:'contratos'}'">${COMO?'← Voltar ao cruzamento':'← Contratos'}</button></div>
   ${COMO?'<div class="aviso" style="background:#eff6ff;color:#1e3a8a;border-color:#bfdbfe"><b>Você está editando a VERSÃO FINAL</b> (a verdade do sistema). Tudo o que salvar aqui vai para a versão final.</div>':''}
   <div class="card"><div class="bt" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">Contrato ${c.numero} · Q${c.quadra} L${c.lote}</h2>
   <div>${tit}</div><div class="mut">Assinado em ${dbr(c.data_assinatura)} · Imóvel ${brl(c.valor_imovel)} · Fonte: ${esc(c.fonte)} "${esc(c.arquivo)}"</div></div>

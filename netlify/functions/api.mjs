@@ -346,6 +346,7 @@ async function garanteEsquema() {
     await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
     await q(`alter table carteira.acordos add column if not exists termo text`);
     await q(`create table if not exists carteira.propostas(id serial primary key, contrato text not null, conferente text not null, dados jsonb not null, criado_em timestamptz default now())`);
+    await q(`create table if not exists carteira.clientes(id serial primary key, chave text unique not null, cpf text, nome text, planilha jsonb, asaas jsonb, manual jsonb, atualizado_em timestamptz default now())`);
     schemaOk = true;
   } catch (e) { console.error('garanteEsquema', e.message); }
 }
@@ -500,6 +501,74 @@ export default async (req) => {
       }
     }
 
+
+    if (p[0] === 'clientes' && !p[1] && m === 'GET') {
+      const cl = await q(`select id, chave, cpf, nome, planilha, asaas, manual from carteira.clientes order by nome`);
+      const ct = await q(`select numero, quadra, lote, compradores from carteira.contratos order by numero`);
+      const ev = await q(`select contrato, data, dados->>'novos_titulares' nt from carteira.eventos where tipo='cessao' and conferente='luis' and coalesce(dados->>'novos_titulares','')<>'' order by data, id`);
+      const enc = new Set((await q(`select distinct contrato from carteira.eventos where tipo='encerramento' and conferente='luis'`)).map(x => x.contrato));
+      const norm = v => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+      const dig = v => String(v || '').replace(/\D/g, '');
+      const ult = {}; for (const e of ev) ult[e.contrato] = e;
+      for (const c of cl) {
+        const nn = norm(c.nome), L = [];
+        for (const k of ct) {
+          const comp = (Array.isArray(k.compradores) ? k.compradores : []).some(x => (c.cpf && dig(x.cpf) === c.cpf) || (nn && norm(x.nome) === nn));
+          const ces = nn.length > 8 && ev.some(e => e.contrato === k.numero && norm(e.nt).includes(nn));
+          if (!comp && !ces) continue;
+          const atual = ult[k.numero] ? norm(ult[k.numero].nt).includes(nn) : comp;
+          L.push({ numero: k.numero, quadra: k.quadra, lote: k.lote, papel: ces && !comp ? 'cessionário' : 'comprador', atual: atual && !enc.has(k.numero), encerrado: enc.has(k.numero) });
+        }
+        c.contratos = L;
+      }
+      return json(cl);
+    }
+    if (p[0] === 'clientes' && p[1] === 'planilha' && m === 'POST') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      let n = 0;
+      for (const r of body.linhas || []) {
+        const chave = r.cpf ? 'cpf:' + r.cpf : 'nome:' + String(r.nome || '').toLowerCase().trim();
+        await q(`insert into carteira.clientes(chave, cpf, nome, planilha) values ($1,$2,$3,$4)
+                 on conflict (chave) do update set planilha=excluded.planilha, cpf=coalesce(carteira.clientes.cpf, excluded.cpf), nome=coalesce(carteira.clientes.nome, excluded.nome), atualizado_em=now()`, [chave, r.cpf || null, r.nome, r]);
+        n++;
+      }
+      return json({ ok: true, n });
+    }
+    if (p[0] === 'clientes' && p[1] === 'asaas' && m === 'POST') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      const off0 = parseInt(body.offset || 0, 10); let n = 0, mais = false, off = off0;
+      for (; off < off0 + 500; off += 100) {
+        const r = await asaas(`/customers?limit=100&offset=${off}`);
+        for (const c of r?.data || []) {
+          if (c.deleted) continue;
+          const cpf = String(c.cpfCnpj || '').replace(/\D/g, '') || null;
+          const chave = cpf ? 'cpf:' + cpf : 'asaas:' + c.id;
+          const ex = cpf ? null : (await q(`select id from carteira.clientes where asaas->>'id'=$1`, [c.id]))[0];
+          if (ex) { await q(`update carteira.clientes set asaas=$2, atualizado_em=now() where id=$1`, [ex.id, c]); n++; continue; }
+          await q(`insert into carteira.clientes(chave, cpf, nome, asaas) values ($1,$2,$3,$4)
+                   on conflict (chave) do update set asaas=excluded.asaas, nome=excluded.nome, cpf=coalesce(carteira.clientes.cpf, excluded.cpf), atualizado_em=now()`, [chave, cpf, c.name, c]);
+          n++;
+        }
+        if (!r?.hasMore) { mais = false; off += 100; break; }
+        mais = true;
+      }
+      return json({ ok: true, n, proximo: mais ? off : null });
+    }
+    if (p[0] === 'clientes' && p[1] === 'contratos' && m === 'POST') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      const ct = await q(`select numero, compradores from carteira.contratos`); let n = 0;
+      for (const k of ct) for (const x of (Array.isArray(k.compradores) ? k.compradores : [])) {
+        const cpf = String(x.cpf || '').replace(/\D/g, ''); if (!cpf || !x.nome) continue;
+        const r = await q(`insert into carteira.clientes(chave, cpf, nome, planilha) values ($1,$2,$3,$4) on conflict (chave) do nothing returning id`, ['cpf:' + cpf, cpf, x.nome, { nome: x.nome, cpf, origem: 'contrato ' + k.numero }]);
+        n += r.length;
+      }
+      return json({ ok: true, novos: n });
+    }
+    if (p[0] === 'cliente' && p[1] && m === 'PUT') {
+      await q(`update carteira.clientes set manual=$2, atualizado_em=now() where id=$1`, [p[1], body.manual || null]);
+      await log(conf, 'cliente_editado', { id: p[1], manual: body.manual });
+      return json({ ok: true });
+    }
 
     if (p[0] === 'contratos' && m === 'GET') {
       const rows = await q(`
