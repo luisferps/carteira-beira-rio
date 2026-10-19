@@ -114,7 +114,8 @@ async function carregar(n, conf) {
   const eventos = await q('select * from carteira.eventos where contrato=$1 and conferente=$2 order by data, id', [n, conf]);
   const [fechamento] = await q('select * from carteira.fechamentos where contrato=$1 and conferente=$2', [n, conf]);
   const propostas = await q('select * from carteira.propostas where contrato=$1 and conferente=$2 order by id', [n, conf]).catch(() => []);
-  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, fechamento: fechamento || null, hoje: new Date().toISOString().slice(0, 10), conferente: conf };
+  const termosArq = await q('select termo, nome, enviado_em from carteira.termos_arq where contrato=$1 order by termo', [n]).catch(() => []);
+  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, fechamento: fechamento || null, hoje: new Date().toISOString().slice(0, 10), conferente: conf };
 }
 
 /* ---------- cruzamento ---------- */
@@ -346,6 +347,7 @@ async function garanteEsquema() {
     await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
     await q(`alter table carteira.acordos add column if not exists termo text`);
     await q(`create table if not exists carteira.propostas(id serial primary key, contrato text not null, conferente text not null, dados jsonb not null, criado_em timestamptz default now())`);
+    await q(`create table if not exists carteira.termos_arq(termo text primary key, contrato text not null, nome text, b64 text not null, conferente text, enviado_em timestamptz default now())`);
     await q(`create table if not exists carteira.clientes(id serial primary key, chave text unique not null, cpf text, nome text, planilha jsonb, asaas jsonb, manual jsonb, atualizado_em timestamptz default now())`);
     schemaOk = true;
   } catch (e) { console.error('garanteEsquema', e.message); }
@@ -502,6 +504,21 @@ export default async (req) => {
     }
 
 
+    if (p[0] === 'termo-arq' && m === 'POST') {
+      if (!body.termo || !body.b64) return json({ erro: 'Arquivo inválido' }, 400);
+      await q(`insert into carteira.termos_arq(termo, contrato, nome, b64, conferente) values ($1,$2,$3,$4,$5)
+               on conflict (termo) do update set nome=excluded.nome, b64=excluded.b64, conferente=excluded.conferente, enviado_em=now()`, [body.termo, body.contrato, body.nome, body.b64, conf]);
+      await log(conf, 'termo_editado_enviado', { termo: body.termo, nome: body.nome });
+      return json({ ok: true });
+    }
+    if (p[0] === 'termo-arq' && p[1] && m === 'GET') {
+      const [r] = await q('select termo, nome, b64, enviado_em from carteira.termos_arq where termo=$1', [decodeURIComponent(p[1])]);
+      return r ? json(r) : json({ erro: 'Termo não encontrado' }, 404);
+    }
+    if (p[0] === 'termo-arq' && p[1] && m === 'DELETE') {
+      await q('delete from carteira.termos_arq where termo=$1', [decodeURIComponent(p[1])]);
+      return json({ ok: true });
+    }
     if (p[0] === 'clientes' && !p[1] && m === 'GET') {
       const cl = await q(`select id, chave, cpf, nome, planilha, asaas, manual from carteira.clientes order by nome`);
       const ct = await q(`select numero, quadra, lote, compradores from carteira.contratos order by numero`);

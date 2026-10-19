@@ -86,7 +86,7 @@ window.emitirTermo=async function(A0,modo){
     headers:{default:new Header({children:[new Paragraph({children:[new ImageRun({type:'png',data:wm,transformation:{width:330,height:463},floating:{horizontalPosition:{relative:HorizontalPositionRelativeFrom.PAGE,align:HorizontalPositionAlign.CENTER},verticalPosition:{relative:VerticalPositionRelativeFrom.PAGE,align:VerticalPositionAlign.CENTER},behindDocument:true,wrap:{type:TextWrappingType.NONE}}})]})]})},
     footers:{default:new Footer({children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'Termo de Confissão e Renegociação de Dívida nº '+num+'   ·   ',font:F,size:15,color:'888888'}),new TextRun({children:['Página ',PageNumber.CURRENT,' de ',PageNumber.TOTAL_PAGES],font:F,size:15,color:'888888'})]})]})},
     children:kids}]});
-  const blob=await Packer.toBlob(doc);
+  const blob=window._blobPronto||await Packer.toBlob(doc);window._blobPronto=null;
   const nome1=(dev[0]?.nome||'').toLowerCase().replace(/(^|\s)\S/g,m=>m.toUpperCase()).replace(/\s(De|Da|Do|Dos|Das|E)\s/g,m=>m.toLowerCase());
   const pastaNome=`${num} - Q${c.quadra} L${c.lote} - ${nome1}`.replace(/[\\/:*?"<>|]/g,''),arq=`${num} - Termo de Renegociação - ${nome1}.docx`.replace(/[\\/:*?"<>|]/g,'');
   const h=modo==='pasta'?(window._pastaTermo||await pasta()):null;window._pastaTermo=null;
