@@ -475,7 +475,7 @@ function clicaTitulo(id){
   if(SELMODO){id=+id;const t=C.titulos.find(x=>+x.id===id);if(!SEL.has(id)&&!podeAcordo(t))return;SEL.has(id)?SEL.delete(id):SEL.add(id);desenhaContrato();return}
   modalTitulo(id);
 }
-async function recarrega(){C=await api('contrato/'+C.contrato.numero);desenhaContrato()}
+async function recarrega(){const cl=C.clientes;C=await api('contrato/'+C.contrato.numero);C.clientes=cl;desenhaContrato()}
 async function apagar(tipo,id){if(!confirm('Apagar?'))return;await api(tipo+'/'+id,{method:'DELETE'});fechaModal();recarrega()}
 async function fechar(){
   const pend=C.titulos.filter(t=>estado(t)==='vencida');
