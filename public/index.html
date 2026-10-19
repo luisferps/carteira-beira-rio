@@ -825,9 +825,9 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
   else{titulo='Relatório de valores em atraso';
     const ts=C.titulos.filter(t=>t.vencimento&&t.vencimento<=hoje&&['vencida','em_atraso'].includes(estado(t))).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
     let T={v:0,co:0,mu:0,ju:0,ho:0,tot:0};
-    const rows=ts.map(t=>{const k0=atrasoDe(t,hoje),k={v:k0.P,mu:k0.M,ju:k0.J,co:k0.co,ho:k0.H,tot:k0.tot,dias:k0.dias};for(const x in T)T[x]+=k[x];
+    const rows=ts.map(t=>{const k0=atrasoDe(t,hoje),k={v:k0.v,mu:k0.mu,ju:k0.ju,co:k0.co,ho:k0.ho,tot:k0.tot,dias:k0.dias};for(const x in T)T[x]+=k[x];
       return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td class="n">${k.dias}</td><td class="n">${brl(k.v)}</td><td class="n">${brl(k.mu)}</td><td class="n">${brl(k.ju)}</td><td class="n">${brl(k.co)}</td><td class="n">${brl(k.ho)}</td><td class="n"><b>${brl(k.tot)}</b></td></tr>`}).join('');
-    corpo=ts.length?`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th class="n">Dias de atraso</th><th class="n">Principal</th><th class="n">Multa</th><th class="n">Juros</th><th class="n">Correção</th><th class="n">Custo cobr.</th><th class="n">Total</th></tr></thead><tbody>${rows}</tbody>
+    corpo=ts.length?`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th class="n">Dias de atraso</th><th class="n">Valor da parcela</th><th class="n">Multa</th><th class="n">Juros</th><th class="n">Correção</th><th class="n">Custo cobr.</th><th class="n">Total</th></tr></thead><tbody>${rows}</tbody>
      <tfoot><tr><td colspan="3">Total (${ts.length} parcela${ts.length==1?'':'s'})</td><td class="n">${brl(T.v)}</td><td class="n">${brl(T.mu)}</td><td class="n">${brl(T.ju)}</td><td class="n">${brl(T.co)}</td><td class="n">${brl(T.ho)}</td><td class="n">${brl(T.tot)}</td></tr></tfoot></table>`:'<p><b>Nenhuma parcela em atraso nesta data.</b></p>'}
   const w=window.open('','_blank');
   w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${titulo} — Contrato ${c.numero}</title><style>
