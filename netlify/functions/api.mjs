@@ -521,7 +521,8 @@ export default async (req) => {
         }
         c.contratos = L;
       }
-      return json(cl);
+      const fc = url.searchParams.get('contrato');
+      return json(fc ? cl.filter(c => c.contratos.some(k => k.numero === fc)) : cl);
     }
     if (p[0] === 'clientes' && p[1] === 'planilha' && m === 'POST') {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
