@@ -311,7 +311,7 @@ function desenhaContrato(){
    <button id="bsel" onclick="modoSel()">${SELMODO?'Cancelar seleção':'Selecionar parcelas para acordo'}</button>
    <button class="pri" ${SELMODO&&SEL.size?'':'disabled'} onclick="modalAcordo()">Adicionar acordo (${SEL.size})</button>
    <button onclick="modalCorrecao()">Adicionar correção</button>${C.eventos.some(e=>e.tipo==='encerramento')?'<span class="tag" style="background:#dbeafe;color:#1e3a8a">Contrato encerrado/cancelado</span>':`<button onclick="modalEvento('encerramento')">Encerrar contrato</button><button onclick="modalEvento('encerramento',null,'cancelado')">Cancelar contrato</button>`}
-   <button onclick="modalEvento('cessao')">Cessão</button><button onclick="modalCredito('credito')">Crédito</button><button onclick="modalCredito('devolucao')">Pagamento do crédito</button><button onclick="modalRepact()">Repactuação</button><button onclick="relatorio('pagos')">Relatório de valores pagos</button><button onclick="relatorio('atraso')">Relatório de atraso</button><button onclick="relatorio('saldo')">Saldo devedor</button>${EU==='luis'?'<button onclick="puxarDesc()">Puxar descrições do Asaas</button>':''}<span style="flex:1"></span>
+   <button onclick="modalEvento('cessao')">Cessão</button><button onclick="modalCredito('credito')">Crédito</button><button onclick="modalCredito('devolucao')">Pagamento do crédito</button><button onclick="modalRepact()">Repactuação</button><button onclick="relatorio('pagos')">Relatório de valores pagos</button><button onclick="relatorio('atraso')">Relatório de atraso</button><button onclick="relatorio('saldo')">Saldo devedor</button><button onclick="modalDevolucao()">Valores para devolução</button>${EU==='luis'?'<button onclick="puxarDesc()">Puxar descrições do Asaas</button>':''}<span style="flex:1"></span>
    ${C.fechamento?`<button onclick="reabrir()">Reabrir conferência</button>`:`<button class="pri" onclick="fechar()">Fechar conferência do contrato</button>`}</div>
    ${SELMODO?`<div class="info">Clique nas parcelas em atraso que entraram no acordo e depois em "Adicionar acordo". Só as parcelas em atraso ficam disponíveis.<br><b>Selecionadas (${SEL.size}):</b> ${[...SEL].map(i=>C.titulos.find(t=>t.id==i)).filter(Boolean).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).map(t=>codTit(t)).join(', ')||'nenhuma'}</div>`:''}
    <br><div class="grid ${SELMODO?'selmodo':''}">${linhas}</div><br>
@@ -734,6 +734,12 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
     const res=`<table><thead><tr><th>Resumo</th><th class="n">Parcelas</th><th class="n">Valor</th></tr></thead><tbody>${Object.entries(por).map(([g,x])=>`<tr><td>${g}</td><td class="n">${x.q}</td><td class="n">${brl(x.v)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Saldo a vencer</td><td class="n">${ts.length}</td><td class="n">${brl(tot)}</td></tr>${atr.length?`<tr><td>Em atraso hoje (com multa, juros e custo de cobrança)</td><td class="n">${atr.length}</td><td class="n">${brl(vat)}</td></tr><tr><td>Saldo devedor total</td><td class="n">${ts.length+atr.length}</td><td class="n">${brl(tot+vat)}</td></tr>`:''}</tfoot></table>`;
     corpo=ts.length?`${res}<table style="margin-top:14px"><thead><tr><th>Parcela</th><th>Vencimento</th><th class="n">Valor</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="2">Total a vencer (${ts.length} parcela${ts.length==1?'':'s'})</td><td class="n">${brl(tot)}</td></tr></tfoot></table>
      <div class="obs">Valores das parcelas a vencer pelo valor vigente em ${dbr(hoje)}. As mensais e anuais são reajustadas todo mês de janeiro pelo IGP-M/FGV (mais 2% ao ano se houver atraso no período), conforme o contrato; por isso o valor futuro pode ser maior que o mostrado.</div>`:(atr.length?res:'<p><b>Nenhuma parcela a vencer.</b></p>')}
+  else if(tipo==='devolucao'){titulo='Valores para devolução';const D=window._DEV;
+    const pl=D.ls.map(x=>`<tr><td>${esc(rot(x.t))}</td><td>${dbr(x.t.vencimento)}</td><td>${dbr(x.d)}</td><td class="n">${brl(x.v)}</td></tr>`).join('');
+    corpo=`<div>Data do distrato: <b>${dbr(D.data)}</b></div><table><tbody><tr><td>Valor pago pelo cliente</td><td class="n">${brl(D.pago)}</td></tr><tr><td>(−) Multa de ${D.pm}% sobre o valor pago</td><td class="n">${brl(D.multa)}</td></tr><tr><td>(−) Comissão de corretagem</td><td class="n">${brl(D.corr)}</td></tr><tr><td>(−) Retenção de ${D.pr}% ${D.modo==='pago'?'sobre o valor pago':'sobre o saldo após multa e corretagem'}</td><td class="n">${brl(D.ret)}</td></tr></tbody><tfoot><tr><td>Valor a devolver</td><td class="n">${brl(D.dev)}</td></tr></tfoot></table>
+     ${D.dev?`<table style="margin-top:14px"><thead><tr><th>Parcela da devolução</th><th>Vencimento</th><th class="n">Valor</th></tr></thead><tbody>${D.ps.map(p=>`<tr><td>${p.n}/${D.ps.length}</td><td>${dbr(p.venc)}</td><td class="n">${brl(p.v)}</td></tr>`).join('')}</tbody><tfoot><tr><td colspan="2">Total</td><td class="n">${brl(D.dev)}</td></tr></tfoot></table>`:'<p><b>Nada a devolver: os descontos superam o valor pago.</b></p>'}
+     <h3 style="font-size:14px;margin-top:18px">Parcelas pagas consideradas</h3><table><thead><tr><th>Parcela</th><th>Vencimento</th><th>Pago em</th><th class="n">Valor (sem multa, juros e custo de cobrança)</th></tr></thead><tbody>${pl}</tbody><tfoot><tr><td colspan="3">Total (${D.ls.length})</td><td class="n">${brl(r2(D.ls.reduce((a,x)=>a+x.v,0)))}</td></tr></tfoot></table>
+     <div class="obs">Valor pago pelas parcelas quitadas, sem multa, juros e custo de cobrança de atraso. Parcelas de acordo entram só pela parte de principal.</div>`}
   else{titulo='Relatório de valores em atraso';
     const ts=C.titulos.filter(t=>t.vencimento&&t.vencimento<=hoje&&['vencida','em_atraso'].includes(estado(t))).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
     let T={v:0,co:0,mu:0,ju:0,ho:0,tot:0};
@@ -750,6 +756,36 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
    <div class="cab"><img src="${location.origin}/logo.png" alt=""><div><h1>${titulo}</h1><div class="mut">Inerente Gestão Imobiliária · Condomínio de Chácaras Beira Rio</div></div></div>
    <div><b>Contrato ${c.numero}</b> · Quadra ${c.quadra} · Lote ${c.lote}</div><div>Titular: <b>${esc(tit)}</b></div><div class="mut">Emitido em ${dbr(hoje)}</div>${corpo}</body></html>`);
   w.document.close()}
+
+/* valores para devolução (distrato): pago − multa − corretagem − retenção sobre o restante */
+function pagoDevolucao(){const ls=[];for(const p of C.pagamentos){const t=C.titulos.find(x=>x.id==p.titulo_id);if(!t)continue;let l=(+p.valor_pago||0)-(+p.multa_paga||0)-(+p.juros_pago||0)-(+p.honorarios_pago||0);
+  if(t.grupo==='acordo'){const a=C.acordos.find(a=>a.id==t.acordo_id);if(a)l*=partesAcordo(a).pr}ls.push({t,p,v:r2(l),d:String(p.confirmada_em||t.vencimento||'').slice(0,10)})}
+  return ls.sort((a,b)=>a.d.localeCompare(b.d))}
+function calcDevolucao(D){const multa=r2(D.pago*D.pm/100),base=r2(D.pago-multa-D.corr),ret=r2((D.modo==='pago'?D.pago:Math.max(0,base))*D.pr/100),dev=r2(Math.max(0,base-ret));
+  const n=Math.max(1,D.n|0),b=r2(Math.floor(dev/n*100)/100),ps=[];const [y,m]=String(D.venc).split('-').map(Number);
+  for(let i=0;i<n;i++){const dt=new Date(Date.UTC(y,m-1+i,1)),dd=String(D.venc).slice(8,10)||'15';ps.push({n:i+1,venc:dt.toISOString().slice(0,7)+'-'+dd,v:i<n-1?b:r2(dev-b*(n-1))})}
+  return{multa,base,ret,dev,ps}}
+function modalDevolucao(){const ls=pagoDevolucao(),pago=r2(ls.reduce((a,x)=>a+x.v,0)),meses=new Set(ls.map(x=>x.d.slice(0,7))).size;
+  const enc=C.eventos.filter(e=>e.tipo==='encerramento').sort((a,b)=>String(b.data).localeCompare(String(a.data)))[0];
+  const h=new Date(C.hoje+'T12:00:00');h.setMonth(h.getMonth()+1);const venc=h.toISOString().slice(0,7)+'-15';
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Valores para devolução</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="info">Regra usada hoje: do valor pago (sem multa, juros e custo de cobrança) sai a multa de 20% e a corretagem; do que sobra, retém 10%. O restante é devolvido em parcelas mensais, no dia 15. Todos os campos podem ser alterados.</div>
+  <div class="f2"><div><label>Valor pago pelo cliente (${ls.length} pagamentos)</label><input id="dv_pg" inputmode="decimal" value="${brl(pago)}"></div>
+  <div><label>Corretagem</label><input id="dv_co" inputmode="decimal" value="${brl(+C.contrato.corretagem||0)}"></div>
+  <div><label>Multa (%)</label><input id="dv_pm" inputmode="decimal" value="20"></div>
+  <div><label>Retenção (%)</label><input id="dv_pr" inputmode="decimal" value="10"></div>
+  <div><label>Retenção calculada sobre</label><select id="dv_md"><option value="resto">O que sobra depois da multa e da corretagem (regra atual)</option><option value="pago">O valor pago (como está no contrato)</option></select></div>
+  <div><label>Data do distrato</label><input id="dv_dt" type="date" value="${String(enc?.data||C.hoje).slice(0,10)}"></div>
+  <div><label>Nº de parcelas da devolução</label><input id="dv_n" inputmode="numeric" value="${meses||1}"></div>
+  <div><label>1º vencimento da devolução</label><input id="dv_vc" type="date" value="${venc}"></div></div>
+  <div class="mut" style="margin-top:4px">Sugestão de parcelas: ${meses} (meses em que o cliente pagou).</div>
+  <div id="dv_res" style="margin-top:10px"></div>
+  <div class="bt"><button class="pri" onclick="relatorio('devolucao')">Imprimir / salvar em PDF</button></div>`);
+  const le=()=>({pago:numBR($('#dv_pg').value)||0,corr:numBR($('#dv_co').value)||0,pm:numBR($('#dv_pm').value)||0,pr:numBR($('#dv_pr').value)||0,modo:$('#dv_md').value,data:$('#dv_dt').value,n:Number($('#dv_n').value)||1,venc:$('#dv_vc').value||venc,ls});
+  const at=()=>{const D=le(),R=calcDevolucao(D);window._DEV={...D,...R};
+    $('#dv_res').innerHTML=`<table><tbody><tr><td>Valor pago</td><td class="n">${brl(D.pago)}</td></tr><tr><td>(−) Multa de ${D.pm}%</td><td class="n">${brl(R.multa)}</td></tr><tr><td>(−) Corretagem</td><td class="n">${brl(D.corr)}</td></tr><tr><td>(−) Retenção de ${D.pr}%</td><td class="n">${brl(R.ret)}</td></tr><tr><td><b>Valor a devolver</b></td><td class="n"><b>${brl(R.dev)}</b></td></tr><tr><td>Total descontado</td><td class="n">${brl(r2(D.pago-R.dev))}</td></tr></tbody></table>
+    <div style="margin-top:6px">${R.dev?`<b>${R.ps.length}</b> parcela${R.ps.length>1?'s':''} de <b>${brl(R.ps[0].v)}</b>${R.ps.length>1&&R.ps.at(-1).v!==R.ps[0].v?' (última de '+brl(R.ps.at(-1).v)+')':''}, de ${dbr(R.ps[0].venc)} a ${dbr(R.ps.at(-1).venc)}`:'<b>Nada a devolver:</b> os descontos passam do valor pago.'}</div>`};
+  document.querySelectorAll('#modal input,#modal select').forEach(x=>{x.oninput=at;x.onchange=at});at()}
 
 /* diluição da dívida: parte do que o cliente devia foi somada às parcelas a vencer (não gera parcelas novas, só aumenta o valor delas) */
 function modalDiluicao(eid){const e=eid?C.eventos.find(x=>x.id==eid):null,d=e?.dados||{};const ja={};(d.itens||[]).forEach(i=>ja[i.titulo_id]=i.valor);
