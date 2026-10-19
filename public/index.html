@@ -199,7 +199,7 @@ async function telaLista(){
   LISTA=await api('contratos');
   const fech=LISTA.filter(c=>c.fechado_em).length;const cont={dia:0,atraso:0,canc:0,conf:0};LISTA.forEach(c=>cont[GRP(statusC(c))]++);
   const fb=(k,l,n)=>`<button data-f="${k}" class="${FILTRO===k?'on':''}">${l} (${n})</button>`;
-  app.innerHTML=`<div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Contratos (${LISTA.length})</h3>
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div><div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Contratos (${LISTA.length})</h3>
   <span class="tag ok">${fech} fechados</span><span class="tag">${LISTA.length-fech} abertos</span></div><br>
   <input id="bus" placeholder="Buscar por número, quadra/lote ou nome">
   <div class="filtros" id="filt">${fb('todos','Todos',LISTA.length)}${fb('dia','Em dia',cont.dia)}${fb('atraso','Em atraso',cont.atraso)}${fb('canc','Cancelados/encerrados',cont.canc)}${fb('conf','A conferir',cont.conf)}${fb('fech','Conferência fechada',fech)}${fb('pend','Com pendência',LISTA.filter(c=>c.pendencia).length)}</div></div><div class="cgrid mini" id="tb"></div>`;
