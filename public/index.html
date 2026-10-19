@@ -375,7 +375,7 @@ function desenhaContrato(){
   ${COMO?'<div class="aviso" style="background:#eff6ff;color:#1e3a8a;border-color:#bfdbfe"><b>Você está editando a VERSÃO FINAL</b> (a verdade do sistema). Tudo o que salvar aqui vai para a versão final.</div>':''}
   <div class="card"><div class="bt" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">Contrato ${c.numero}</h2><div style="font-size:15px;font-weight:600;margin-bottom:4px">Quadra ${c.quadra} · Lote ${c.lote}</div>
   <div>${tit}</div><div class="mut">Assinado em ${dbr(c.data_assinatura)} · Imóvel ${brl(c.valor_imovel)} · Fonte: ${esc(c.fonte)} "${esc(c.arquivo)}"</div></div>
-  ${cliRapido()}${C.fechamento?`<span class="tag ok">Conferência fechada em ${new Date(C.fechamento.fechado_em).toLocaleString('pt-BR')}</span>`:''}</div>
+  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">${cliRapido()}${C.fechamento?`<span class="tag ok">Conferência fechada em ${new Date(C.fechamento.fechado_em).toLocaleString('pt-BR')}</span>`:''}</div></div>
   ${(c.alertas||[]).filter(a=>!/planilha/i.test(a)).length?`<div class="aviso"><b>Pontos de atenção do contrato:</b><ul style="margin:4px 0 0 18px;padding:0">${c.alertas.filter(a=>!/planilha/i.test(a)).map(a=>'<li>'+esc(a)+'</li>').join('')}</ul></div>`:''}
   ${C.eventos.filter(e=>e.tipo==='pendencia').map(e=>`<div class="aviso" style="background:#fef3c7;border:2px dashed #f59e0b;color:#78350f"><b>⚠ Pendência:</b> ${esc(e.obs||'')} <button style="margin-left:8px;font-size:12px;padding:3px 8px" onclick="resolvePend(${e.id})">Resolvida</button></div>`).join('')}
   <div style="margin:6px 0"><button style="font-size:12px;padding:3px 8px" onclick="novaPend()">+ Marcar pendência</button></div>
