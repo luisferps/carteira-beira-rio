@@ -348,6 +348,8 @@ async function garanteEsquema() {
     await q(`alter table carteira.acordos add column if not exists termo text`);
     await q(`create table if not exists carteira.propostas(id serial primary key, contrato text not null, conferente text not null, dados jsonb not null, criado_em timestamptz default now())`);
     await q(`create table if not exists carteira.termos_arq(termo text primary key, contrato text not null, nome text, b64 text not null, conferente text, enviado_em timestamptz default now())`);
+    await q(`alter table carteira.termos_arq add column if not exists html text`);
+    await q(`alter table carteira.termos_arq alter column b64 drop not null`);
     await q(`create table if not exists carteira.clientes(id serial primary key, chave text unique not null, cpf text, nome text, planilha jsonb, asaas jsonb, manual jsonb, atualizado_em timestamptz default now())`);
     schemaOk = true;
   } catch (e) { console.error('garanteEsquema', e.message); }
@@ -505,14 +507,14 @@ export default async (req) => {
 
 
     if (p[0] === 'termo-arq' && m === 'POST') {
-      if (!body.termo || !body.b64) return json({ erro: 'Arquivo inválido' }, 400);
-      await q(`insert into carteira.termos_arq(termo, contrato, nome, b64, conferente) values ($1,$2,$3,$4,$5)
-               on conflict (termo) do update set nome=excluded.nome, b64=excluded.b64, conferente=excluded.conferente, enviado_em=now()`, [body.termo, body.contrato, body.nome, body.b64, conf]);
+      if (!body.termo || !(body.b64 || body.html)) return json({ erro: 'Termo vazio' }, 400);
+      await q(`insert into carteira.termos_arq(termo, contrato, nome, b64, html, conferente) values ($1,$2,$3,$4,$5,$6)
+               on conflict (termo) do update set nome=excluded.nome, b64=excluded.b64, html=excluded.html, conferente=excluded.conferente, enviado_em=now()`, [body.termo, body.contrato, body.nome || null, body.b64 || null, body.html || null, conf]);
       await log(conf, 'termo_editado_enviado', { termo: body.termo, nome: body.nome });
       return json({ ok: true });
     }
     if (p[0] === 'termo-arq' && p[1] && m === 'GET') {
-      const [r] = await q('select termo, nome, b64, enviado_em from carteira.termos_arq where termo=$1', [decodeURIComponent(p[1])]);
+      const [r] = await q('select termo, nome, b64, html, enviado_em from carteira.termos_arq where termo=$1', [decodeURIComponent(p[1])]);
       return r ? json(r) : json({ erro: 'Termo não encontrado' }, 404);
     }
     if (p[0] === 'termo-arq' && p[1] && m === 'DELETE') {
