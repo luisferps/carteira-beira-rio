@@ -380,10 +380,10 @@ export default async (req) => {
 
     if (p[0] === 'ajusta-vencimentos' && m === 'POST') {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
-      const b = body; const meses = parseInt(b.meses, 10);
-      if (!b.contrato || !['mensal', 'anual', 'entrada'].includes(b.grupo) || !meses || Math.abs(meses) > 24) return json({ erro: 'Dados inválidos' }, 400);
-      const r = await q(`update carteira.titulos set vencimento = (vencimento + make_interval(months => $3))::date
-                         where contrato=$1 and grupo=$2 and conferente is null and numero >= $4 returning id`, [b.contrato, b.grupo, meses, parseInt(b.a_partir || 1, 10)]);
+      const b = body; const meses = parseInt(b.meses || 0, 10); const dias = parseInt(b.dias || 0, 10);
+      if (!b.contrato || !['mensal', 'anual', 'entrada'].includes(b.grupo) || (!meses && !dias) || Math.abs(meses) > 24 || Math.abs(dias) > 27) return json({ erro: 'Dados inválidos' }, 400);
+      const r = await q(`update carteira.titulos set vencimento = (vencimento + make_interval(months => $3, days => $5))::date
+                         where contrato=$1 and grupo=$2 and conferente is null and numero >= $4 returning id`, [b.contrato, b.grupo, meses, parseInt(b.a_partir || 1, 10), dias]);
       await log(conf, 'vencimentos_ajustados', { ...b, qtd: r.length });
       return json({ ok: true, qtd: r.length });
     }
