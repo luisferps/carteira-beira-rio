@@ -339,9 +339,9 @@ async function garanteEsquema() {
   if (schemaOk) return;
   try {
     const [r] = await q(`select pg_get_constraintdef(oid) d from pg_constraint where conname='eventos_tipo_check'`);
-    if (!r || !/observacao/.test(r.d)) {
+    if (!r || !/'vencimento'/.test(r.d)) {
       await q(`alter table carteira.eventos drop constraint if exists eventos_tipo_check`);
-      await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao','credito','devolucao','pendencia','observacao'))`);
+      await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao','credito','devolucao','pendencia','observacao','vencimento'))`);
     }
     await q(`alter table carteira.acordos add column if not exists tipo text not null default 'acordo'`);
     await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
@@ -385,7 +385,26 @@ export default async (req) => {
       const r = await q(`update carteira.titulos set vencimento = (vencimento + make_interval(months => $3, days => $5))::date
                          where contrato=$1 and grupo=$2 and conferente is null and numero >= $4 returning id`, [b.contrato, b.grupo, meses, parseInt(b.a_partir || 1, 10), dias]);
       await log(conf, 'vencimentos_ajustados', { ...b, qtd: r.length });
+      if (r.length && !b.sem_evento) {
+        const ap = parseInt(b.a_partir || 1, 10);
+        const [t0] = await q(`select id, vencimento from carteira.titulos where contrato=$1 and grupo=$2 and conferente is null and numero=$3`, [b.contrato, b.grupo, ap]);
+        const ant = t0 ? new Date(new Date(t0.vencimento).getTime()) : null;
+        if (ant) { ant.setUTCDate(ant.getUTCDate() - dias); ant.setUTCMonth(ant.getUTCMonth() - meses); }
+        await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values($1,$2,'vencimento',null,$3,current_date,$4,$5)`,
+          [b.contrato, conf, t0 ? t0.id : null, JSON.stringify({ grupo: b.grupo, meses, dias, qtd: r.length, antes: ant ? ant.toISOString().slice(0, 10) : null, depois: t0 ? new Date(t0.vencimento).toISOString().slice(0, 10) : null }), b.obs || null]);
+      }
       return json({ ok: true, qtd: r.length });
+    }
+    if (p[0] === 'vencimentos-divergentes') {
+      const r = await q(`select t.contrato, count(*)::int n,
+          count(*) filter (where p.vencimento_boleto::date <> t.vencimento)::int dif,
+          mode() within group (order by extract(day from p.vencimento_boleto::date))::int dia_boleto,
+          mode() within group (order by extract(day from t.vencimento))::int dia_titulo,
+          mode() within group (order by ((extract(year from p.vencimento_boleto::date)*12+extract(month from p.vencimento_boleto::date))-(extract(year from t.vencimento)*12+extract(month from t.vencimento))))::int meses
+        from carteira.pagamentos p join carteira.titulos t on t.id=p.titulo_id
+        where t.grupo='mensal' and p.vencimento_boleto is not null and p.forma not in ('Pagamento à construtora','Crédito','Compensação')
+        group by t.contrato order by t.contrato`);
+      return json(r);
     }
     if (p[0] === 'asaas-busca') {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
