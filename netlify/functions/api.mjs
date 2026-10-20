@@ -339,9 +339,9 @@ async function garanteEsquema() {
   if (schemaOk) return;
   try {
     const [r] = await q(`select pg_get_constraintdef(oid) d from pg_constraint where conname='eventos_tipo_check'`);
-    if (!r || !/pendencia/.test(r.d)) {
+    if (!r || !/observacao/.test(r.d)) {
       await q(`alter table carteira.eventos drop constraint if exists eventos_tipo_check`);
-      await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao','credito','devolucao','pendencia'))`);
+      await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao','credito','devolucao','pendencia','observacao'))`);
     }
     await q(`alter table carteira.acordos add column if not exists tipo text not null default 'acordo'`);
     await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
