@@ -752,7 +752,7 @@ async function editaTermo(d){if(!d?.termo)return alert('Este acordo não tem nú
   <div id="ed_t" contenteditable="true" spellcheck="true" style="background:#fff;color:#111;font-family:Arial;font-size:13px;line-height:1.45;padding:40px 48px;border:1px solid var(--ln);box-shadow:0 2px 12px rgba(0,0,0,.08);min-height:60vh;text-align:justify">${h}</div>
   <div class="bt" style="margin-top:10px;position:sticky;bottom:0;background:var(--card);padding-top:8px"><button class="pri" onclick="salvaEd()">Salvar</button><button onclick="salvaEd(true)">Salvar e baixar Word</button><button onclick="imprimeEd()">Imprimir / PDF</button></div></div></div>`;
   window._ED=d}
-const EDCSS='#ed_t h1{font-size:17px;margin:0 0 4px}#ed_t p{margin:0 0 8px}#ed_t table{border-collapse:collapse;margin:4px 0 10px;font-size:11px}#ed_t th,#ed_t td{border:1px solid #999;padding:2px 5px}#ed_t th{background:#E8EEF4}#ed_t tr.tot td{background:#F4F6F8}';
+const EDCSS='#ed_t h1{font-size:17px;margin:0 0 4px}#ed_t p{margin:0 0 8px}#ed_t table{border-collapse:collapse;margin:4px 0 10px;font-size:11px}#ed_t th,#ed_t td{border:1px solid #999;padding:2px 5px}#ed_t th{background:#E8EEF4}#ed_t tr.tot{display:table-row;gap:0}#ed_t tr.tot td{background:#F4F6F8;border-radius:0;padding:2px 5px}#ed_t tr.tot b{display:inline;font-size:inherit;color:inherit}';
 (()=>{const st=document.createElement('style');st.textContent=EDCSS;document.head.appendChild(st)})();
 function fechaEd(){$('#modal').innerHTML=PILHA.pop()||'';if(!$('#modal').innerHTML&&C)desenhaContrato()}
 async function salvaEd(baixar){const d=window._ED,html=$('#ed_t').innerHTML;await api('termo-arq',{method:'POST',body:{contrato:C.contrato.numero,termo:d.termo,html}});
