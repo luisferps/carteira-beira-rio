@@ -635,6 +635,15 @@ export default async (req) => {
       return json(rows);
     }
 
+    if (p[0] === 'contrato-data' && m === 'POST') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(body.data_assinatura || '')) return json({ erro: 'Data inválida' }, 400);
+      const [a] = await q(`select data_assinatura from carteira.contratos where numero=$1`, [body.contrato]);
+      if (!a) return json({ erro: 'Contrato não encontrado' }, 404);
+      await q(`update carteira.contratos set data_assinatura=$2 where numero=$1`, [body.contrato, body.data_assinatura]);
+      await log(conf, 'data_assinatura_corrigida', { contrato: body.contrato, antes: a.data_assinatura, depois: body.data_assinatura, motivo: body.motivo || null });
+      return json({ ok: true });
+    }
     if (p[0] === 'contrato' && p[1] && m === 'GET') {
       const d = await carregar(p[1], conf);
       if (!d) return json({ erro: 'Contrato não encontrado' }, 404);
