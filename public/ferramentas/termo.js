@@ -57,6 +57,7 @@ window.htmlTermo=function(A0){
     P(`Composição do valor confessado: principal <b>R$ ${BRL(A.principal)}</b>; multa <b>R$ ${BRL(A.multa)}</b>; juros <b>R$ ${BRL(A.juros)}</b>; custo de cobrança <b>R$ ${BRL(A.honorarios)}</b>.`),
     T('CLÁUSULA TERCEIRA – DA FORMA DE PAGAMENTO'),
     P(`O valor confessado será pago em ${A.parcelas.length} parcela(s), por boleto bancário emitido pela administradora da CREDORA, nos valores e vencimentos abaixo:`),
+    ...(()=>{const sp=Math.round(A.parcelas.reduce((s,x)=>s+Number(x.valor||0),0)*100)/100,jm=String(A.obs||'').match(/Juros de financiamento: ([\d.,]+)% a\.m\./);if(!(sp-tot>=0.01)||A.parcelas.length<2)return [];const e=Number(A.parcelas[0].valor||0);return [P(`A 1ª parcela, de R$ ${BRL(e)}, é paga sem acréscimo. Sobre o saldo de R$ ${BRL(tot-e)} incidem juros de financiamento${jm?` de ${jm[1]}% ao mês`:''}, calculados pela Tabela Price, distribuídos nas ${A.parcelas.length-1} parcelas seguintes, totalizando R$ ${BRL(sp-tot)} de juros e R$ ${BRL(sp)} a pagar.`)]})(),
     tab2,
     P('Parágrafo único. Nenhum valor é devido até o vencimento de cada parcela deste acordo; os encargos da Cláusula Quinta só incidem a partir do vencimento não pago.'),
     T('CLÁUSULA QUARTA – DA NOVAÇÃO'),
