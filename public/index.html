@@ -690,7 +690,7 @@ function modalAcordo(aid){
   <div><label>Valor acordado</label><input id="a_val" inputmode="decimal" style="font-weight:700"></div>
   <div><label>Forma</label><select id="a_forma"><option value="1">Pagamento único</option><option value="n">Parcelado</option></select></div>
   <div><label>Quantas parcelas</label><input id="a_qtd" type="number" min="1" value="${pars.length||1}"></div>
-  <div><label>Juros nas parcelas futuras (% ao mês, Price)</label><input id="a_jf" inputmode="decimal" placeholder="0" value="${(()=>{const m=String(a?.obs||'').match(/Juros de financiamento: ([\d.,]+)% a\.m\./);return m?m[1]:''})()}"><small class="mut">A 1ª parcela (entrada) fica sem juros; da 2ª em diante, parcelas iguais pela tabela Price.</small></div></div>
+  <div><label>Juros nas parcelas futuras (% ao mês, Price)</label><input id="a_jf" inputmode="decimal" placeholder="0%" value="${(()=>{const m=String(a?.obs||'').match(/Juros de financiamento: ([\d.,]+)% a\.m\./);return m?m[1]+'%':''})()}"><small class="mut">A 1ª parcela (entrada) fica sem juros; da 2ª em diante, parcelas iguais pela tabela Price.</small></div></div>
   <div class="mut" style="margin:12px 0 4px;font-weight:600;color:var(--tx)">Como o valor foi formado <span class="mut" id="a_ate" style="font-weight:400"></span></div>
   <div class="f2">${campo('a_pr','Principal (com correção)')}${campo('a_mu','Multa (2%)')}${campo('a_ju','Juros (1% ao mês, ao dia)')}${campo('a_ho','Custo de cobrança')}</div>
   <div class="f2" style="margin-top:8px"><input id="a_de" type="hidden"><div class="dado"><span>Valor calculado pelo sistema</span><b id="a_calc"></b></div><div class="dado"><span>Soma (principal + multa + juros + cobrança)</span><b id="a_som2"></b></div></div>
