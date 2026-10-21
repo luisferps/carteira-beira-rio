@@ -708,7 +708,7 @@ function modalAcordo(aid){
     $('#a_av').innerHTML=num($('#a_val').value)<B.pr-0.009?`<div class="aviso">O valor acordado é menor que o principal. Ele quita as parcelas mesmo assim (vai todo para o principal).</div>`:''};
   const deCalc=()=>{const c=calc();B={pr:c.principal,mu:c.multa,ju:c.juros,ho:c.honorarios,de:0};$('#a_val').value=brl(c.total)};
   const peloValor=()=>{const c=calc(),v=num($('#a_val').value),q=repartir({principal:c.principal,multa:c.multa,juros:c.juros},v);B={pr:Math.min(c.principal,v),mu:q.multa,ju:q.juros,ho:q.honorarios,de:q.desconto}};
-  const jf=()=>num($('#a_jf').value)/100;
+  const jf=()=>num(String($('#a_jf').value).replace('%',''))/100;
   const price=(pv,n,i)=>n<=0?0:(i>0?r2(pv*i/(1-Math.pow(1+i,-n))):r2(pv/n));
   const aplicaPrice=()=>{const i=jf(),q=P.length;if(!(i>0)||q<2)return false;const v=num($('#a_val').value),e=Number(P[0].valor||0),pm=price(Math.max(0,v-e),q-1,i);for(let k=1;k<q;k++){P[k].valor=pm;P[k].fixo=false}return true};
   const refazPars=()=>{const q=Math.max(1,Number($('#a_qtd').value)||1),v=num($('#a_val').value),base=r2(v/q);const d0=$('#a_data').value;
@@ -733,7 +733,7 @@ function modalAcordo(aid){
     const bt=$('#a_edit');if(bt)bt.style.display=LIVRE?'none':'';const av=$('#a_livre');if(av)av.style.display=LIVRE?'':'none'};
   window._travaAcordo=trava;
   mostraB();if(P.length)desPars();else refazPars();trava();
-  document.querySelector('#modal .card')?.addEventListener('focusout',e=>{const x=e.target;if(x.tagName==='INPUT'&&x.inputMode==='decimal'&&x.value.trim()!=='')x.value=brl(num(x.value))});
+  document.querySelector('#modal .card')?.addEventListener('focusout',e=>{const x=e.target;if(x.id==='a_jf'){if(x.value.trim()!=='')x.value=String(num(String(x.value).replace('%',''))).replace('.',',')+'%';return}if(x.tagName==='INPUT'&&x.inputMode==='decimal'&&x.value.trim()!=='')x.value=brl(num(x.value))});
   window._salvaAcordoDados=()=>({contrato:C.contrato.numero,data_acordo:$('#a_data').value,titulos_origem:ids,principal:r2(B.pr),multa:r2(B.mu),juros:r2(B.ju),honorarios:r2(B.ho),
       valor_calculado:calc().total,valor_acordado:num($('#a_val').value),desconto_encargos:r2(B.de),parcelas:window._P,obs:(()=>{const o=String($('#a_obs').value||'').replace(/\s*Juros de financiamento: [\d.,]+% a\.m\.[^|]*\|?\s*/,'').trim();const i=jf();return i>0&&window._P.length>1?`Juros de financiamento: ${String(r2(i*100)).replace('.',',')}% a.m. (Price) da 2ª parcela em diante | `+o:o})(),termo:$('#a_termo').value.trim()});
 }
