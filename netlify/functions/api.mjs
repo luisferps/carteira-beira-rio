@@ -633,8 +633,22 @@ async function emitirBoleto(tituloId, conf) {
     (contratoDaDescricao(g.description).numero === t.contrato && parseDesc(g.description).ps.some(p => p.n === t.numero && p.tot === t.total))));
   if (dup) { await gravaBoleto(dup, { contrato: t.contrato, titulo_id: t.id, tipo: t.grupo === 'acordo' ? 'acordo' : 'parcela', origem: 'asaas' }); return { titulo_id: tituloId, erro: 'Já existia boleto no Asaas para essa parcela — só vinculei', id_asaas: dup.id }; }
   const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [t.contrato]);
+  let linhaF = linha;
+  if (t.grupo === 'acordo') {
+    const [tt] = await q('select acordo_id from carteira.titulos where id=$1', [t.id]);
+    const [ac] = await q('select titulos_origem from carteira.acordos where id=$1', [tt?.acordo_id]);
+    const os = ac ? await q('select grupo, numero, total from carteira.titulos where id = any($1) order by grupo, numero', [ac.titulos_origem]) : [];
+    const lista = ns => ns.length > 1 ? ns.slice(0, -1).join(', ') + ' e ' + ns[ns.length - 1] : ns.join('');
+    const partes = [];
+    for (const [gr, nome] of [['entrada', 'entrada'], ['mensal', 'mensal'], ['anual', 'anual'], ['acordo', 'acordo']]) {
+      const xs = os.filter(o => o.grupo === gr); if (!xs.length) continue;
+      const pad = gr === 'acordo' ? n => String(n).padStart(2, '0') : n => String(n);
+      partes.push(`${nome} ${lista(xs.map(o => pad(o.numero)))}/${gr === 'acordo' ? pad(xs[0].total) : xs[0].total}`);
+    }
+    if (partes.length) linhaF = `${linha} (${partes.join(' e ')})`;
+  }
   const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: R2(+t.valor), dueDate: venc,
-    description: descricaoBoleto(ct, linha), externalReference: 'cbr-titulo-' + t.id, fine: { value: 2, type: 'PERCENTAGE' }, interest: { value: 1 } });
+    description: descricaoBoleto(ct, linhaF), externalReference: 'cbr-titulo-' + t.id, fine: { value: 2, type: 'PERCENTAGE' }, interest: { value: 1 } });
   await gravaBoleto(g, { contrato: t.contrato, titulo_id: t.id, tipo: t.grupo === 'acordo' ? 'acordo' : 'parcela', origem: 'sistema' });
   await log(conf, 'boleto_gerado', { contrato: t.contrato, titulo: t.id, id: g.id, valor: g.value, venc: g.dueDate });
   return { titulo_id: tituloId, ok: true, id_asaas: g.id, fatura: g.invoiceNumber, valor: g.value, vencimento: g.dueDate, link: g.bankSlipUrl || g.invoiceUrl };
@@ -652,7 +666,9 @@ async function editarBoleto(id, b, conf) {
   if (b.valor != null) body.value = R2(+b.valor);
   if (b.vencimento) body.dueDate = b.vencimento;
   if (b.descricao != null) body.description = b.descricao;
-  const g = await asaasReq('POST', '/payments/' + id, body);
+  let g;
+  try { g = await asaasReq('POST', '/payments/' + id, body); }
+  catch (e) { await new Promise(x => setTimeout(x, 2000)); g = await asaasReq('POST', '/payments/' + id, body); }
   await gravaBoleto(g, {});
   await log(conf, 'boleto_editado', { id, ...body });
   return { ok: true, valor: g.value, vencimento: g.dueDate };
