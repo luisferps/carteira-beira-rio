@@ -334,6 +334,197 @@ async function puxarDescricoes(contrato, conferentes) {
   return { preenchidas: ok.length, do_asaas: ok.filter(x => x.fonte === 'Asaas').length, sem_descricao: sem, erro_asaas: erroAsaas || (A.erro === 'sem_chave' ? 'Falta a chave do Asaas no Netlify' : null), detalhes: ok };
 }
 
+/* ---------- integração automática com o Asaas (só depois da data de conferência) ---------- */
+const PAGO_A = ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'];
+const FORMA_A = { BOLETO: 'Boleto Bancário', PIX: 'Pix', CREDIT_CARD: 'Cartão de crédito', DEBIT_CARD: 'Cartão de débito', UNDEFINED: 'Boleto Bancário' };
+const SIT_A = { RECEIVED: 'Recebida', CONFIRMED: 'Confirmada', RECEIVED_IN_CASH: 'Recebida em dinheiro' };
+const R2 = x => Math.round(x * 100) / 100;
+const dstr = v => v == null ? null : String(v instanceof Date ? v.toISOString() : v).slice(0, 10);
+function parseDesc(d0, ct) {
+  const d = String(d0 || '').replace(/\s+/g, ' ');
+  const sem = d.replace(/á Servi[cç]o.*$/i, '').replace(/Q\s*\d{1,2}\s*L\s*\d{1,2}/gi, ' ').replace(/\d{2}\/\d{2}\/\d{4}/g, ' ');
+  const ps = [...sem.matchAll(/(?<![\d\/])(\d{1,3})\s*\/\s*(\d{1,3})(?![\d\/])/g)].map(m => ({ n: +m[1], tot: +m[2] }));
+  const tipo = /cess[aã]o/i.test(d) ? 'cessao' : /renegocia|acordo|repactua/i.test(d) ? 'reneg' : /anual/i.test(d) ? 'anual' : /entrada|sinal/i.test(d) ? 'entrada' : 'mensal';
+  const ex = () => new Set(ps.map(x => x.n + '/' + x.tot));
+  let m = sem.match(/(\d{1,3}(?:\s*,\s*\d{1,3})+(?:\s*e\s*\d{1,3})?|\d{1,3}\s*e\s*\d{1,3})\s*\/\s*(\d{1,3})(?![\d\/])/);
+  if (m) { const tot = +m[2], e = ex(); for (const n of m[1].split(/\s*,\s*|\s*e\s*/).map(Number)) if (!e.has(n + '/' + tot)) ps.push({ n, tot }); }
+  m = sem.match(/(\d{1,3})\s*(?:à|a|até)\s*(\d{1,3})\s*\/\s*(\d{1,3})/i);
+  if (m) { const a = +m[1], b = +m[2], tot = +m[3]; if (b > a && b - a < 40) { const e = ex(); for (let n = a; n <= b; n++) if (!e.has(n + '/' + tot)) ps.push({ n, tot }); } }
+  return { ps, tipo };
+}
+function contratoDaDescricao(d) {
+  const s = String(d || '').replace(/\s+/g, ' ');
+  const c = s.match(/Beira\s*Rio\s*-\s*(\d{3,4})/i) || s.match(/Contrato\s*(?:n[ºo°.]*\s*)?(\d{3,4})/i);
+  const ql = s.match(/Q(?:D|uadra)?\s*0?(\d{1,2})\s*L(?:T|ote)?\s*0?(\d{1,2})/i);
+  return { numero: c ? c[1].padStart(4, '0') : null, quadra: ql ? ql[1].padStart(2, '0') : null, lote: ql ? ql[2].padStart(2, '0') : null };
+}
+function encargos(cob, pago, vo, dt) {
+  const dias = vo && dt ? Math.max(0, Math.round((new Date(dt) - new Date(vo)) / 864e5)) : 0;
+  let dif = R2(pago - cob), mu = 0, ju = 0, ho = 0, de = 0;
+  if (dif < 0) de = -dif;
+  else if (dif > 0 && dias > 0) { mu = Math.min(dif, R2(cob * .02)); const j = R2(cob * (Math.pow(1.01, dias / 30) - 1)); ju = Math.min(R2(dif - mu), j); ho = R2(dif - mu - ju); }
+  return { multa_paga: mu, juros_pago: ju, honorarios_pago: ho, desconto_dado: de };
+}
+async function garanteAuto() {
+  await q(`create table if not exists carteira.asaas_auto(id_asaas text primary key, fatura text, contrato text, titulo_id bigint, pagamento_id bigint,
+           resultado text not null, motivo text, pago_em date, valor numeric, cliente text, descricao text, dados jsonb, em timestamptz default now())`);
+  await q(`create table if not exists carteira.asaas_estado(chave text primary key, valor jsonb, em timestamptz default now())`);
+}
+async function registraAuto(g, r) {
+  await q(`insert into carteira.asaas_auto(id_asaas, fatura, contrato, titulo_id, pagamento_id, resultado, motivo, pago_em, valor, cliente, descricao, dados)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           on conflict (id_asaas) do update set contrato=excluded.contrato, titulo_id=excluded.titulo_id, pagamento_id=excluded.pagamento_id,
+             resultado=excluded.resultado, motivo=excluded.motivo, dados=excluded.dados, em=now()`,
+    [g.id, g.invoiceNumber ? String(g.invoiceNumber) : null, r.contrato || null, r.titulo_id || null, r.pagamento_id || null, r.resultado, r.motivo || null,
+      g.paymentDate || g.clientPaymentDate || g.confirmedDate || null, g.value, r.cliente || g.customer, g.description || null, g]);
+  return r;
+}
+async function contextoAuto() {
+  const fech = await q(`select contrato, (fechado_em at time zone 'America/Sao_Paulo')::date::text corte from carteira.fechamentos where conferente='luis'`);
+  const corte = {}; for (const f of fech) corte[f.contrato] = f.corte;
+  const cts = await q(`select numero, quadra, lote from carteira.contratos order by numero`);
+  const enc = new Set((await q(`select distinct contrato from carteira.eventos where tipo='encerramento' and conferente='luis'`)).map(x => x.contrato));
+  const cli = await q(`select g.id_cliente_asaas c, array_agg(distinct t.contrato) cs from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
+                       where g.conferente='luis' and g.id_cliente_asaas like 'cus_%' group by 1`);
+  const porCliente = {}; for (const x of cli) porCliente[x.c] = x.cs;
+  return { corte, cts, enc, porCliente, cache: {}, nomes: {} };
+}
+async function jaLancado(g) {
+  const f = g.invoiceNumber ? String(g.invoiceNumber) : '__';
+  const r = await q(`select g.id, t.contrato from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
+                     where g.conferente='luis' and (g.id_asaas=$1 or regexp_replace(coalesce(g.fatura,''),'\\D','','g')=$2) limit 1`, [g.id, f]);
+  return r[0] || null;
+}
+function acharContrato(g, X) {
+  const d = contratoDaDescricao(g.description);
+  if (d.numero && X.cts.some(c => c.numero === d.numero)) return { n: d.numero, como: 'descrição' };
+  if (d.numero) return { erro: `O boleto cita o contrato ${d.numero}, que não existe no sistema` };
+  if (d.quadra && d.lote) {
+    const c = X.cts.filter(c => c.quadra === d.quadra && c.lote === d.lote && !X.enc.has(c.numero));
+    if (c.length === 1) return { n: c[0].numero, como: 'quadra e lote' };
+  }
+  const pc = X.porCliente[g.customer] || [];
+  const ativos = pc.filter(n => !X.enc.has(n));
+  if (ativos.length === 1) return { n: ativos[0], como: 'cliente' };
+  if (pc.length === 1) return { n: pc[0], como: 'cliente' };
+  return { erro: pc.length > 1 ? `Cliente tem mais de um contrato (${pc.join(', ')}) e o boleto não diz qual` : 'Não consegui identificar o contrato pelo boleto' };
+}
+function valorAno(t, D) {
+  if (t.grupo === 'acordo') return +t.valor_face;
+  const cs = D.correcoes.filter(x => x.grupo === t.grupo && +x.a_partir <= t.numero).sort((a, b) => b.a_partir - a.a_partir);
+  return cs.length ? +cs[0].novo_valor : +t.valor_face;
+}
+function titulosLivres(D) {
+  const corteEnc = (() => { const e = D.eventos.find(e => e.tipo === 'encerramento'); if (!e) return null; const t0 = D.titulos.find(x => x.id == e.a_partir_titulo); return t0 ? dstr(t0.vencimento) : null; })();
+  const emAcordo = new Set(D.acordos.flatMap(a => (a.titulos_origem || []).map(String)));
+  const canc = new Set(D.situacoes.filter(s => s.situacao === 'cancelada').map(s => String(s.titulo_id)));
+  return D.titulos.filter(t => !D.pagamentos.some(p => p.titulo_id == t.id) && !emAcordo.has(String(t.id)) && !canc.has(String(t.id))
+    && !(corteEnc && t.grupo !== 'acordo' && dstr(t.vencimento) >= corteEnc));
+}
+function escolherTitulo(g, D) {
+  const r = parseDesc(g.description, D.contrato);
+  if (r.tipo === 'cessao') return { erro: 'Boleto de taxa de cessão — precisa lançar à mão' };
+  const livres = titulosLivres(D);
+  const V = [g.dueDate, g.originalDueDate].filter(Boolean);
+  const mes = t => V.some(v => dstr(t.vencimento).slice(0, 7) === v.slice(0, 7));
+  if (r.tipo === 'reneg') {
+    const ac = livres.filter(t => t.grupo === 'acordo');
+    let c = ac.filter(t => V.includes(dstr(t.vencimento))); if (c.length !== 1) c = ac.filter(mes);
+    if (c.length === 1) return { t: c[0] };
+    return { erro: ac.length ? 'Boleto de acordo: não achei uma única parcela do acordo com esse vencimento' : 'Boleto de acordo, mas o contrato não tem acordo em aberto no sistema' };
+  }
+  const base = livres.filter(t => t.grupo !== 'acordo');
+  const anualTot = new Set(D.titulos.filter(t => t.grupo === 'anual').map(t => t.total));
+  const ts = r.ps.map(x => base.find(t => t.total == x.tot && t.numero == x.n && (r.tipo === 'anual' ? t.grupo === 'anual' : r.tipo === 'entrada' ? t.grupo === 'entrada'
+    : t.grupo !== 'entrada' && (x.tot <= 12 && anualTot.has(x.tot) ? t.grupo === 'anual' : t.grupo === 'mensal')))).filter(Boolean);
+  if (r.ps.length > 1) return { erro: 'Um boleto só pagando várias parcelas — precisa lançar à mão' };
+  if (ts.length === 1) return { t: ts[0] };
+  let c = base.filter(t => V.includes(dstr(t.vencimento)) && (r.tipo === 'anual' ? t.grupo === 'anual' : r.tipo === 'entrada' ? t.grupo === 'entrada' : true));
+  if (c.length > 1) c = c.filter(t => Math.abs(valorAno(t, D) - +(g.originalValue ?? g.value)) < 0.05);
+  if (c.length === 1) return { t: c[0] };
+  if (r.ps.length === 1) {
+    const ja = D.titulos.find(t => t.total == r.ps[0].tot && t.numero == r.ps[0].n && t.grupo !== 'acordo');
+    if (ja && !livres.includes(ja)) return { erro: `A parcela ${ja.rotulo} já está paga ou em acordo no sistema` };
+  }
+  return { erro: 'Não achei a parcela certa pela descrição nem pelo vencimento' };
+}
+async function processaPagamentoAsaas(g, X, opc = {}) {
+  if (!g || g.deleted || !PAGO_A.includes(g.status)) return { resultado: 'ignorado' };
+  const [ja] = await q(`select resultado from carteira.asaas_auto where id_asaas=$1`, [g.id]);
+  if (ja && !opc.forcar && ja.resultado !== 'erro') return { resultado: 'ja_visto' };
+  const lan = await jaLancado(g);
+  if (lan) return registraAuto(g, { resultado: 'ja_existia', contrato: lan.contrato, pagamento_id: lan.id });
+  const pagoEm = g.paymentDate || g.clientPaymentDate || g.confirmedDate;
+  const k = opc.contrato ? { n: opc.contrato } : acharContrato(g, X);
+  if (k.erro) return registraAuto(g, { resultado: 'pendente', motivo: k.erro });
+  const n = k.n, corte = X.corte[n];
+  if (!corte) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: 'Contrato ainda não teve a conferência fechada' });
+  if (pagoEm < corte && !opc.titulo_id) return registraAuto(g, { resultado: 'congelado', contrato: n, motivo: `Pago antes da conferência (${corte.split('-').reverse().join('/')})` });
+  if (pagoEm === corte && !opc.titulo_id) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: 'Pago no mesmo dia em que a conferência foi fechada — confirme se já não estava na conferência' });
+  const D = X.cache[n] || (X.cache[n] = await carregar(n, 'luis'));
+  let t;
+  if (opc.titulo_id) { t = D.titulos.find(x => x.id == opc.titulo_id); if (!t) return { erro: 'Parcela não é deste contrato' }; }
+  else { const e = escolherTitulo(g, D); if (e.erro) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: e.erro }); t = e.t; }
+  const b0 = await bloqueioEncerrado(t, 'luis'); if (b0) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: b0 });
+  if (!(g.customer in X.nomes)) { const cu = await asaas('/customers/' + g.customer).catch(() => null); X.nomes[g.customer] = cu?.name || null; }
+  const conf = g.confirmedDate || g.paymentDate || g.clientPaymentDate;
+  const cob = g.originalValue != null ? +g.originalValue : (pagoEm <= g.dueDate ? +g.value : R2(valorAno(t, D)));
+  const body = { forma: FORMA_A[g.billingType] || g.billingType, fatura: g.invoiceNumber ? String(g.invoiceNumber) : null, situacao_asaas: SIT_A[g.status] || g.status,
+    valor_cobranca: cob, valor_pago: +g.value, criada_em: g.dateCreated, vencimento_boleto: g.dueDate, confirmada_em: conf, saque_em: g.creditDate || null,
+    cliente_asaas: X.nomes[g.customer], descricao: g.description, obs: 'Lançado automaticamente pela integração com o Asaas' + (opc.titulo_id ? ' (parcela escolhida à mão)' : ''),
+    id_asaas: g.id, link_fatura: g.invoiceUrl || null, nosso_numero: g.nossoNumero || null, valor_liquido: g.netValue, vencimento_original: dstr(t.vencimento),
+    pago_cliente_em: g.clientPaymentDate || g.paymentDate || null, id_cliente_asaas: g.customer, id_parcelamento_asaas: g.installment || null,
+    ...encargos(cob, +g.value, dstr(t.vencimento), conf) };
+  const [pg] = await q(`insert into carteira.pagamentos(conferente, titulo_id, ${CAMPOS_PAG.join(',')}, tem_print)
+                        values ('luis',$1,${CAMPOS_PAG.map((_, i) => '$' + (i + 2)).join(',')}, false) returning id`, [t.id, ...CAMPOS_PAG.map(c => limpa(body[c]))]);
+  await q(`insert into carteira.conferencia_titulo(conferente, titulo_id, situacao) values ('luis',$1,'paga')
+           on conflict (conferente, titulo_id) do update set situacao='paga', salvo_em=now()`, [t.id]);
+  D.pagamentos.push({ id: pg.id, titulo_id: t.id });
+  await log('asaas', 'pagamento_automatico', { contrato: n, titulo: t.id, fatura: body.fatura, valor: g.value });
+  return registraAuto(g, { resultado: 'lancado', contrato: n, titulo_id: t.id, pagamento_id: pg.id, motivo: t.rotulo, cliente: X.nomes[g.customer] });
+}
+export async function passoSync(limiteMs = 8000, recomecar = false) {
+  await garanteAuto();
+  const t0 = Date.now();
+  const [st] = await q(`select valor from carteira.asaas_estado where chave='sync'`);
+  let E = st?.valor || {};
+  const hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+  if (recomecar) E = { ...E, janela: null };
+  if (!E.janela) {
+    let desde = E.ultimo_fim;
+    if (!desde) { const [m] = await q(`select min((fechado_em at time zone 'America/Sao_Paulo')::date)::text d from carteira.fechamentos where conferente='luis'`); desde = m?.d || hoje; }
+    else { const d = new Date(desde + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - 3); desde = d.toISOString().slice(0, 10); }
+    E.janela = { desde, ate: hoje, offset: 0, campo: 'paymentDate' };
+  }
+  const X = await contextoAuto();
+  const cont = { lancado: 0, pendente: 0, congelado: 0, ja_existia: 0, ja_visto: 0, ignorado: 0 };
+  let terminou = false;
+  while (Date.now() - t0 < limiteMs) {
+    const J = E.janela;
+    const r = await asaas(`/payments?${J.campo}[ge]=${J.desde}&${J.campo}[le]=${J.ate}&limit=20&offset=${J.offset}`);
+    for (const g of r?.data || []) {
+      try { const x = await processaPagamentoAsaas(g, X); cont[x.resultado] = (cont[x.resultado] || 0) + 1; }
+      catch (e) { await registraAuto(g, { resultado: 'erro', motivo: String(e.message || e) }).catch(() => {}); cont.erro = (cont.erro || 0) + 1; }
+    }
+    J.offset += (r?.data || []).length;
+    if (!r?.hasMore) {
+      E.ultimo_fim = J.ate; E.janela = null; E.ultima_execucao = new Date().toISOString(); terminou = true; break;
+    }
+  }
+  await q(`insert into carteira.asaas_estado(chave, valor) values ('sync',$1) on conflict (chave) do update set valor=excluded.valor, em=now()`, [E]);
+  return { terminou, estado: E, ...cont };
+}
+export async function webhookAsaas(req) {
+  const tok = (process.env.ASAAS_WEBHOOK_TOKEN || '').trim();
+  if (!tok || (req.headers.get('asaas-access-token') || '') !== tok) return json({ erro: 'token' }, 401);
+  const b = await req.json().catch(() => ({}));
+  try {
+    await garanteAuto();
+    if (b.payment && /PAYMENT_(RECEIVED|CONFIRMED)/.test(b.event || '')) await processaPagamentoAsaas(b.payment, await contextoAuto());
+  } catch (e) { console.error('webhook', e.message); }
+  return json({ ok: true });
+}
+
 let schemaOk = false;
 async function garanteEsquema() {
   if (schemaOk) return;
@@ -359,6 +550,7 @@ export default async (req) => {
   await garanteEsquema();
   const url = new URL(req.url);
   const p = url.pathname.replace(/^\/(\.netlify\/functions\/api|api)/, '').split('/').filter(Boolean);
+  if (p[0] === 'asaas-webhook' && req.method === 'POST') return webhookAsaas(req);
   if (p[0] === 'diag') {
     let teste = 'ok';
     try { await q('select 1'); } catch (e) { teste = e.message; }
@@ -394,6 +586,44 @@ export default async (req) => {
           [b.contrato, conf, t0 ? t0.id : null, JSON.stringify({ grupo: b.grupo, meses, dias, qtd: r.length, antes: ant ? ant.toISOString().slice(0, 10) : null, depois: t0 ? new Date(t0.vencimento).toISOString().slice(0, 10) : null }), b.obs || null]);
       }
       return json({ ok: true, qtd: r.length });
+    }
+    if (p[0] === 'asaas-sync' && m === 'POST') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      return json(await passoSync(7000, !!body.recomecar));
+    }
+    if (p[0] === 'asaas-auto' && !p[1] && m === 'GET') {
+      await garanteAuto();
+      const [st] = await q(`select valor, em from carteira.asaas_estado where chave='sync'`);
+      const pend = await q(`select id_asaas, fatura, contrato, resultado, motivo, pago_em, valor, cliente, descricao, dados->>'dueDate' venc, em from carteira.asaas_auto where resultado in ('pendente','erro') order by pago_em desc nulls last`);
+      const lanc = await q(`select id_asaas, fatura, contrato, motivo, pago_em, valor, cliente, em from carteira.asaas_auto where resultado='lancado' order by em desc limit 100`);
+      const [cnt] = await q(`select count(*) filter (where resultado='lancado')::int lancados, count(*) filter (where resultado='congelado')::int congelados,
+                             count(*) filter (where resultado='ja_existia')::int ja_existiam, count(*) filter (where resultado='ignorado_mao')::int ignorados from carteira.asaas_auto`);
+      return json({ estado: st?.valor || null, estado_em: st?.em || null, pendentes: pend, lancados: lanc, contagem: cnt, webhook: !!(process.env.ASAAS_WEBHOOK_TOKEN || '').trim() });
+    }
+    if (p[0] === 'asaas-auto' && p[1] === 'resolver' && m === 'POST') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      await garanteAuto();
+      if (body.ignorar) { await q(`update carteira.asaas_auto set resultado='ignorado_mao', motivo=coalesce(motivo,'')||' — ignorado pelo Luis', em=now() where id_asaas=$1`, [body.id_asaas]); return json({ ok: true }); }
+      const g = await asaas('/payments/' + body.id_asaas);
+      if (!g) return json({ erro: 'Cobrança não encontrada no Asaas' }, 404);
+      const r = await processaPagamentoAsaas(g, await contextoAuto(), { forcar: true, contrato: body.contrato, titulo_id: body.titulo_id });
+      if (r.erro) return json({ erro: r.erro }, 400);
+      if (r.resultado !== 'lancado') return json({ erro: r.motivo || 'Não lancei: ' + r.resultado }, 400);
+      return json(r);
+    }
+    if (p[0] === 'contrato-novo' && m === 'POST') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      const b = body;
+      if (!/^\d{4}$/.test(b.numero || '')) return json({ erro: 'Número inválido' }, 400);
+      const [ja] = await q('select numero from carteira.contratos where numero=$1', [b.numero]);
+      if (ja) return json({ erro: 'Contrato já existe' }, 409);
+      await q(`insert into carteira.contratos(numero, quadra, lote, rua, area, valor_imovel, data_assinatura, entrada_total, indice, juros_aa, corretor, corretagem, compradores, itens, fonte, arquivo)
+               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+        [b.numero, b.quadra, b.lote, b.rua || null, b.area || null, b.valor_imovel, b.data_assinatura, b.entrada_total || null, b.indice || 'IGPM', b.juros_aa ?? 2,
+          b.corretor || null, b.corretagem || null, JSON.stringify(b.compradores || []), JSON.stringify(b.itens || []), 'cadastro manual', b.arquivo || null]);
+      const [g] = await q('select carteira.gerar_titulos($1) n', [b.numero]);
+      await log(real, 'contrato_novo', b);
+      return json({ ok: true, titulos: g.n });
     }
     if (p[0] === 'vencimentos-divergentes') {
       const r = await q(`select t.contrato, count(*)::int n,

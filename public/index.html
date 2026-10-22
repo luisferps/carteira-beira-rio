@@ -117,7 +117,7 @@ function route(){const h=location.hash.slice(1);COMO='';
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
-  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
+  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function novaPend(){const t=prompt('Descreva a pendência deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
 async function novaObs(){const t=prompt('Observação deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'observacao',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
@@ -128,7 +128,39 @@ function telaModulos(){
   app.innerHTML=`<div class="mods">
    <div class="mod" onclick="location.hash='contratos'"><b>Contratos</b><span>Carteira do Beira Rio: parcelas, pagamentos, acordos, cessões, relatórios e conferência.</span></div>
    <div class="mod" style="border-left-color:#2e9e4f" onclick="location.hash='clientes'"><b>Clientes</b><span>Cadastro dos clientes: telefones, e-mails, endereço, documentos e os contratos de cada um.</span></div>
+   ${EU==='luis'?`<div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
   </div>`}
+
+/* ---------- ASAAS AUTOMÁTICO ---------- */
+let AS=null;
+async function telaAsaas(){
+  app.innerHTML='<div class="card">Carregando…</div>';
+  AS=await api('asaas-auto');const E=AS.estado||{},K=AS.contagem||{};
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
+  <div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Asaas automático</h3><button class="pri" id="asb" onclick="buscaAsaas()">Buscar agora</button></div>
+  <div class="info" style="margin-top:10px">O que foi pago até a data de conferência de cada contrato fica congelado — o sistema não mexe. Só entra automático o que foi pago depois. Busca sozinho a cada 2 horas.</div>
+  <div class="tot" style="margin-top:10px"><div><span class="mut">Última busca completa</span><b>${E.ultima_execucao?new Date(E.ultima_execucao).toLocaleString('pt-BR'):'nunca'}</b></div>
+  <div><span class="mut">Lançados sozinhos</span><b>${K.lancados||0}</b></div><div><span class="mut">Precisam de você</span><b>${AS.pendentes.length}</b></div>
+  <div><span class="mut">Congelados (antes da conferência)</span><b>${K.congelados||0}</b></div></div><div id="asmsg"></div></div>
+  <div class="card"><h3 style="margin-top:0">Precisam de você (${AS.pendentes.length})</h3>${AS.pendentes.length?`<table><tr><th>Pago em</th><th>Contrato</th><th>Cliente</th><th>Valor</th><th>Boleto</th><th>Motivo</th><th></th></tr>
+  ${AS.pendentes.map((x,i)=>`<tr><td>${dbr(x.pago_em)}</td><td>${x.contrato?`<a href="#c/${x.contrato}">${x.contrato}</a>`:'—'}</td><td>${esc(x.cliente||'')}</td><td>${brl(+x.valor)}</td>
+  <td><span class="mut">Fatura ${esc(x.fatura||'')} · venc. ${dbr(x.venc)}</span><br>${esc((x.descricao||'').replace(/\s+/g,' ').slice(0,140))}</td><td>${esc(x.motivo||'')}</td>
+  <td style="white-space:nowrap"><button onclick="resolveAsaas(${i})">Escolher parcela</button> <button class="per" onclick="ignoraAsaas(${i})">Ignorar</button></td></tr>`).join('')}</table>`:'<div class="mut">Nada pendente.</div>'}</div>
+  <div class="card"><h3 style="margin-top:0">Últimos lançados sozinhos</h3>${AS.lancados.length?`<table><tr><th>Pago em</th><th>Contrato</th><th>Parcela</th><th>Cliente</th><th>Valor</th><th>Fatura</th></tr>
+  ${AS.lancados.map(x=>`<tr class="lk" onclick="location.hash='c/${x.contrato}'"><td>${dbr(x.pago_em)}</td><td>${x.contrato}</td><td>${esc(x.motivo||'')}</td><td>${esc(x.cliente||'')}</td><td>${brl(+x.valor)}</td><td>${esc(x.fatura||'')}</td></tr>`).join('')}</table>`:'<div class="mut">Nenhum ainda.</div>'}</div>`}
+async function buscaAsaas(){const b=$('#asb');b.disabled=true;let tot={lancado:0,pendente:0,congelado:0};
+  try{for(let i=0;i<60;i++){$('#asmsg').innerHTML=`<div class="info">Buscando no Asaas… lançados ${tot.lancado}, para você ${tot.pendente}, congelados ${tot.congelado}</div>`;
+    const r=await api('asaas-sync',{method:'POST',body:{}});for(const k in tot)tot[k]+=r[k]||0;if(r.terminou)break}}finally{b.disabled=false}
+  telaAsaas()}
+async function ignoraAsaas(i){const x=AS.pendentes[i];if(!confirm('Ignorar este pagamento? Ele não será lançado em nenhum contrato.'))return;await api('asaas-auto/resolver',{method:'POST',body:{id_asaas:x.id_asaas,ignorar:true}});telaAsaas()}
+async function resolveAsaas(i){const x=AS.pendentes[i];const n=prompt('Número do contrato deste pagamento:',x.contrato||'');if(!n)return;const num=n.padStart(4,'0');
+  const D=await api('contrato/'+num);const pagos=new Set(D.pagamentos.map(p=>String(p.titulo_id)));
+  const L=D.titulos.filter(t=>!pagos.has(String(t.id)));
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Lançar no contrato ${num}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="info">${brl(+x.valor)} pago em ${dbr(x.pago_em)} — ${esc((x.descricao||'').replace(/\s+/g,' ').slice(0,160))}</div>
+  <label>Parcela</label><select id="as_t">${L.map(t=>`<option value="${t.id}">${esc(t.rotulo)} — venc. ${dbr(t.vencimento)} — ${brl(+t.valor_face)}</option>`).join('')}</select>
+  <div class="bt"><button class="pri" onclick="lancaAsaas(${i},'${num}')">Lançar</button></div>`)}
+async function lancaAsaas(i,num){const x=AS.pendentes[i];await api('asaas-auto/resolver',{method:'POST',body:{id_asaas:x.id_asaas,contrato:num,titulo_id:+$('#as_t').value}});fechaModal();telaAsaas()}
 
 /* ---------- CLIENTES ---------- */
 let CLI=[],CLIQ='',CLIF='todos';
