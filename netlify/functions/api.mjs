@@ -1023,6 +1023,11 @@ export default async (req) => {
         }
         return json({ ajustados: out, resta: L.length === 12 });
       }
+      if (p[1] === 'deslocamentos' && m === 'GET') {
+        const cs = await q(`select numero from carteira.contratos order by numero`), out = [];
+        for (const c of cs) { const d = await deslocamento(c.numero, 'mensal'); if (d) out.push({ contrato: c.numero, deslocamento: d }); }
+        return json(out);
+      }
       if (p[1] === 'cobranca-para-acordo' && m === 'POST') return json(await cobrancasParaAcordo(real));
       if (p[1] === 'desfaz-cobranca' && m === 'POST') return json(await desfazCobranca(body.id_asaas, real));
       if (p[1] === 'cobranca-sem-boleto' && m === 'POST') {
