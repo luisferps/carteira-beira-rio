@@ -117,7 +117,7 @@ function route(){const h=location.hash.slice(1);COMO='';
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
-  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='boletos'&&EU==='luis')telaBoletos();else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
+  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='boletos'&&EU==='luis')telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function novaPend(){const t=prompt('Descreva a pendência deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
 async function novaObs(){const t=prompt('Observação deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'observacao',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
@@ -128,8 +128,25 @@ function telaModulos(){
   app.innerHTML=`<div class="mods">
    <div class="mod" onclick="location.hash='contratos'"><b>Contratos</b><span>Carteira do Beira Rio: parcelas, pagamentos, acordos, cessões, relatórios e conferência.</span></div>
    <div class="mod" style="border-left-color:#2e9e4f" onclick="location.hash='clientes'"><b>Clientes</b><span>Cadastro dos clientes: telefones, e-mails, endereço, documentos e os contratos de cada um.</span></div>
-   ${EU==='luis'?`<div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar os boletos do mês, cobrança dos 60 dias e boletos feitos direto no Asaas.</span></div><div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
+   ${EU==='luis'?`<div class="mod" style="border-left-color:#0d9488" onclick="location.hash='correcao'"><b>Correção anual</b><span>Prévia e aplicação da correção de janeiro (IGP-M + 2% para quem atrasou), contrato por contrato.</span></div><div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar os boletos do mês, cobrança dos 60 dias e boletos feitos direto no Asaas.</span></div><div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
   </div>`}
+
+/* ---------- CORREÇÃO ANUAL ---------- */
+let CA=[];
+function telaCorrecao(){const d=new Date(),ano=d.getMonth()>=9?d.getFullYear()+1:d.getFullYear();
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
+  <div class="card"><h3 style="margin-top:0">Correção anual</h3>
+  <div class="info">Roda em dezembro para a parcela de janeiro já sair com o valor novo. Só corrige contrato que completou 1 ano até a parcela de janeiro. Leva IGP-M acumulado; quem teve atraso no ano anterior (parcela paga atrasada, não paga ou renegociada) leva mais 2%. Pagamento no fim de semana compensado no dia útil seguinte não conta como atraso.</div>
+  <div class="bt" style="align-items:flex-end;margin-top:8px"><div><label>Ano da correção</label><input id="ca_ano" type="number" value="${ano}" style="width:120px"></div>
+  <div><label>IGP-M acumulado (%)</label><input id="ca_ig" placeholder="ex.: 4,15" style="width:140px"></div><button class="pri" onclick="previaCA()">Ver prévia</button></div><div id="ca_res"></div></div>`}
+async function previaCA(){const ig=String($('#ca_ig').value||'').replace(',','.').replace('%','');if(ig===''||isNaN(+ig))return alert('Informe o IGP-M acumulado.');
+  $('#ca_res').innerHTML='<div class="mut">Calculando…</div>';CA=await api(`correcao-anual/previa?ano=${$('#ca_ano').value}&igpm=${ig}`);
+  const ok=CA.filter(x=>x.situacao==='corrigir');
+  $('#ca_res').innerHTML=`<div class="bt" style="align-items:center;margin:10px 0"><b style="flex:1">${ok.length} correção(ões) a aplicar · ${ok.filter(x=>x.juros_pct).length} com +2% por atraso · ${CA.filter(x=>x.situacao!=='corrigir').length} fora</b><button class="pri" onclick="aplicaCA()">Aplicar selecionadas</button></div>
+  <table><tr><th></th><th>Contrato</th><th>Titular</th><th>Parcela</th><th>A partir de</th><th>Valor atual</th><th>%</th><th>Valor novo</th><th>Atraso no ano</th><th>Situação</th></tr>
+  ${CA.map((x,i)=>`<tr${x.situacao!=='corrigir'?' style="opacity:.55"':''}><td>${x.situacao==='corrigir'?`<input type="checkbox" class="cachk" value="${i}" checked style="width:auto">`:''}</td><td><a href="#c/${x.contrato}">${x.contrato}</a></td><td>${esc(nome(x.titular||''))}</td><td>${x.grupo==='anual'?'Anual':'Mensal'} ${x.a_partir}/${x.total}</td><td>${dbr(x.data)}</td><td>${brl(x.atual)}</td><td>${(x.igpm_pct+x.juros_pct).toFixed(2).replace('.',',')}%</td><td><b>${brl(x.novo_valor)}</b></td><td class="mut" style="font-size:12px">${esc(x.atraso.join(', '))}</td><td>${esc(x.situacao)}</td></tr>`).join('')}</table>`}
+async function aplicaCA(){const its=[...document.querySelectorAll('.cachk:checked')].map(c=>CA[+c.value]);if(!its.length)return;if(!confirm(`Aplicar ${its.length} correção(ões)? Os boletos a partir de janeiro sairão com o valor novo.`))return;
+  const r=await api('correcao-anual/aplicar',{method:'POST',body:{ano:+$('#ca_ano').value,itens:its}});alert(`${r.filter(x=>x.id).length} aplicada(s).${r.some(x=>x.erro)?' Algumas já tinham correção.':''}`);previaCA()}
 
 /* ---------- BOLETOS ---------- */
 const STB={PENDING:'Aguardando pagamento',OVERDUE:'Vencido',RECEIVED:'Pago',CONFIRMED:'Pago',RECEIVED_IN_CASH:'Pago em dinheiro',DELETED:'Excluído',SUBSTITUIDO:'Substituído (cobrança)',REFUNDED:'Estornado',AWAITING_RISK_ANALYSIS:'Em análise'};
