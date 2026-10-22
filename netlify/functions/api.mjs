@@ -422,6 +422,22 @@ function titulosLivres(D) {
   return D.titulos.filter(t => !D.pagamentos.some(p => p.titulo_id == t.id) && !emAcordo.has(String(t.id)) && !canc.has(String(t.id))
     && !(corteEnc && t.grupo !== 'acordo' && dstr(t.vencimento) >= corteEnc));
 }
+function dataReferencia(g) {
+  const m = String(g.description || '').match(/(?:venc(?:imento)?(?: original)?|original vencido)\s+em\s+(\d{2})\/(\d{2})\/(\d{4})/i);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  if (/renegocia|acordo|inclus/i.test(g.description || '')) return null;
+  return g.originalDueDate || g.dueDate || null;
+}
+async function deslocamento(contrato, grupo) {
+  const r = await q(`select x.descricao, t.numero, t.total, t.vencimento::text tv, x.venc::text bv from (
+      select g.titulo_id, g.descricao, g.vencimento_boleto venc from carteira.pagamentos g where g.conferente='luis' and g.fatura is not null and coalesce(g.descricao,'') !~* 'renegocia|inclus|acordo'
+      union all select b.titulo_id, b.descricao, b.vencimento from carteira.boletos b where b.origem='asaas' and coalesce(b.descricao,'') !~* 'renegocia|inclus|acordo') x
+    join carteira.titulos t on t.id=x.titulo_id where t.contrato=$1 and t.grupo=$2 order by x.venc desc nulls last limit 6`, [contrato, grupo]);
+  const conta = {};
+  for (const x of r) { const ps = parseDesc(x.descricao).ps; if (ps.length !== 1 || ps[0].tot != x.total) continue; if (String(x.bv).slice(0, 7) !== String(x.tv).slice(0, 7)) continue; const d = ps[0].n - x.numero; conta[d] = (conta[d] || 0) + 1; }
+  const best = Object.entries(conta).sort((a, b) => b[1] - a[1])[0];
+  return best ? +best[0] : 0;
+}
 function escolherTitulo(g, D) {
   const r = parseDesc(g.description, D.contrato);
   if (r.tipo === 'cessao') return { erro: 'Boleto de taxa de cessão — precisa lançar à mão' };
@@ -439,6 +455,11 @@ function escolherTitulo(g, D) {
   const ts = r.ps.map(x => base.find(t => t.total == x.tot && t.numero == x.n && (r.tipo === 'anual' ? t.grupo === 'anual' : r.tipo === 'entrada' ? t.grupo === 'entrada'
     : t.grupo !== 'entrada' && (x.tot <= 12 && anualTot.has(x.tot) ? t.grupo === 'anual' : t.grupo === 'mensal')))).filter(Boolean);
   if (r.ps.length > 1) return { erro: 'Um boleto só pagando várias parcelas — precisa lançar à mão' };
+  const ref = dataReferencia(g);
+  if (ts.length === 1 && ref && dstr(ts[0].vencimento).slice(0, 7) !== ref.slice(0, 7)) {
+    const porData = base.filter(t => t.grupo === ts[0].grupo && dstr(t.vencimento).slice(0, 7) === ref.slice(0, 7));
+    if (porData.length === 1) return { t: porData[0], deslocado: true };
+  }
   if (ts.length === 1) return { t: ts[0] };
   let c = base.filter(t => V.includes(dstr(t.vencimento)) && (r.tipo === 'anual' ? t.grupo === 'anual' : r.tipo === 'entrada' ? t.grupo === 'entrada' : true));
   if (c.length > 1) c = c.filter(t => Math.abs(valorAno(t, D) - +(g.originalValue ?? g.value)) < 0.05);
@@ -628,10 +649,11 @@ async function previaBoletos(mes) {
     join carteira.titulos t on t.id=x.titulo_id where t.grupo in ('mensal','anual') and x.venc::date < (to_date($1,'YYYY-MM'))
     order by t.contrato, t.grupo, x.venc desc`, [mes]);
   const U = {}; for (const u of ult) U[u.contrato + '|' + u.grupo] = u;
+  const DS = {}; for (const k of new Set(r.filter(t => t.grupo !== 'acordo').map(t => t.contrato + '|' + t.grupo))) DS[k] = await deslocamento(...k.split('|'));
   return r.map(t => {
     const u = U[t.contrato + '|' + t.grupo], v = R2(+t.valor);
     const dif = u && +u.valor && Math.abs(+u.valor - v) > 0.05 && !(t.vencimento.slice(5, 7) === '01' && u.venc.slice(0, 4) < t.vencimento.slice(0, 4));
-    return { ...t, valor: v, titular: t.cessionario || t.titular, linha: rotuloBoleto(t), ultimo_valor: u ? +u.valor : null, ultimo_venc: u?.venc || null, diverge: !!dif };
+    return { ...t, valor: v, titular: t.cessionario || t.titular, linha: rotuloBoleto({ ...t, numero: t.numero + (DS[t.contrato + '|' + t.grupo] || 0) }), ultimo_valor: u ? +u.valor : null, ultimo_venc: u?.venc || null, diverge: !!dif };
   });
 }
 async function emitirBoleto(tituloId, conf) {
@@ -644,7 +666,7 @@ async function emitirBoleto(tituloId, conf) {
   const cliente = await clienteDoContrato(t.contrato);
   if (!cliente) return { titulo_id: tituloId, erro: 'Não achei o cliente deste contrato no Asaas' };
   const ex = await asaas(`/payments?customer=${cliente}&dueDate[ge]=${t.vencimento}&dueDate[le]=${venc}&limit=50`);
-  const linha = rotuloBoleto(t);
+  const linha = t.grupo === 'acordo' ? rotuloBoleto(t) : rotuloBoleto({ ...t, numero: t.numero + await deslocamento(t.contrato, t.grupo) });
   const dup = (ex?.data || []).find(g => !g.deleted && ATIVOS_B.concat(PAGO_A).includes(g.status) && (g.externalReference === 'cbr-titulo-' + t.id ||
     (contratoDaDescricao(g.description).numero === t.contrato && parseDesc(g.description).ps.some(p => p.n === t.numero && p.tot === t.total))));
   if (dup) { await gravaBoleto(dup, { contrato: t.contrato, titulo_id: t.id, tipo: t.grupo === 'acordo' ? 'acordo' : 'parcela', origem: 'asaas' }); return { titulo_id: tituloId, erro: 'Já existia boleto no Asaas para essa parcela — só vinculei', id_asaas: dup.id }; }
@@ -725,7 +747,7 @@ async function passarParaCobranca(b, conf) {
   c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca);
   c.data = hoje; c.vencimento_original = venc;
   const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [b.tc]);
-  const t = { grupo: b.grupo, numero: b.numero, total: b.total };
+  const t = { grupo: b.grupo, numero: b.numero + (b.grupo === 'acordo' ? 0 : await deslocamento(b.tc, b.grupo)), total: b.total };
   const linha = `Renegociação ${b.grupo === 'acordo' ? 'acordo ' + String(b.numero).padStart(2, '0') + '/' + String(b.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (original vencido em ${venc.split('-').reverse().join('/')})`;
   const g = await asaasReq('POST', '/payments', { customer: g0.customer, billingType: 'BOLETO', value: c.total, dueDate: hoje,
     description: descricaoBoleto(ct, linha, false), externalReference: 'cbr-cobranca-' + b.titulo_id, interest: { value: 1 }, fine: { value: 0 } });
@@ -792,7 +814,7 @@ async function cobrancaSemBoleto(tituloId, conf) {
   const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, t.grupo !== 'acordo' && t.grupo !== 'entrada');
   c.cobranca = R2((c.principal + c.correcao + c.multa + c.juros) * .10);
   c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca); c.data = hoje; c.vencimento_original = t.vencimento;
-  const linha = `Renegociação ${t.grupo === 'acordo' ? 'acordo ' + String(t.numero).padStart(2, '0') + '/' + String(t.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (original vencido em ${t.vencimento.split('-').reverse().join('/')})`;
+  const linha = `Renegociação ${t.grupo === 'acordo' ? 'acordo ' + String(t.numero).padStart(2, '0') + '/' + String(t.total).padStart(2, '0') : rotuloBoleto({ ...t, numero: t.numero + await deslocamento(t.contrato, t.grupo) }).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (original vencido em ${t.vencimento.split('-').reverse().join('/')})`;
   const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: c.total, dueDate: hoje,
     description: descricaoBoleto({ numero: t.contrato, quadra: t.quadra, lote: t.lote }, linha, false), externalReference: 'cbr-cobranca-' + t.id, interest: { value: 1 }, fine: { value: 0 } });
   const ac = await acordoDaCobranca(t.contrato, t.id, c, g.dueDate, 'Cobrança dos 60 dias — boleto ' + (g.invoiceNumber || g.id));
