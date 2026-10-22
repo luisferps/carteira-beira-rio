@@ -688,7 +688,8 @@ async function candidatosCobranca(inicioAuto) {
   await garanteBoletos();
   const lim = somaDias(hojeBR(), -60);
   const r = await q(`select b.*, t.contrato tc, t.grupo, t.numero, t.total, t.vencimento::text tv from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
-                     where b.tipo in ('parcela','acordo') and b.status = any($1) and b.vencimento <= $2
+                     where b.tipo = 'parcela' and t.grupo <> 'acordo' and b.status = any($1) and b.vencimento <= $2
+                       and coalesce(b.descricao,'') !~* 'renegocia|acordo'
                        and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')
                        and not exists (select 1 from carteira.acordos a where a.contrato=t.contrato and a.conferente='luis' and t.id = any(a.titulos_origem))
                        and not exists (select 1 from carteira.conferencia_titulo s where s.titulo_id=t.id and s.conferente='luis' and s.situacao='cancelada')
@@ -718,10 +719,27 @@ async function passarParaCobranca(b, conf) {
   await log(conf, 'boleto_cobranca_60', { contrato: b.tc, titulo: b.titulo_id, antigo: b.id_asaas, novo: g.id, ...c });
   return { ok: true, contrato: b.tc, titulo_id: b.titulo_id, novo: g.id, fatura: g.invoiceNumber, valor: c.total };
 }
+async function desfazCobranca(idCob, conf) {
+  const [cb] = await q(`select * from carteira.boletos where id_asaas=$1 and tipo='cobranca'`, [idCob]);
+  if (!cb || !ATIVOS_B.includes(cb.status)) return { erro: 'Boleto de cobrança não encontrado ou não está em aberto' };
+  const [old] = await q(`select * from carteira.boletos where substituido_por=$1`, [idCob]);
+  const c0 = cb.composicao || {};
+  const c = { principal: c0.principal, correcao: c0.correcao || 0, multa: c0.multa, juros: c0.juros, cobranca: 0, data: c0.data, vencimento_original: c0.vencimento_original, sem_cobranca: true };
+  c.total = R2(c.principal + c.correcao + c.multa + c.juros);
+  const g0 = await asaas('/payments/' + idCob);
+  const g = await asaasReq('POST', '/payments', { customer: g0.customer, billingType: 'BOLETO', value: c.total, dueDate: hojeBR(),
+    description: old?.descricao || g0.description, externalReference: 'cbr-titulo-' + cb.titulo_id, interest: { value: 1 }, fine: { value: 0 } });
+  await asaasReq('DELETE', '/payments/' + idCob).catch(() => null);
+  await q(`update carteira.boletos set status='DELETED', motivo='Era renegociação — não leva os 10% de cobrança', atualizado_em=now() where id_asaas=$1`, [idCob]);
+  await gravaBoleto(g, { contrato: cb.contrato, titulo_id: cb.titulo_id, tipo: 'acordo', origem: 'sistema', composicao: c, motivo: 'Reemitido sem os 10% (renegociação), com multa e juros até ' + c.data });
+  await log(conf, 'cobranca_desfeita', { antigo: idCob, novo: g.id, ...c });
+  return { ok: true, novo: g.id, fatura: g.invoiceNumber, valor: c.total };
+}
 async function cobrancaSemBoleto(tituloId, conf) {
   const [t] = await q(SQL_ABERTAS + ` and t.id=$1`, [tituloId, ATIVOS_B]);
   if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto' };
   if (t.boleto) return { titulo_id: tituloId, erro: 'Parcela já tem boleto ativo' };
+  if (t.grupo === 'acordo') return { titulo_id: tituloId, erro: 'Parcela de renegociação não leva os 10% de cobrança' };
   const [jc] = await q(`select 1 from carteira.boletos where titulo_id=$1 and tipo='cobranca' and status = any($2)`, [t.id, ATIVOS_B]);
   if (jc) return { titulo_id: tituloId, erro: 'Já tem boleto de cobrança' };
   const cliente = await clienteDoContrato(t.contrato);
@@ -929,6 +947,7 @@ export default async (req) => {
         const r = await q(SQL_ABERTAS + ` and t.vencimento between $1::date and $3::date order by t.vencimento`, [url.searchParams.get('de'), ATIVOS_B, url.searchParams.get('ate')]);
         return json(r.filter(t => !t.boleto).map(t => ({ ...t, valor: R2(+t.valor) })));
       }
+      if (p[1] === 'desfaz-cobranca' && m === 'POST') return json(await desfazCobranca(body.id_asaas, real));
       if (p[1] === 'cobranca-sem-boleto' && m === 'POST') {
         const t0 = Date.now(), out = [];
         for (const id of body.titulos || []) {
