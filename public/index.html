@@ -569,12 +569,14 @@ async function puxarDesc(){
   recarrega();
 }
 function modoSel(){SELMODO=!SELMODO;SEL.clear();SELULT=null;desenhaContrato()}
-function podeAcordo(t){const e=t&&estado(t);return e==='vencida'||e==='em_atraso'}
+function propostaDe(t){return (C.propostas||[]).find(p=>(p.dados?.titulos_origem||[]).map(Number).includes(Number(t.id)))}
+function podeAcordo(t){const e=t&&estado(t);return (e==='vencida'||e==='em_atraso')&&!propostaDe(t)}
+function porqueNao(t){if(!t)return'';const a=acordoDe(t),p=propostaDe(t);if(a)return `A ${t.rotulo} já está no acordo de ${dbr(a.data_acordo)}. Para renegociar de novo, selecione as parcelas desse acordo.`;if(p)return `A ${t.rotulo} já está na proposta ${p.dados?.termo||''}. Efetive ou exclua essa proposta antes.`;return `A ${t.rotulo} não está em atraso.`}
 let SELULT=null;
 function clicaTitulo(id){
   if(SELMODO){id=+id;const t=C.titulos.find(x=>+x.id===id);const ev=window.event;
     if(ev&&ev.shiftKey&&SELULT!=null){const u=C.titulos.find(x=>+x.id===SELULT);if(u&&t){const [a,b]=[u.vencimento,t.vencimento].sort();C.titulos.filter(x=>x.vencimento>=a&&x.vencimento<=b&&podeAcordo(x)).forEach(x=>SEL.add(+x.id));SELULT=id;window.getSelection&&window.getSelection().removeAllRanges();desenhaContrato();return}}
-    if(!SEL.has(id)&&!podeAcordo(t))return;SEL.has(id)?SEL.delete(id):SEL.add(id);SELULT=id;desenhaContrato();return}
+    if(!SEL.has(id)&&!podeAcordo(t)){alert(porqueNao(t));return}SEL.has(id)?SEL.delete(id):SEL.add(id);SELULT=id;desenhaContrato();return}
   modalTitulo(id);
 }
 async function recarrega(){const cl=C.clientes;C=await api('contrato/'+C.contrato.numero);C.clientes=cl;desenhaContrato()}
@@ -674,7 +676,11 @@ function resumoAc(a){const T=C.titulos,ps=T.filter(t=>t.acordo_id==a.id).sort((x
 function modalTitulo(id,editId,novo){
   const t=C.titulos.find(x=>x.id==id),pags=C.pagamentos.filter(p=>p.titulo_id==id),sit=C.situacoes.find(s=>s.titulo_id==id);
   const ed=editId?pags.find(p=>p.id==editId):null;PRINT=null;
+  const acT=t.grupo!=='acordo'?acordoDe(t):null,prT=t.grupo!=='acordo'?propostaDe(t):null,bolT=(C.boletos||[]).filter(b=>b.titulo_id==t.id&&['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS'].includes(b.status));
   const cab=`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
+  ${acT?`<div class="aviso" style="background:#fef3c7;border-color:#f59e0b;color:#78350f"><b>Esta parcela já está em negociação:</b> ${nomeAc(acT)} de ${dbr(acT.data_acordo)}${C.titulos.filter(x=>x.acordo_id==acT.id).every(x=>C.pagamentos.some(p=>p.titulo_id==x.id))?' (pago)':' (aguardando pagamento)'}. Não dá para criar outra negociação para ela — se precisar renegociar, use as parcelas desse acordo.</div>`:''}
+  ${prT?`<div class="aviso" style="background:#fef3c7;border-color:#f59e0b;color:#78350f"><b>Esta parcela está na proposta de acordo ${esc(prT.dados?.termo||'')}</b>, ainda não efetivada.</div>`:''}
+  ${bolT.length?`<div class="info"><b>Boleto em aberto:</b> ${bolT.map(b=>`${esc(b.fatura||'')} · vence ${dbr(b.vencimento)} · ${brl(+b.valor)}${b.link?` · <a href="${b.link}" target="_blank">ver</a>`:''}`).join('<br>')}</div>`:''}
   ${t.grupo==='acordo'?(()=>{const ac=C.acordos.find(x=>x.id==t.acordo_id);if(!ac)return'';const d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v}</b></div>`;
     return `<div class="ficha" style="border-left-color:#c79a00;background:rgba(199,154,0,.06);margin:8px 0">
      <div class="bt" style="align-items:center;margin-bottom:6px"><b style="flex:1;font-size:16px">${nomeAc(ac)} — feito em ${dbr(ac.data_acordo)}</b><button onclick="vaiPara(()=>verAcordo(${ac.id}),()=>modalTitulo(${id}))">Dados do ${nomeAc(ac)}</button></div>${resumoAc(ac)}

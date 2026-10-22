@@ -729,6 +729,7 @@ async function candidatosCobranca(inicioAuto) {
                        and coalesce(b.descricao,'') !~* 'renegocia|acordo|inclus'
                        and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')
                        and not exists (select 1 from carteira.acordos a where a.contrato=t.contrato and a.conferente='luis' and t.id = any(a.titulos_origem))
+                       and not exists (select 1 from carteira.propostas pr where pr.contrato=t.contrato and pr.conferente='luis' and pr.dados->'titulos_origem' @> to_jsonb(t.id))
                        and not exists (select 1 from carteira.conferencia_titulo s where s.titulo_id=t.id and s.conferente='luis' and s.situacao='cancelada')
                        and not exists (select 1 from carteira.eventos e join carteira.titulos t0 on t0.id=e.a_partir_titulo
                                        where e.contrato=t.contrato and e.conferente='luis' and e.tipo='encerramento' and t.grupo<>'acordo' and t.vencimento >= t0.vencimento)
@@ -1400,6 +1401,10 @@ export default async (req) => {
     }
 
     if (p[0] === 'proposta' && m === 'POST') {
+      const ids = (body.dados?.titulos_origem || []).map(Number);
+      const ja = await q(`select t.rotulo from carteira.acordos a join carteira.titulos t on t.id = any(a.titulos_origem) where a.contrato=$1 and a.conferente=$2 and t.id = any($3)`, [body.contrato, conf, ids]);
+      const jp = (await q(`select dados from carteira.propostas where contrato=$1 and conferente=$2`, [body.contrato, conf])).filter(x => (x.dados?.titulos_origem || []).map(Number).some(i => ids.includes(i)));
+      if (ja.length || jp.length) return json({ erro: 'Já existe negociação para essa(s) parcela(s): ' + [...ja.map(x => x.rotulo + ' (acordo)'), ...jp.map(x => 'proposta ' + (x.dados?.termo || ''))].join(', ') + '.' }, 409);
       const [r] = await q('insert into carteira.propostas(contrato, conferente, dados) values ($1,$2,$3) returning id', [body.contrato, conf, body.dados]);
       await log(conf, 'proposta_nova', { id: r.id, contrato: body.contrato });
       return json(r);
@@ -1412,6 +1417,9 @@ export default async (req) => {
 
     if (p[0] === 'acordo' && m === 'POST') {
       const b = body;
+      const ja = await q(`select a.data_acordo::text d, t.rotulo from carteira.acordos a join carteira.titulos t on t.id = any(a.titulos_origem)
+                          where a.contrato=$1 and a.conferente=$2 and t.id = any($3)`, [b.contrato, conf, (b.titulos_origem || []).map(Number)]);
+      if (ja.length) return json({ erro: 'Já existe negociação para: ' + ja.map(x => x.rotulo + ' (acordo de ' + x.d.split('-').reverse().join('/') + ')').join(', ') + '. Não é possível negociar a mesma parcela duas vezes.' }, 409);
       for (const id of b.titulos_origem || []) { const [tt] = await q('select * from carteira.titulos where id=$1', [id]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return json({ erro: b0 }, 409); }
       const [a] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios,
                            valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo, termo)
@@ -1436,6 +1444,9 @@ export default async (req) => {
 
     if (p[0] === 'acordo' && p[1] && m === 'PUT') {
       const b = body;
+      const ja = await q(`select a.data_acordo::text d, t.rotulo from carteira.acordos a join carteira.titulos t on t.id = any(a.titulos_origem)
+                          where a.contrato=$1 and a.conferente=$2 and t.id = any($3) and a.id<>$4`, [b.contrato, conf, (b.titulos_origem || []).map(Number), p[1]]);
+      if (ja.length) return json({ erro: 'Já existe outra negociação para: ' + ja.map(x => x.rotulo).join(', ') + '.' }, 409);
       await q(`update carteira.acordos set data_acordo=$3, titulos_origem=$4, principal=$5, multa=$6, juros=$7, honorarios=$8,
                valor_calculado=$9, valor_acordado=$10, desconto_encargos=$11, qtd_parcelas=$12, obs=$13, termo=$14, salvo_em=now()
                where id=$1 and conferente=$2`,
