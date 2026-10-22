@@ -649,11 +649,10 @@ async function previaBoletos(mes) {
     join carteira.titulos t on t.id=x.titulo_id where t.grupo in ('mensal','anual') and x.venc::date < (to_date($1,'YYYY-MM'))
     order by t.contrato, t.grupo, x.venc desc`, [mes]);
   const U = {}; for (const u of ult) U[u.contrato + '|' + u.grupo] = u;
-  const DS = {}; for (const k of new Set(r.filter(t => t.grupo !== 'acordo').map(t => t.contrato + '|' + t.grupo))) DS[k] = await deslocamento(...k.split('|'));
   return r.map(t => {
     const u = U[t.contrato + '|' + t.grupo], v = R2(+t.valor);
     const dif = u && +u.valor && Math.abs(+u.valor - v) > 0.05 && !(t.vencimento.slice(5, 7) === '01' && u.venc.slice(0, 4) < t.vencimento.slice(0, 4));
-    return { ...t, valor: v, titular: t.cessionario || t.titular, linha: rotuloBoleto({ ...t, numero: t.numero + (DS[t.contrato + '|' + t.grupo] || 0) }), ultimo_valor: u ? +u.valor : null, ultimo_venc: u?.venc || null, diverge: !!dif };
+    return { ...t, valor: v, titular: t.cessionario || t.titular, linha: rotuloBoleto(t), ultimo_valor: u ? +u.valor : null, ultimo_venc: u?.venc || null, diverge: !!dif };
   });
 }
 async function emitirBoleto(tituloId, conf) {
@@ -666,7 +665,7 @@ async function emitirBoleto(tituloId, conf) {
   const cliente = await clienteDoContrato(t.contrato);
   if (!cliente) return { titulo_id: tituloId, erro: 'Não achei o cliente deste contrato no Asaas' };
   const ex = await asaas(`/payments?customer=${cliente}&dueDate[ge]=${t.vencimento}&dueDate[le]=${venc}&limit=50`);
-  const linha = t.grupo === 'acordo' ? rotuloBoleto(t) : rotuloBoleto({ ...t, numero: t.numero + await deslocamento(t.contrato, t.grupo) });
+  const linha = rotuloBoleto(t);
   const dup = (ex?.data || []).find(g => !g.deleted && ATIVOS_B.concat(PAGO_A).includes(g.status) && (g.externalReference === 'cbr-titulo-' + t.id ||
     (contratoDaDescricao(g.description).numero === t.contrato && parseDesc(g.description).ps.some(p => p.n === t.numero && p.tot === t.total))));
   if (dup) { await gravaBoleto(dup, { contrato: t.contrato, titulo_id: t.id, tipo: t.grupo === 'acordo' ? 'acordo' : 'parcela', origem: 'asaas' }); return { titulo_id: tituloId, erro: 'Já existia boleto no Asaas para essa parcela — só vinculei', id_asaas: dup.id }; }
@@ -747,7 +746,7 @@ async function passarParaCobranca(b, conf) {
   c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca);
   c.data = hoje; c.vencimento_original = venc;
   const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [b.tc]);
-  const t = { grupo: b.grupo, numero: b.numero + (b.grupo === 'acordo' ? 0 : await deslocamento(b.tc, b.grupo)), total: b.total };
+  const t = { grupo: b.grupo, numero: b.numero, total: b.total };
   const linha = `Renegociação ${b.grupo === 'acordo' ? 'acordo ' + String(b.numero).padStart(2, '0') + '/' + String(b.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (original vencido em ${venc.split('-').reverse().join('/')})`;
   const g = await asaasReq('POST', '/payments', { customer: g0.customer, billingType: 'BOLETO', value: c.total, dueDate: hoje,
     description: descricaoBoleto(ct, linha, false), externalReference: 'cbr-cobranca-' + b.titulo_id, interest: { value: 1 }, fine: { value: 0 } });
@@ -814,7 +813,7 @@ async function cobrancaSemBoleto(tituloId, conf) {
   const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, t.grupo !== 'acordo' && t.grupo !== 'entrada');
   c.cobranca = R2((c.principal + c.correcao + c.multa + c.juros) * .10);
   c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca); c.data = hoje; c.vencimento_original = t.vencimento;
-  const linha = `Renegociação ${t.grupo === 'acordo' ? 'acordo ' + String(t.numero).padStart(2, '0') + '/' + String(t.total).padStart(2, '0') : rotuloBoleto({ ...t, numero: t.numero + await deslocamento(t.contrato, t.grupo) }).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (original vencido em ${t.vencimento.split('-').reverse().join('/')})`;
+  const linha = `Renegociação ${t.grupo === 'acordo' ? 'acordo ' + String(t.numero).padStart(2, '0') + '/' + String(t.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (original vencido em ${t.vencimento.split('-').reverse().join('/')})`;
   const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: c.total, dueDate: hoje,
     description: descricaoBoleto({ numero: t.contrato, quadra: t.quadra, lote: t.lote }, linha, false), externalReference: 'cbr-cobranca-' + t.id, interest: { value: 1 }, fine: { value: 0 } });
   const ac = await acordoDaCobranca(t.contrato, t.id, c, g.dueDate, 'Cobrança dos 60 dias — boleto ' + (g.invoiceNumber || g.id));
