@@ -616,7 +616,18 @@ const SQL_ABERTAS = `
 async function previaBoletos(mes) {
   await garanteBoletos();
   const r = await q(SQL_ABERTAS + ` and to_char(t.vencimento,'YYYY-MM')=$1 order by t.vencimento, t.contrato, t.grupo, t.numero`, [mes, ATIVOS_B]);
-  return r.map(t => ({ ...t, valor: R2(+t.valor), titular: t.cessionario || t.titular, linha: rotuloBoleto(t) }));
+  const ult = await q(`select distinct on (t.contrato, t.grupo) t.contrato, t.grupo, x.valor, x.venc::text venc from (
+      select g.titulo_id, g.valor_cobranca valor, g.vencimento_boleto venc from carteira.pagamentos g
+        where g.conferente='luis' and g.fatura is not null and coalesce(g.forma,'') not in ('Pagamento à construtora','Crédito','Compensação') and coalesce(g.descricao,'') !~* 'renegocia|inclus|acordo'
+      union all select b.titulo_id, b.valor, b.vencimento from carteira.boletos b where b.tipo='parcela' and coalesce(b.descricao,'') !~* 'renegocia|inclus|acordo') x
+    join carteira.titulos t on t.id=x.titulo_id where t.grupo in ('mensal','anual') and x.venc::date < (to_date($1,'YYYY-MM'))
+    order by t.contrato, t.grupo, x.venc desc`, [mes]);
+  const U = {}; for (const u of ult) U[u.contrato + '|' + u.grupo] = u;
+  return r.map(t => {
+    const u = U[t.contrato + '|' + t.grupo], v = R2(+t.valor);
+    const dif = u && +u.valor && Math.abs(+u.valor - v) > 0.05 && !(t.vencimento.slice(5, 7) === '01' && u.venc.slice(0, 4) < t.vencimento.slice(0, 4));
+    return { ...t, valor: v, titular: t.cessionario || t.titular, linha: rotuloBoleto(t), ultimo_valor: u ? +u.valor : null, ultimo_venc: u?.venc || null, diverge: !!dif };
+  });
 }
 async function emitirBoleto(tituloId, conf) {
   await garanteBoletos();
@@ -689,7 +700,7 @@ async function candidatosCobranca(inicioAuto) {
   const lim = somaDias(hojeBR(), -60);
   const r = await q(`select b.*, t.contrato tc, t.grupo, t.numero, t.total, t.vencimento::text tv from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
                      where b.tipo = 'parcela' and t.grupo <> 'acordo' and b.status = any($1) and b.vencimento <= $2
-                       and coalesce(b.descricao,'') !~* 'renegocia|acordo'
+                       and coalesce(b.descricao,'') !~* 'renegocia|acordo|inclus'
                        and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')
                        and not exists (select 1 from carteira.acordos a where a.contrato=t.contrato and a.conferente='luis' and t.id = any(a.titulos_origem))
                        and not exists (select 1 from carteira.conferencia_titulo s where s.titulo_id=t.id and s.conferente='luis' and s.situacao='cancelada')
