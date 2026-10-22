@@ -486,7 +486,12 @@ async function processaPagamentoAsaas(g, X, opc = {}) {
     id_asaas: g.id, link_fatura: g.invoiceUrl || null, nosso_numero: g.nossoNumero || null, valor_liquido: g.netValue, vencimento_original: dstr(t.vencimento),
     pago_cliente_em: g.clientPaymentDate || g.paymentDate || null, id_cliente_asaas: g.customer, id_parcelamento_asaas: g.installment || null,
     ...encargos(cob, +g.value, dstr(t.vencimento), conf) };
-  if (bol?.composicao) {
+  if (bol?.composicao && t.grupo === 'acordo') {
+    const c = bol.composicao, B = +c.total, pago = +g.value, extra = R2(pago - B);
+    const hoX = extra > 0 ? R2(extra * (+c.cobranca || 0) / B) : 0;
+    Object.assign(body, { valor_cobranca: B, multa_paga: 0, juros_pago: extra > 0 ? R2(extra - hoX) : 0, honorarios_pago: hoX, desconto_dado: extra < 0 ? -extra : 0,
+      obs: 'Lançado automaticamente pela integração com o Asaas' + (c.cobranca ? ' — boleto de cobrança (60 dias)' : '') + (extra > 0 ? '; juros depois do vencimento do boleto separados entre juros e cobrança' : '') });
+  } else if (bol?.composicao) {
     const c = bol.composicao, B = +c.total, pago = +g.value, base = R2(c.principal + c.correcao);
     let ho = +c.cobranca, de = 0;
     if (pago > B) ho = R2(ho + (pago - B) * c.cobranca / B); else de = R2(B - pago);
@@ -724,11 +729,34 @@ async function passarParaCobranca(b, conf) {
   const linha = `Renegociação ${b.grupo === 'acordo' ? 'acordo ' + String(b.numero).padStart(2, '0') + '/' + String(b.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (original vencido em ${venc.split('-').reverse().join('/')})`;
   const g = await asaasReq('POST', '/payments', { customer: g0.customer, billingType: 'BOLETO', value: c.total, dueDate: hoje,
     description: descricaoBoleto(ct, linha, false), externalReference: 'cbr-cobranca-' + b.titulo_id, interest: { value: 1 }, fine: { value: 0 } });
-  await gravaBoleto(g, { contrato: b.tc, titulo_id: b.titulo_id, tipo: 'cobranca', origem: 'sistema', composicao: c, motivo: 'Cobrança dos 60 dias (substitui ' + (g0.invoiceNumber || g0.id) + ')' });
+  const ac = await acordoDaCobranca(b.tc, b.titulo_id, c, g.dueDate, 'Cobrança dos 60 dias — boleto ' + (g.invoiceNumber || g.id));
+  await gravaBoleto(g, { contrato: b.tc, titulo_id: ac.titulo_id, tipo: 'cobranca', origem: 'sistema', composicao: c, motivo: 'Cobrança dos 60 dias (substitui ' + (g0.invoiceNumber || g0.id) + ')' });
   try { await asaasReq('DELETE', '/payments/' + b.id_asaas); } catch (e) { console.error('excluir antigo', e.message); }
   await q(`update carteira.boletos set status='SUBSTITUIDO', substituido_por=$2, motivo='Passou para cobrança aos 60 dias', atualizado_em=now() where id_asaas=$1`, [b.id_asaas, g.id]);
   await log(conf, 'boleto_cobranca_60', { contrato: b.tc, titulo: b.titulo_id, antigo: b.id_asaas, novo: g.id, ...c });
   return { ok: true, contrato: b.tc, titulo_id: b.titulo_id, novo: g.id, fatura: g.invoiceNumber, valor: c.total };
+}
+async function acordoDaCobranca(contrato, tituloOrigemId, c, vencBoleto, obs) {
+  const [a] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios, valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo)
+                       values ($1,'luis',$2,$3,$4,$5,$6,$7,$8,$8,0,1,$9,'acordo') returning id`,
+    [contrato, c.data, [tituloOrigemId], R2(c.principal + (c.correcao || 0)), c.multa, c.juros, c.cobranca || 0, c.total, obs]);
+  const [t] = await q(`insert into carteira.titulos(contrato, grupo, numero, total, rotulo, vencimento, valor_face, conferente, acordo_id)
+                       values ($1,'acordo',1,1,$2,$3,$4,'luis',$5) returning id`, [contrato, `Acordo ${c.data.split('-').reverse().join('/')} — 1/1`, vencBoleto, c.total, a.id]);
+  return { acordo_id: a.id, titulo_id: t.id };
+}
+async function cobrancasParaAcordo(conf) {
+  const L = await q(`select b.*, t.contrato tc from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
+                     where b.composicao is not null and b.origem='sistema' and t.grupo<>'acordo' and b.tipo in ('cobranca','acordo')
+                       and not exists (select 1 from carteira.acordos a where a.conferente='luis' and t.id = any(a.titulos_origem))`);
+  const out = [];
+  for (const b of L) {
+    const c = b.composicao, venc = dstr(b.vencimento);
+    const r = await acordoDaCobranca(b.tc, b.titulo_id, c, venc, (c.cobranca ? 'Cobrança dos 60 dias' : 'Boleto reemitido (já era renegociação, sem os 10%)') + ' — boleto ' + (b.fatura || b.id_asaas));
+    await q(`update carteira.boletos set titulo_id=$2, atualizado_em=now() where id_asaas=$1`, [b.id_asaas, r.titulo_id]);
+    out.push({ contrato: b.tc, boleto: b.fatura, acordo: r.acordo_id });
+  }
+  if (out.length) await log(conf, 'cobrancas_viraram_acordo', out);
+  return out;
 }
 async function desfazCobranca(idCob, conf) {
   const [cb] = await q(`select * from carteira.boletos where id_asaas=$1 and tipo='cobranca'`, [idCob]);
@@ -743,6 +771,11 @@ async function desfazCobranca(idCob, conf) {
   await asaasReq('DELETE', '/payments/' + idCob).catch(() => null);
   await q(`update carteira.boletos set status='DELETED', motivo='Era renegociação — não leva os 10% de cobrança', atualizado_em=now() where id_asaas=$1`, [idCob]);
   await gravaBoleto(g, { contrato: cb.contrato, titulo_id: cb.titulo_id, tipo: 'acordo', origem: 'sistema', composicao: c, motivo: 'Reemitido sem os 10% (renegociação), com multa e juros até ' + c.data });
+  const [ta] = await q(`select id, acordo_id from carteira.titulos where id=$1 and grupo='acordo'`, [cb.titulo_id]);
+  if (ta && (await q(`select 1 from carteira.acordos where id=$1 and obs like 'Cobrança dos 60 dias%'`, [ta.acordo_id])).length) {
+    await q(`update carteira.acordos set honorarios=0, valor_calculado=$2, valor_acordado=$2, obs=$3 where id=$1`, [ta.acordo_id, c.total, 'Boleto reemitido (já era renegociação, sem os 10%) — boleto ' + (g.invoiceNumber || g.id)]);
+    await q(`update carteira.titulos set valor_face=$2 where id=$1`, [ta.id, c.total]);
+  }
   await log(conf, 'cobranca_desfeita', { antigo: idCob, novo: g.id, ...c });
   return { ok: true, novo: g.id, fatura: g.invoiceNumber, valor: c.total };
 }
@@ -762,7 +795,8 @@ async function cobrancaSemBoleto(tituloId, conf) {
   const linha = `Renegociação ${t.grupo === 'acordo' ? 'acordo ' + String(t.numero).padStart(2, '0') + '/' + String(t.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (original vencido em ${t.vencimento.split('-').reverse().join('/')})`;
   const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: c.total, dueDate: hoje,
     description: descricaoBoleto({ numero: t.contrato, quadra: t.quadra, lote: t.lote }, linha, false), externalReference: 'cbr-cobranca-' + t.id, interest: { value: 1 }, fine: { value: 0 } });
-  await gravaBoleto(g, { contrato: t.contrato, titulo_id: t.id, tipo: 'cobranca', origem: 'sistema', composicao: c, motivo: 'Cobrança dos 60 dias (parcela estava sem boleto)' });
+  const ac = await acordoDaCobranca(t.contrato, t.id, c, g.dueDate, 'Cobrança dos 60 dias — boleto ' + (g.invoiceNumber || g.id));
+  await gravaBoleto(g, { contrato: t.contrato, titulo_id: ac.titulo_id, tipo: 'cobranca', origem: 'sistema', composicao: c, motivo: 'Cobrança dos 60 dias (parcela estava sem boleto)' });
   await log(conf, 'boleto_cobranca_sem_boleto', { contrato: t.contrato, titulo: t.id, novo: g.id, ...c });
   return { ok: true, contrato: t.contrato, titulo_id: t.id, novo: g.id, fatura: g.invoiceNumber, valor: c.total };
 }
@@ -967,6 +1001,7 @@ export default async (req) => {
         }
         return json({ ajustados: out, resta: L.length === 12 });
       }
+      if (p[1] === 'cobranca-para-acordo' && m === 'POST') return json(await cobrancasParaAcordo(real));
       if (p[1] === 'desfaz-cobranca' && m === 'POST') return json(await desfazCobranca(body.id_asaas, real));
       if (p[1] === 'cobranca-sem-boleto' && m === 'POST') {
         const t0 = Date.now(), out = [];
