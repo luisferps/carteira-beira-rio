@@ -891,6 +891,7 @@ export async function passoBoletos(limiteMs = 8000) {
 }
 
 /* ---------- correção anual (aplicada em dezembro para valer a partir de janeiro) ---------- */
+const IGPM_HIST = { 2024: 0, 2025: 6.54, 2026: 0 };
 function diasUteisEntre(d1, d2) {
   let n = 0; const a = new Date(d1 + 'T12:00:00Z'), b = new Date(d2 + 'T12:00:00Z');
   for (let d = new Date(a); d < b; d.setUTCDate(d.getUTCDate() + 1)) { const w = new Date(d.getTime() + 864e5).getUTCDay(); if (w !== 0 && w !== 6) n++; }
@@ -907,37 +908,51 @@ async function previaCorrecao(ano, igpm) {
   const T = await q(`select id, contrato, grupo, numero, total, vencimento::text vencimento, valor_face from carteira.titulos where conferente is null and grupo in ('mensal','anual')`);
   const P = await q(`select g.titulo_id, g.confirmada_em::text conf, g.vencimento_boleto::text vb, g.multa_paga, g.juros_pago, g.honorarios_pago, g.forma from carteira.pagamentos g where g.conferente='luis'`);
   const A = await q(`select contrato, titulos_origem, data_acordo::text d from carteira.acordos where conferente='luis'`);
-  const K = await q(`select contrato, grupo, a_partir, novo_valor, data::text data from carteira.correcoes where conferente='luis' order by a_partir`);
+  const K = await q(`select contrato, grupo, a_partir, novo_valor, data::text data, obs from carteira.correcoes where conferente='luis' order by a_partir`);
+  const DIL = new Set((await q(`select distinct contrato from carteira.eventos where conferente='luis' and tipo='repactuacao'`)).map(x => x.contrato));
   const pag = {}; for (const p of P) (pag[p.titulo_id] = pag[p.titulo_id] || []).push(p);
   const emAc = new Set(A.flatMap(a => (a.titulos_origem || []).map(String)));
-  const out = [], ini = `${ano - 1}-01-01`, fim = `${ano - 1}-12-31`, hoje = hojeBR();
+  const out = [], hoje = hojeBR();
   for (const c of cs) {
     const ts = T.filter(t => t.contrato === c.numero);
-    const doAno = ts.filter(t => t.vencimento >= ini && t.vencimento <= fim && t.vencimento <= hoje);
-    const motivos = [];
-    for (const t of doAno) {
-      const ps = pag[t.id] || [];
-      if (emAc.has(String(t.id))) { motivos.push(`${t.grupo === 'anual' ? 'A' : 'M'}${t.numero} renegociada`); continue; }
-      if (!ps.length) { motivos.push(`${t.grupo === 'anual' ? 'A' : 'M'}${t.numero} não paga`); continue; }
-      const tarde = ps.some(p => (+p.multa_paga || 0) + (+p.juros_pago || 0) + (+p.honorarios_pago || 0) > 0.009 || (p.conf && diasUteisEntre(p.vb || t.vencimento, p.conf) > 3));
-      if (tarde) motivos.push(`${t.grupo === 'anual' ? 'A' : 'M'}${t.numero} paga com atraso`);
-    }
+    const motivosAno = y => {
+      const m = [];
+      for (const t of ts.filter(t => t.vencimento >= `${y}-01-01` && t.vencimento <= `${y}-12-31` && t.vencimento <= hoje)) {
+        const ps = pag[t.id] || [], r = `${t.grupo === 'anual' ? 'A' : 'M'}${t.numero}`;
+        if (emAc.has(String(t.id))) { m.push(r + ' renegociada'); continue; }
+        if (!ps.length) { m.push(r + ' não paga'); continue; }
+        if (ps.some(p => (+p.multa_paga || 0) + (+p.juros_pago || 0) + (+p.honorarios_pago || 0) > 0.009 || (p.conf && diasUteisEntre(p.vb || t.vencimento, p.conf) > 3))) m.push(r + ' paga com atraso');
+      }
+      return m;
+    };
+    const motivos = motivosAno(ano - 1);
     for (const grupo of ['mensal', 'anual']) {
       const g = ts.filter(t => t.grupo === grupo).sort((a, b) => a.numero - b.numero);
       const alvo = g.find(t => t.vencimento >= `${ano}-01-01`);
       if (!alvo) continue;
       const assin = c.assin || g[0]?.vencimento;
       const umAno = new Date(assin + 'T12:00:00Z'); umAno.setUTCFullYear(umAno.getUTCFullYear() + 1);
-      const elegivel = umAno.toISOString().slice(0, 10) <= alvo.vencimento;
+      const fimAno = umAno.toISOString().slice(0, 10);
+      const elegivel = fimAno <= alvo.vencimento;
       const ks = K.filter(k => k.contrato === c.numero && k.grupo === grupo);
       const ja = ks.find(k => +k.a_partir >= alvo.numero || String(k.data || '').slice(0, 4) === String(ano));
       const vig = ks.filter(k => +k.a_partir <= alvo.numero).sort((a, b) => b.a_partir - a.a_partir)[0];
       const atual = vig ? +vig.novo_valor : +alvo.valor_face;
+      const especial = ks.some(k => /dilui/i.test(k.obs || '')) || DIL.has(c.numero);
+      let esperado = +alvo.valor_face; const hist = [];
+      for (let y = +String(g[0]?.vencimento || ano).slice(0, 4) + 1; y < ano; y++) {
+        const tj = g.find(t => t.vencimento >= `${y}-01-01`); if (!tj || fimAno > tj.vencimento) continue;
+        const mm = motivosAno(y - 1), f = (IGPM_HIST[y] || 0) + (mm.length ? 2 : 0);
+        esperado *= 1 + f / 100; hist.push(`${y}: ${f.toString().replace('.', ',')}%`);
+      }
+      esperado = R2(esperado);
+      const acerto = !especial && Math.abs(esperado - atual) > Math.max(0.05, atual * 0.003) ? R2(esperado - atual) : 0;
+      const base = acerto ? esperado : atual;
       const juros = motivos.length ? 2 : 0, pct = Math.max(0, igpm) + juros;
       out.push({ contrato: c.numero, quadra: c.quadra, lote: c.lote, titular: c.titular, assinatura: c.assin, grupo, a_partir: alvo.numero, total: alvo.total,
-        data: alvo.vencimento, atual: R2(atual), igpm_pct: Math.max(0, igpm), juros_pct: juros, novo_valor: R2(atual * (1 + pct / 100)),
+        data: alvo.vencimento, atual: R2(atual), esperado, acerto, historico: hist, especial, igpm_pct: Math.max(0, igpm), juros_pct: juros, novo_valor: R2(base * (1 + pct / 100)),
         atraso: motivos.slice(0, 6), elegivel, ja_corrigido: !!ja,
-        situacao: ja ? 'já corrigido' : !elegivel ? 'menos de 1 ano de contrato' : 'corrigir' });
+        situacao: ja ? 'já corrigido' : !elegivel ? (acerto ? 'menos de 1 ano (com acerto)' : 'menos de 1 ano de contrato') : 'corrigir' });
     }
   }
   return out;
@@ -948,7 +963,7 @@ async function aplicarCorrecao(itens, conf, ano) {
     const [ja] = await q(`select id from carteira.correcoes where contrato=$1 and conferente='luis' and grupo=$2 and a_partir>=$3`, [it.contrato, it.grupo, it.a_partir]);
     if (ja) { out.push({ ...it, erro: 'já tinha correção' }); continue; }
     const [r] = await q(`insert into carteira.correcoes(contrato, conferente, grupo, a_partir, data, igpm_pct, juros_pct, novo_valor, obs) values ($1,'luis',$2,$3,$4,$5,$6,$7,$8) returning id`,
-      [it.contrato, it.grupo, it.a_partir, it.data, it.igpm_pct, it.juros_pct, it.novo_valor, `Correção anual ${ano}: IGP-M ${it.igpm_pct}%${it.juros_pct ? ' + 2% (houve atraso no ano)' : ''}`]);
+      [it.contrato, it.grupo, it.a_partir, it.data, it.igpm_pct, it.juros_pct, it.novo_valor, `Correção anual ${ano}: IGP-M ${it.igpm_pct}%${it.juros_pct ? ' + 2% (houve atraso no ano)' : ''}${it.acerto ? ` · inclui acerto de correções anteriores (${it.acerto > 0 ? '+' : ''}${String(it.acerto).replace('.', ',')} na parcela; valor certo antes desta correção: ${String(it.esperado).replace('.', ',')})` : ''}`]);
     out.push({ ...it, id: r.id });
   }
   await log(conf, 'correcao_anual', { ano, qtd: out.filter(x => x.id).length });
