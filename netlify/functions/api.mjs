@@ -897,8 +897,8 @@ function diasUteisEntre(d1, d2) {
   for (let d = new Date(a); d < b; d.setUTCDate(d.getUTCDate() + 1)) { const w = new Date(d.getTime() + 864e5).getUTCDay(); if (w !== 0 && w !== 6) n++; }
   return n;
 }
-async function previaCorrecao(ano, igpm) {
-  ano = +ano; igpm = +igpm;
+async function previaCorrecao(ano, igpm, desde) {
+  ano = +ano; igpm = +igpm; desde = +desde || 2024;
   const cs = await q(`select c.numero, c.quadra, c.lote, c.data_assinatura::text assin,
       coalesce((select nullif(string_agg(x->>'nome', ' e ' order by o), '') from jsonb_array_elements(case when jsonb_typeof(c.compradores)='array' then c.compradores else '[]'::jsonb end) with ordinality as j(x,o)), c.nome_planilha) titular
     from carteira.contratos c
@@ -939,8 +939,9 @@ async function previaCorrecao(ano, igpm) {
       const vig = ks.filter(k => +k.a_partir <= alvo.numero).sort((a, b) => b.a_partir - a.a_partir)[0];
       const atual = vig ? +vig.novo_valor : +alvo.valor_face;
       const especial = ks.some(k => /dilui/i.test(k.obs || '')) || DIL.has(c.numero);
-      let esperado = +alvo.valor_face; const hist = [];
-      for (let y = +String(g[0]?.vencimento || ano).slice(0, 4) + 1; y < ano; y++) {
+      const antes = ks.filter(k => String(k.data || '') < `${desde}-01-01` || (g.find(t => t.numero == k.a_partir)?.vencimento || '9') < `${desde}-01-01`).sort((x, y) => y.a_partir - x.a_partir)[0];
+      let esperado = antes ? +antes.novo_valor : +alvo.valor_face; const hist = [];
+      for (let y = Math.max(desde, +String(g[0]?.vencimento || ano).slice(0, 4) + 1); y < ano; y++) {
         const tj = g.find(t => t.vencimento >= `${y}-01-01`); if (!tj || fimAno > tj.vencimento) continue;
         const mm = motivosAno(y - 1), f = (IGPM_HIST[y] || 0) + (mm.length ? 2 : 0);
         esperado *= 1 + f / 100; hist.push(`${y}: ${f.toString().replace('.', ',')}%`);
@@ -1149,7 +1150,7 @@ export default async (req) => {
       if (m === 'GET') return json(await asaas('/payments/' + p[1]));
     }
     if (p[0] === 'correcao-anual' && real === 'luis') {
-      if (p[1] === 'previa' && m === 'GET') return json(await previaCorrecao(url.searchParams.get('ano'), url.searchParams.get('igpm') || 0));
+      if (p[1] === 'previa' && m === 'GET') return json(await previaCorrecao(url.searchParams.get('ano'), url.searchParams.get('igpm') || 0, url.searchParams.get('desde')));
       if (p[1] === 'aplicar' && m === 'POST') return json(await aplicarCorrecao(body.itens || [], real, body.ano));
     }
     if (p[0] === 'contrato-novo' && m === 'POST') {
