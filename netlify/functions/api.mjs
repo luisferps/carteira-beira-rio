@@ -710,7 +710,7 @@ async function passarParaCobranca(b, conf) {
   c.data = hoje; c.vencimento_original = venc;
   const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [b.tc]);
   const t = { grupo: b.grupo, numero: b.numero, total: b.total };
-  const linha = `Renegociação ${b.grupo === 'acordo' ? 'acordo ' + String(b.numero).padStart(2, '0') + '/' + String(b.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (vencimento em ${venc.split('-').reverse().join('/')})`;
+  const linha = `Renegociação ${b.grupo === 'acordo' ? 'acordo ' + String(b.numero).padStart(2, '0') + '/' + String(b.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (original vencido em ${venc.split('-').reverse().join('/')})`;
   const g = await asaasReq('POST', '/payments', { customer: g0.customer, billingType: 'BOLETO', value: c.total, dueDate: hoje,
     description: descricaoBoleto(ct, linha, false), externalReference: 'cbr-cobranca-' + b.titulo_id, interest: { value: 1 }, fine: { value: 0 } });
   await gravaBoleto(g, { contrato: b.tc, titulo_id: b.titulo_id, tipo: 'cobranca', origem: 'sistema', composicao: c, motivo: 'Cobrança dos 60 dias (substitui ' + (g0.invoiceNumber || g0.id) + ')' });
@@ -748,7 +748,7 @@ async function cobrancaSemBoleto(tituloId, conf) {
   const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, t.grupo !== 'acordo' && t.grupo !== 'entrada');
   c.cobranca = R2((c.principal + c.correcao + c.multa + c.juros) * .10);
   c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca); c.data = hoje; c.vencimento_original = t.vencimento;
-  const linha = `Renegociação ${t.grupo === 'acordo' ? 'acordo ' + String(t.numero).padStart(2, '0') + '/' + String(t.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (vencimento em ${t.vencimento.split('-').reverse().join('/')})`;
+  const linha = `Renegociação ${t.grupo === 'acordo' ? 'acordo ' + String(t.numero).padStart(2, '0') + '/' + String(t.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (original vencido em ${t.vencimento.split('-').reverse().join('/')})`;
   const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: c.total, dueDate: hoje,
     description: descricaoBoleto({ numero: t.contrato, quadra: t.quadra, lote: t.lote }, linha, false), externalReference: 'cbr-cobranca-' + t.id, interest: { value: 1 }, fine: { value: 0 } });
   await gravaBoleto(g, { contrato: t.contrato, titulo_id: t.id, tipo: 'cobranca', origem: 'sistema', composicao: c, motivo: 'Cobrança dos 60 dias (parcela estava sem boleto)' });
@@ -780,7 +780,7 @@ async function vinculaBoletoAsaas(g, X) {
   const D = X.cache[k.n] || (X.cache[k.n] = await carregar(k.n, 'luis'));
   const r = parseDesc(g.description);
   const e = escolherTitulo(g, D);
-  const tipo = r.tipo === 'reneg' && /\(vencimento em/i.test(g.description || '') ? 'cobranca' : null;
+  const tipo = r.tipo === 'reneg' && /\((vencimento|original vencido) em/i.test(g.description || '') ? 'cobranca' : null;
   if (e.erro && tipo !== 'cobranca') {
     const um = r.ps.length === 1 && D.titulos.find(x => x.grupo !== 'acordo' && x.numero == r.ps[0].n && x.total == r.ps[0].tot);
     if (um) { await gravaBoleto(g, { contrato: k.n, titulo_id: um.id, origem: 'asaas', motivo: 'Parcela já paga, em acordo ou cancelada — este boleto deveria ser excluído' }); return 'vinculado_sobra'; }
@@ -946,6 +946,15 @@ export default async (req) => {
       if (p[1] === 'atrasadas-sem-boleto' && m === 'GET') {
         const r = await q(SQL_ABERTAS + ` and t.vencimento between $1::date and $3::date order by t.vencimento`, [url.searchParams.get('de'), ATIVOS_B, url.searchParams.get('ate')]);
         return json(r.filter(t => !t.boleto).map(t => ({ ...t, valor: R2(+t.valor) })));
+      }
+      if (p[1] === 'ajusta-descricoes' && m === 'POST') {
+        const L = await q(`select id_asaas, descricao from carteira.boletos where tipo='cobranca' and origem='sistema' and status = any($1) and descricao like '%(vencimento em %' limit 12`, [ATIVOS_B]);
+        const out = [];
+        for (const b of L) {
+          try { const g = await asaasReq('POST', '/payments/' + b.id_asaas, { description: b.descricao.replace('(vencimento em ', '(original vencido em ') }); await gravaBoleto(g, {}); out.push(b.id_asaas); }
+          catch (e) { out.push(b.id_asaas + ' erro ' + e.message); }
+        }
+        return json({ ajustados: out, resta: L.length === 12 });
       }
       if (p[1] === 'desfaz-cobranca' && m === 'POST') return json(await desfazCobranca(body.id_asaas, real));
       if (p[1] === 'cobranca-sem-boleto' && m === 'POST') {
