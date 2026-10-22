@@ -895,7 +895,7 @@ export default async (req) => {
         const ini = st?.valor?.inicio_auto || somaDias(hojeBR(), -60);
         const r = await candidatosCobranca(ini);
         const ult = await q(`select b.id_asaas, b.contrato, b.valor, b.vencimento::text vencimento, b.status, b.fatura, b.composicao, b.criado_em, t.rotulo from carteira.boletos b left join carteira.titulos t on t.id=b.titulo_id where b.tipo='cobranca' order by b.criado_em desc limit 100`);
-        return json({ ativo: !!st?.valor?.ativo, inicio_auto: ini, candidatos: r.map(b => ({ id_asaas: b.id_asaas, contrato: b.tc, rotulo: (b.grupo === 'acordo' ? 'Acordo ' : '') + b.numero + '/' + b.total, vencimento: dstr(b.vencimento), valor: b.valor, automatico: b.automatico, fatura: b.fatura })), cobrancas: ult });
+        return json({ ativo: !!st?.valor?.ativo, inicio_auto: ini, candidatos: r.map(b => ({ id_asaas: b.id_asaas, contrato: b.tc, rotulo: ({ acordo: 'Acordo ', anual: 'Anual ', entrada: 'Entrada ' }[b.grupo] || '') + b.numero + '/' + b.total, vencimento: dstr(b.vencimento), valor: b.valor, automatico: b.automatico, fatura: b.fatura })), cobrancas: ult });
       }
       if (p[1] === 'cobranca' && m === 'POST') {
         const r = await candidatosCobranca(null), out = [], t0 = Date.now();
