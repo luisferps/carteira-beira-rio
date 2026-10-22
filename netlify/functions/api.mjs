@@ -884,7 +884,10 @@ export default async (req) => {
         return json(out);
       }
       if (p[1] === 'sync' && m === 'POST') {
-        if (body.reimportar) await q(`update carteira.asaas_estado set valor = valor - 'importou_abertos' - 'fase' - 'offset' where chave='boletos'`);
+        if (body.reimportar) {
+          await q(`update carteira.asaas_estado set valor = valor - 'importou_abertos' - 'fase' - 'offset' where chave='boletos'`);
+          await q(`update carteira.boletos b set tipo='acordo' from carteira.titulos t where t.id=b.titulo_id and t.grupo='acordo' and b.tipo='parcela'`);
+        }
         return json(await passoBoletos(7000));
       }
       if (p[1] === 'cobranca' && m === 'GET') {
