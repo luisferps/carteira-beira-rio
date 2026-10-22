@@ -143,8 +143,13 @@ async function telaBoletos(){
   <div class="bt" style="align-items:flex-end;margin-top:8px"><div><label>Mês do vencimento</label><input type="month" id="bmes" value="${mes}" style="width:180px"></div><button class="pri" onclick="previaBol()">Ver prévia</button></div>
   <div id="bprev"></div></div>
   <div class="card" id="bcob">Carregando cobrança…</div>
+  <div class="card" id="bsob"></div>
   <div class="card" id="bsem"></div>`;
-  desenhaCob();desenhaSemVinculo()}
+  desenhaCob();desenhaSobras();desenhaSemVinculo()}
+async function desenhaSobras(){const L=await api('boletos/sobras');$('#bsob').innerHTML=`<div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Boletos sobrando no Asaas (${L.length})</h3>${L.length?'<button class="per" onclick="excluiSobras()">Excluir selecionados no Asaas</button>':''}</div>
+  ${L.length?`<div class="info" style="margin-top:8px">Boletos ainda em aberto no Asaas de parcelas que no sistema já estão pagas, em acordo ou canceladas. O normal é excluir.</div><table><tr><th><input type="checkbox" style="width:auto" onchange="document.querySelectorAll('.schk').forEach(c=>c.checked=this.checked)"></th><th>Contrato</th><th>Parcela</th><th>Situação no sistema</th><th>Vencimento</th><th>Valor</th><th>Fatura</th></tr>
+  ${L.map(b=>`<tr><td><input type="checkbox" class="schk" value="${b.id_asaas}" style="width:auto"></td><td><a href="#c/${b.contrato}">${b.contrato}</a></td><td>${esc(b.rotulo)}</td><td>${esc(b.situacao)}</td><td>${dbr(b.vencimento)}</td><td>${brl(+b.valor)}</td><td>${esc(b.fatura||'')}</td></tr>`).join('')}</table>`:'<div class="mut" style="margin-top:6px">Nenhum.</div>'}`}
+async function excluiSobras(){const ids=[...document.querySelectorAll('.schk:checked')].map(c=>c.value);if(!ids.length)return alert('Nenhum selecionado.');if(!confirm(`Excluir ${ids.length} boleto(s) no Asaas?`))return;let er=[];for(const id of ids){try{await api('boleto/'+id+'?motivo='+encodeURIComponent('Parcela já paga/em acordo/cancelada no sistema'),{method:'DELETE'})}catch(e){er.push(id)}}alert(er.length?'Alguns deram erro: '+er.join(', '):'Excluídos.');desenhaSobras()}
 async function previaBol(){const mes=$('#bmes').value;$('#bprev').innerHTML='<div class="mut">Carregando…</div>';PV=await api('boletos/previa?mes='+mes);
   const sem=PV.filter(x=>!x.boleto);
   $('#bprev').innerHTML=PV.length?`<div class="bt" style="align-items:center;margin:10px 0"><b style="flex:1">${PV.length} parcela(s) em ${mes.split('-').reverse().join('/')} · ${sem.length} sem boleto · total ${brl(sem.reduce((a,x)=>a+x.valor,0))}</b>

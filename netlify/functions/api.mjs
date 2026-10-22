@@ -690,6 +690,10 @@ async function candidatosCobranca(inicioAuto) {
   const r = await q(`select b.*, t.contrato tc, t.grupo, t.numero, t.total, t.vencimento::text tv from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
                      where b.tipo in ('parcela','acordo') and b.status = any($1) and b.vencimento <= $2
                        and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')
+                       and not exists (select 1 from carteira.acordos a where a.contrato=t.contrato and a.conferente='luis' and t.id = any(a.titulos_origem))
+                       and not exists (select 1 from carteira.conferencia_titulo s where s.titulo_id=t.id and s.conferente='luis' and s.situacao='cancelada')
+                       and not exists (select 1 from carteira.eventos e join carteira.titulos t0 on t0.id=e.a_partir_titulo
+                                       where e.contrato=t.contrato and e.conferente='luis' and e.tipo='encerramento' and t.grupo<>'acordo' and t.vencimento >= t0.vencimento)
                        and not exists (select 1 from carteira.boletos b2 where b2.titulo_id=t.id and b2.tipo='cobranca' and b2.status = any($1))
                      order by b.vencimento`, [ATIVOS_B, lim]);
   return r.map(b => ({ ...b, automatico: !inicioAuto || String(b.vencimento instanceof Date ? b.vencimento.toISOString() : b.vencimento).slice(0, 10) >= inicioAuto }));
@@ -740,11 +744,15 @@ async function vinculaBoletoAsaas(g, X) {
   const r = parseDesc(g.description);
   const e = escolherTitulo(g, D);
   const tipo = r.tipo === 'reneg' && /\(vencimento em/i.test(g.description || '') ? 'cobranca' : null;
-  if (e.erro && tipo !== 'cobranca') { await gravaBoleto(g, { contrato: k.n, origem: 'asaas', motivo: e.erro }); return 'sem_vinculo'; }
+  if (e.erro && tipo !== 'cobranca') {
+    const um = r.ps.length === 1 && D.titulos.find(x => x.grupo !== 'acordo' && x.numero == r.ps[0].n && x.total == r.ps[0].tot);
+    if (um) { await gravaBoleto(g, { contrato: k.n, titulo_id: um.id, origem: 'asaas', motivo: 'Parcela já paga, em acordo ou cancelada — este boleto deveria ser excluído' }); return 'vinculado_sobra'; }
+    await gravaBoleto(g, { contrato: k.n, origem: 'asaas', motivo: e.erro }); return 'sem_vinculo';
+  }
   let tid = e.t?.id;
   if (tipo === 'cobranca') { const m = (g.description || '').match(/(\d{1,3})\s*\/\s*(\d{1,3})/); const t = m && D.titulos.find(x => x.grupo !== 'acordo' && x.numero == +m[1] && x.total == +m[2]); tid = t?.id; }
   const [ativo] = tid ? await q(`select id_asaas from carteira.boletos where titulo_id=$1 and status = any($2) and id_asaas<>$3`, [tid, ATIVOS_B, g.id]) : [];
-  await gravaBoleto(g, { contrato: k.n, titulo_id: tid || null, tipo, origem: 'asaas', motivo: ativo ? 'ATENÇÃO: a parcela já tinha outro boleto ativo (' + ativo.id_asaas + ')' : null });
+  await gravaBoleto(g, { contrato: k.n, titulo_id: tid || null, tipo: tipo || (e.t?.grupo === 'acordo' ? 'acordo' : null), origem: 'asaas', motivo: ativo ? 'ATENÇÃO: a parcela já tinha outro boleto ativo (' + ativo.id_asaas + ')' : null });
   return tid ? 'vinculado' : 'sem_vinculo';
 }
 export async function passoBoletos(limiteMs = 8000) {
@@ -901,6 +909,11 @@ export default async (req) => {
         await log(real, 'cobranca_automatica', v);
         return json(v);
       }
+      if (p[1] === 'sobras' && m === 'GET') return json(await q(`select b.id_asaas, b.contrato, b.fatura, b.valor, b.vencimento::text vencimento, b.status, t.rotulo,
+          case when exists(select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis') then 'paga'
+               when exists(select 1 from carteira.acordos a where a.conferente='luis' and t.id = any(a.titulos_origem)) then 'em acordo' else 'cancelada/encerrada' end situacao
+        from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
+        where b.status = any($1) and t.id not in (select x.id from (${SQL_ABERTAS}) x) order by b.contrato, b.vencimento`, [ATIVOS_B, ATIVOS_B]));
       if (p[1] === 'sem-vinculo' && m === 'GET') return json(await q(`select id_asaas, contrato, fatura, valor, vencimento::text vencimento, status, motivo, descricao from carteira.boletos where titulo_id is null and status = any($1) order by vencimento`, [ATIVOS_B]));
       if (p[1] === 'vincular' && m === 'POST') {
         const [t] = await q('select id, contrato from carteira.titulos where id=$1', [body.titulo_id]);
@@ -1276,6 +1289,11 @@ export default async (req) => {
           [b.contrato, i, b.parcelas.length, `${b.tipo === 'repactuacao' ? 'Repactuação' : 'Acordo'} ${b.data_acordo.split('-').reverse().join('/')} — ${i}/${b.parcelas.length}`, par.vencimento, par.valor, conf, a.id]);
       }
       await log(conf, 'acordo_novo', { id: a.id, ...b });
+      if (conf === 'luis') {
+        const ab = await q(`select id_asaas from carteira.boletos where titulo_id = any($1) and status = any($2)`, [(b.titulos_origem || []).map(Number), ATIVOS_B]).catch(() => []);
+        a.boletos_excluidos = [];
+        for (const x of ab) { try { await excluirBoleto(x.id_asaas, conf, 'Parcela entrou no acordo de ' + b.data_acordo); a.boletos_excluidos.push(x.id_asaas); } catch (e) { a.erro_boleto = e.message; } }
+      }
       return json(a);
     }
 
