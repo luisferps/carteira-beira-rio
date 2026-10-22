@@ -460,7 +460,6 @@ async function processaPagamentoAsaas(g, X, opc = {}) {
   const n = k.n, corte = X.corte[n];
   if (!corte) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: 'Contrato ainda não teve a conferência fechada' });
   if (pagoEm < corte && !opc.titulo_id) return registraAuto(g, { resultado: 'congelado', contrato: n, motivo: `Pago antes da conferência (${corte.split('-').reverse().join('/')})` });
-  if (pagoEm === corte && !opc.titulo_id) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: 'Pago no mesmo dia em que a conferência foi fechada — confirme se já não estava na conferência' });
   const D = X.cache[n] || (X.cache[n] = await carregar(n, 'luis'));
   let t;
   if (opc.titulo_id) {
