@@ -733,7 +733,7 @@ export async function rodaCobranca60(limiteMs = 15000) {
 /* importa/atualiza boletos que existem no Asaas (feitos pelo sistema ou direto no Asaas) */
 async function vinculaBoletoAsaas(g, X) {
   const [ja] = await q('select titulo_id from carteira.boletos where id_asaas=$1', [g.id]);
-  if (ja) { await gravaBoleto(g, {}); return 'atualizado'; }
+  if (ja && (ja.titulo_id || g.deleted || !ATIVOS_B.includes(g.status))) { await gravaBoleto(g, {}); return 'atualizado'; }
   if (g.deleted || !ATIVOS_B.includes(g.status)) return 'ignorado';
   const ref = String(g.externalReference || '').match(/^cbr-(titulo|cobranca)-(\d+)$/);
   if (ref) { const [t] = await q('select contrato from carteira.titulos where id=$1', [ref[2]]); await gravaBoleto(g, { contrato: t?.contrato, titulo_id: +ref[2], tipo: ref[1] === 'cobranca' ? 'cobranca' : null, origem: 'sistema' }); return 'vinculado'; }
@@ -883,7 +883,10 @@ export default async (req) => {
         }
         return json(out);
       }
-      if (p[1] === 'sync' && m === 'POST') return json(await passoBoletos(7000));
+      if (p[1] === 'sync' && m === 'POST') {
+        if (body.reimportar) await q(`update carteira.asaas_estado set valor = valor - 'importou_abertos' - 'fase' - 'offset' where chave='boletos'`);
+        return json(await passoBoletos(7000));
+      }
       if (p[1] === 'cobranca' && m === 'GET') {
         const [st] = await q(`select valor from carteira.asaas_estado where chave='cobranca60'`).catch(() => []);
         const ini = st?.valor?.inicio_auto || somaDias(hojeBR(), -60);
