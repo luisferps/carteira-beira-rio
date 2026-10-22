@@ -115,7 +115,8 @@ async function carregar(n, conf) {
   const [fechamento] = await q('select * from carteira.fechamentos where contrato=$1 and conferente=$2', [n, conf]);
   const propostas = await q('select * from carteira.propostas where contrato=$1 and conferente=$2 order by id', [n, conf]).catch(() => []);
   const termosArq = await q('select termo, nome, enviado_em from carteira.termos_arq where contrato=$1 order by termo', [n]).catch(() => []);
-  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, fechamento: fechamento || null, hoje: new Date().toISOString().slice(0, 10), conferente: conf };
+  const boletos = await q(`select id_asaas, titulo_id, tipo, fatura, valor, vencimento::text vencimento, status, link, origem, motivo, composicao, criado_em from carteira.boletos where contrato=$1 order by vencimento desc, criado_em desc`, [n]).catch(() => []);
+  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, boletos, fechamento: fechamento || null, hoje: new Date().toISOString().slice(0, 10), conferente: conf };
 }
 
 /* ---------- cruzamento ---------- */
@@ -455,16 +456,23 @@ async function processaPagamentoAsaas(g, X, opc = {}) {
   const lan = await jaLancado(g);
   if (lan) return registraAuto(g, { resultado: 'ja_existia', contrato: lan.contrato, pagamento_id: lan.id });
   const pagoEm = g.paymentDate || g.clientPaymentDate || g.confirmedDate;
+  await garanteBoletos();
+  const [bol] = await q('select contrato, titulo_id, tipo, composicao from carteira.boletos where id_asaas=$1', [g.id]);
+  if (bol) await gravaBoleto(g, {});
+  if (bol?.titulo_id && !opc.titulo_id) { opc = { ...opc, titulo_id: bol.titulo_id, contrato: opc.contrato || bol.contrato, doBoleto: true }; }
   const k = opc.contrato ? { n: opc.contrato } : acharContrato(g, X);
   if (k.erro) return registraAuto(g, { resultado: 'pendente', motivo: k.erro });
   const n = k.n, corte = X.corte[n];
   if (!corte) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: 'Contrato ainda não teve a conferência fechada' });
-  if (pagoEm < corte && !opc.titulo_id) return registraAuto(g, { resultado: 'congelado', contrato: n, motivo: `Pago antes da conferência (${corte.split('-').reverse().join('/')})` });
+  if (pagoEm < corte && (!opc.titulo_id || opc.doBoleto)) return registraAuto(g, { resultado: 'congelado', contrato: n, motivo: `Pago antes da conferência (${corte.split('-').reverse().join('/')})` });
   const D = X.cache[n] || (X.cache[n] = await carregar(n, 'luis'));
   let t;
   if (opc.titulo_id) {
     t = D.titulos.find(x => x.id == opc.titulo_id); if (!t) return { erro: 'Parcela não é deste contrato' };
-    if (!titulosLivres(D).some(x => x.id == t.id)) return { erro: `A parcela ${t.rotulo} já está paga, em acordo ou cancelada — não vou sobrescrever` };
+    if (!titulosLivres(D).some(x => x.id == t.id)) {
+      if (opc.doBoleto) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: `Boleto da parcela ${t.rotulo}, mas ela já está paga, em acordo ou cancelada no sistema` });
+      return { erro: `A parcela ${t.rotulo} já está paga, em acordo ou cancelada — não vou sobrescrever` };
+    }
   }
   else { const e = escolherTitulo(g, D); if (e.erro) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: e.erro }); t = e.t; }
   const b0 = await bloqueioEncerrado(t, 'luis'); if (b0) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: b0 });
@@ -478,6 +486,14 @@ async function processaPagamentoAsaas(g, X, opc = {}) {
     id_asaas: g.id, link_fatura: g.invoiceUrl || null, nosso_numero: g.nossoNumero || null, valor_liquido: g.netValue, vencimento_original: dstr(t.vencimento),
     pago_cliente_em: g.clientPaymentDate || g.paymentDate || null, id_cliente_asaas: g.customer, id_parcelamento_asaas: g.installment || null,
     ...encargos(cob, +g.value, dstr(t.vencimento), conf) };
+  if (bol?.composicao) {
+    const c = bol.composicao, B = +c.total, pago = +g.value, base = R2(c.principal + c.correcao);
+    let ho = +c.cobranca, de = 0;
+    if (pago > B) ho = R2(ho + (pago - B) * c.cobranca / B); else de = R2(B - pago);
+    const ju = Math.max(0, R2(pago + de - base - c.multa - ho));
+    Object.assign(body, { valor_cobranca: base, multa_paga: c.multa, juros_pago: ju, honorarios_pago: ho, desconto_dado: de,
+      obs: 'Lançado automaticamente pela integração com o Asaas — boleto de cobrança (60 dias)' });
+  }
   const [pg] = await q(`insert into carteira.pagamentos(conferente, titulo_id, ${CAMPOS_PAG.join(',')}, tem_print)
                         values ('luis',$1,${CAMPOS_PAG.map((_, i) => '$' + (i + 2)).join(',')}, false) returning id`, [t.id, ...CAMPOS_PAG.map(c => limpa(body[c]))]);
   await q(`insert into carteira.conferencia_titulo(conferente, titulo_id, situacao) values ('luis',$1,'paga')
@@ -523,9 +539,227 @@ export async function webhookAsaas(req) {
   const b = await req.json().catch(() => ({}));
   try {
     await garanteAuto();
-    if (b.payment && /PAYMENT_(RECEIVED|CONFIRMED)/.test(b.event || '')) await processaPagamentoAsaas(b.payment, await contextoAuto());
+    const X = await contextoAuto();
+    if (b.payment && /PAYMENT_(RECEIVED|CONFIRMED)/.test(b.event || '')) await processaPagamentoAsaas(b.payment, X);
+    else if (b.payment) { await garanteBoletos(); await vinculaBoletoAsaas(b.event === 'PAYMENT_DELETED' ? { ...b.payment, deleted: true } : b.payment, X); }
   } catch (e) { console.error('webhook', e.message); }
   return json({ ok: true });
+}
+
+/* ---------- boletos: gerar, editar, excluir, vincular, cobrança dos 60 dias ---------- */
+const ATIVOS_B = ['PENDING', 'OVERDUE', 'AWAITING_RISK_ANALYSIS'];
+const FCA_RODAPE = 'á Serviço de: FCA CONSTRUTORA E INCORPORADORA LTDA (46.228.347/0001-97)';
+const AVISO_30 = 'Após 30 dias de vencido esse boleto só poderá ser pago através do departamento de cobrança, com acréscimo de honorários, conforme contrato.';
+const FATOR_ANO_S = { 2024: 1.02, 2025: 1.0854, 2026: 1.02 };
+async function asaasReq(method, path, body) {
+  const key = (process.env.ASAAS_API_KEY || '').trim();
+  const r = await fetch('https://api.asaas.com/v3' + path, { method, headers: { access_token: key, 'User-Agent': 'carteira-beira-rio', accept: 'application/json', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const t = await r.text(); let d; try { d = JSON.parse(t); } catch { d = { bruto: t }; }
+  if (!r.ok) throw new Error('Asaas: ' + ((d.errors || []).map(e => e.description).join('; ') || ('erro ' + r.status)));
+  return d;
+}
+async function garanteBoletos() {
+  await q(`create table if not exists carteira.boletos(id_asaas text primary key, contrato text, titulo_id bigint, tipo text not null default 'parcela',
+           fatura text, valor numeric, vencimento date, status text, link text, descricao text, composicao jsonb, origem text, motivo text,
+           substituido_por text, dados jsonb, criado_em timestamptz default now(), atualizado_em timestamptz default now())`);
+  await q(`create index if not exists boletos_titulo on carteira.boletos(titulo_id)`);
+}
+async function gravaBoleto(g, extra = {}) {
+  const st = g.deleted ? 'DELETED' : g.status;
+  await q(`insert into carteira.boletos(id_asaas, contrato, titulo_id, tipo, fatura, valor, vencimento, status, link, descricao, composicao, origem, motivo, dados)
+           values ($1,$2,$3,coalesce($4,'parcela'),$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+           on conflict (id_asaas) do update set status=case when carteira.boletos.status='SUBSTITUIDO' then 'SUBSTITUIDO' else excluded.status end,
+             valor=excluded.valor, vencimento=excluded.vencimento, link=excluded.link, descricao=excluded.descricao, fatura=excluded.fatura, dados=excluded.dados,
+             contrato=coalesce(carteira.boletos.contrato, excluded.contrato), titulo_id=coalesce(carteira.boletos.titulo_id, excluded.titulo_id),
+             composicao=coalesce(excluded.composicao, carteira.boletos.composicao), motivo=coalesce(excluded.motivo, carteira.boletos.motivo), atualizado_em=now()`,
+    [g.id, extra.contrato || null, extra.titulo_id || null, extra.tipo || null, g.invoiceNumber ? String(g.invoiceNumber) : null, g.value, g.dueDate, st,
+      g.bankSlipUrl || g.invoiceUrl || null, g.description || null, extra.composicao || null, extra.origem || null, extra.motivo || null, g]);
+}
+function rotuloBoleto(t) {
+  if (t.grupo === 'mensal') return `${t.numero}/${t.total}`;
+  if (t.grupo === 'anual') return `Anual ${t.numero}/${t.total}`;
+  if (t.grupo === 'entrada') return `Entrada ${t.numero}/${t.total}`;
+  if (t.grupo === 'acordo') return `Renegociação ${String(t.numero).padStart(2, '0')} de ${String(t.total).padStart(2, '0')}`;
+  return `${t.numero}/${t.total}`;
+}
+function descricaoBoleto(ct, linha, aviso = true) {
+  return [`Condomínio Beira Rio - ${ct.numero}`, `Q${ct.quadra} L${ct.lote}`, linha, '', FCA_RODAPE, ...(aviso ? ['', AVISO_30] : [])].join('\r\n');
+}
+async function clienteDoContrato(n) {
+  const [b] = await q(`select dados->>'customer' c from carteira.boletos where contrato=$1 and dados->>'customer' like 'cus_%' order by vencimento desc nulls last limit 1`, [n]);
+  if (b?.c) return b.c;
+  const [p] = await q(`select g.id_cliente_asaas c from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
+                       where t.contrato=$1 and g.conferente='luis' and g.id_cliente_asaas like 'cus_%' order by g.vencimento_boleto desc nulls last limit 1`, [n]);
+  if (p?.c) return p.c;
+  const [ct] = await q('select compradores from carteira.contratos where numero=$1', [n]);
+  for (const cp of (ct?.compradores || [])) {
+    const doc = String(cp.cpf || '').replace(/\D/g, '');
+    if (doc.length >= 11) { const r = await asaas('/customers?cpfCnpj=' + doc).catch(() => null); const c = (r?.data || []).find(x => !x.deleted); if (c) return c.id; }
+  }
+  return null;
+}
+const SQL_ABERTAS = `
+  with corr as (select distinct on (contrato, grupo, a_partir) contrato, grupo, a_partir, novo_valor from carteira.correcoes where conferente='luis' order by contrato, grupo, a_partir, id desc)
+  select t.id, t.contrato, t.grupo, t.numero, t.total, t.rotulo, t.vencimento::text vencimento, t.valor_face, c.quadra, c.lote,
+    coalesce((select novo_valor from corr where corr.contrato=t.contrato and corr.grupo=t.grupo and corr.a_partir<=t.numero order by corr.a_partir desc limit 1), t.valor_face) valor,
+    coalesce((select nullif(string_agg(x->>'nome', ' e ' order by o), '') from jsonb_array_elements(case when jsonb_typeof(c.compradores)='array' then c.compradores else '[]'::jsonb end) with ordinality as j(x,o)), c.nome_planilha) titular,
+    (select e.dados->>'novos_titulares' from carteira.eventos e where e.contrato=t.contrato and e.conferente='luis' and e.tipo='cessao' and coalesce(e.dados->>'novos_titulares','')<>'' order by e.data desc nulls last, e.id desc limit 1) cessionario,
+    (select b.id_asaas from carteira.boletos b where b.titulo_id=t.id and b.status = any($2) limit 1) boleto
+  from carteira.titulos t join carteira.contratos c on c.numero=t.contrato
+  where (t.conferente is null or t.conferente='luis')
+    and exists (select 1 from carteira.fechamentos f where f.contrato=t.contrato and f.conferente='luis')
+    and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')
+    and not exists (select 1 from carteira.acordos a where a.contrato=t.contrato and a.conferente='luis' and t.id = any(a.titulos_origem))
+    and not exists (select 1 from carteira.conferencia_titulo s where s.titulo_id=t.id and s.conferente='luis' and s.situacao='cancelada')
+    and not exists (select 1 from carteira.eventos e join carteira.titulos t0 on t0.id=e.a_partir_titulo
+                    where e.contrato=t.contrato and e.conferente='luis' and e.tipo='encerramento' and t.grupo<>'acordo' and t.vencimento >= t0.vencimento)`;
+async function previaBoletos(mes) {
+  await garanteBoletos();
+  const r = await q(SQL_ABERTAS + ` and to_char(t.vencimento,'YYYY-MM')=$1 order by t.vencimento, t.contrato, t.grupo, t.numero`, [mes, ATIVOS_B]);
+  return r.map(t => ({ ...t, valor: R2(+t.valor), titular: t.cessionario || t.titular, linha: rotuloBoleto(t) }));
+}
+async function emitirBoleto(tituloId, conf) {
+  await garanteBoletos();
+  const [t] = await q(SQL_ABERTAS + ` and t.id=$1`, [tituloId, ATIVOS_B]);
+  if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto (paga, em acordo, cancelada ou contrato sem conferência fechada)' };
+  if (t.boleto) return { titulo_id: tituloId, erro: 'Essa parcela já tem boleto ativo', id_asaas: t.boleto };
+  let venc = t.vencimento;
+  if (venc < hojeBR()) { if (t.grupo === 'acordo') venc = hojeBR(); else return { titulo_id: tituloId, erro: 'O vencimento dessa parcela já passou — está em atraso' }; }
+  const cliente = await clienteDoContrato(t.contrato);
+  if (!cliente) return { titulo_id: tituloId, erro: 'Não achei o cliente deste contrato no Asaas' };
+  const ex = await asaas(`/payments?customer=${cliente}&dueDate[ge]=${t.vencimento}&dueDate[le]=${venc}&limit=50`);
+  const linha = rotuloBoleto(t);
+  const dup = (ex?.data || []).find(g => !g.deleted && ATIVOS_B.concat(PAGO_A).includes(g.status) && (g.externalReference === 'cbr-titulo-' + t.id ||
+    (contratoDaDescricao(g.description).numero === t.contrato && parseDesc(g.description).ps.some(p => p.n === t.numero && p.tot === t.total))));
+  if (dup) { await gravaBoleto(dup, { contrato: t.contrato, titulo_id: t.id, tipo: t.grupo === 'acordo' ? 'acordo' : 'parcela', origem: 'asaas' }); return { titulo_id: tituloId, erro: 'Já existia boleto no Asaas para essa parcela — só vinculei', id_asaas: dup.id }; }
+  const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [t.contrato]);
+  const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: R2(+t.valor), dueDate: venc,
+    description: descricaoBoleto(ct, linha), externalReference: 'cbr-titulo-' + t.id, fine: { value: 2, type: 'PERCENTAGE' }, interest: { value: 1 } });
+  await gravaBoleto(g, { contrato: t.contrato, titulo_id: t.id, tipo: t.grupo === 'acordo' ? 'acordo' : 'parcela', origem: 'sistema' });
+  await log(conf, 'boleto_gerado', { contrato: t.contrato, titulo: t.id, id: g.id, valor: g.value, venc: g.dueDate });
+  return { titulo_id: tituloId, ok: true, id_asaas: g.id, fatura: g.invoiceNumber, valor: g.value, vencimento: g.dueDate, link: g.bankSlipUrl || g.invoiceUrl };
+}
+async function excluirBoleto(id, conf, motivo) {
+  await garanteBoletos();
+  try { await asaasReq('DELETE', '/payments/' + id); }
+  catch (e) { const g = await asaas('/payments/' + id).catch(() => null); if (!g || !g.deleted) throw e; }
+  await q(`update carteira.boletos set status='DELETED', motivo=coalesce($2, motivo), atualizado_em=now() where id_asaas=$1`, [id, motivo || null]);
+  await log(conf, 'boleto_excluido', { id, motivo });
+  return { ok: true };
+}
+async function editarBoleto(id, b, conf) {
+  const body = {};
+  if (b.valor != null) body.value = R2(+b.valor);
+  if (b.vencimento) body.dueDate = b.vencimento;
+  if (b.descricao != null) body.description = b.descricao;
+  const g = await asaasReq('POST', '/payments/' + id, body);
+  await gravaBoleto(g, {});
+  await log(conf, 'boleto_editado', { id, ...body });
+  return { ok: true, valor: g.value, vencimento: g.dueDate };
+}
+/* atraso no servidor (mesma régua da tela): multa 2%, juros 1% a.m. dia a dia, correção de janeiro sobre tudo */
+function compoAtraso(v, venc, ate, corr = true) {
+  const dias = Math.max(0, Math.round((new Date(ate) - new Date(venc)) / 864e5));
+  const mu = dias ? v * .02 : 0; let pr = v, ju = 0, co = 0, cur = venc;
+  const cresce = d2 => { const d = Math.max(0, Math.round((new Date(d2) - new Date(cur)) / 864e5)); ju += pr * (Math.pow(1.01, d / 30) - 1); cur = d2; };
+  if (dias && corr) for (let y = +venc.slice(0, 4) + 1; y <= +ate.slice(0, 4); y++) { const dj = `${y}-01-01`; if (dj > ate) break; const f = FATOR_ANO_S[y] || 1; cresce(dj); co += (v + co + mu + ju) * (f - 1); pr *= f; }
+  if (dias) cresce(ate);
+  return { principal: R2(v), correcao: R2(co), multa: R2(mu), juros: R2(ju), dias };
+}
+const hojeBR = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+const somaDias = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+async function candidatosCobranca(inicioAuto) {
+  await garanteBoletos();
+  const lim = somaDias(hojeBR(), -60);
+  const r = await q(`select b.*, t.contrato tc, t.grupo, t.numero, t.total, t.vencimento::text tv from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
+                     where b.tipo in ('parcela','acordo') and b.status = any($1) and b.vencimento <= $2
+                       and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')
+                       and not exists (select 1 from carteira.boletos b2 where b2.titulo_id=t.id and b2.tipo='cobranca' and b2.status = any($1))
+                     order by b.vencimento`, [ATIVOS_B, lim]);
+  return r.map(b => ({ ...b, automatico: !inicioAuto || String(b.vencimento instanceof Date ? b.vencimento.toISOString() : b.vencimento).slice(0, 10) >= inicioAuto }));
+}
+async function passarParaCobranca(b, conf) {
+  const hoje = hojeBR(), venc = String(b.vencimento instanceof Date ? b.vencimento.toISOString() : b.vencimento).slice(0, 10);
+  const g0 = await asaas('/payments/' + b.id_asaas);
+  if (!g0 || g0.deleted || !ATIVOS_B.includes(g0.status)) { if (g0) await gravaBoleto(g0, {}); return { id: b.id_asaas, erro: 'Boleto já não está em aberto no Asaas' }; }
+  const v = +(g0.originalValue ?? g0.value);
+  const c = compoAtraso(v, venc, hoje, b.grupo !== 'acordo' && b.grupo !== 'entrada');
+  c.cobranca = R2((c.principal + c.correcao + c.multa + c.juros) * .10);
+  c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca);
+  c.data = hoje; c.vencimento_original = venc;
+  const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [b.tc]);
+  const t = { grupo: b.grupo, numero: b.numero, total: b.total };
+  const linha = `Renegociação ${b.grupo === 'acordo' ? 'acordo ' + String(b.numero).padStart(2, '0') + '/' + String(b.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (vencimento em ${venc.split('-').reverse().join('/')})`;
+  const g = await asaasReq('POST', '/payments', { customer: g0.customer, billingType: 'BOLETO', value: c.total, dueDate: hoje,
+    description: descricaoBoleto(ct, linha, false), externalReference: 'cbr-cobranca-' + b.titulo_id, interest: { value: 1 }, fine: { value: 0 } });
+  await gravaBoleto(g, { contrato: b.tc, titulo_id: b.titulo_id, tipo: 'cobranca', origem: 'sistema', composicao: c, motivo: 'Cobrança dos 60 dias (substitui ' + (g0.invoiceNumber || g0.id) + ')' });
+  try { await asaasReq('DELETE', '/payments/' + b.id_asaas); } catch (e) { console.error('excluir antigo', e.message); }
+  await q(`update carteira.boletos set status='SUBSTITUIDO', substituido_por=$2, motivo='Passou para cobrança aos 60 dias', atualizado_em=now() where id_asaas=$1`, [b.id_asaas, g.id]);
+  await log(conf, 'boleto_cobranca_60', { contrato: b.tc, titulo: b.titulo_id, antigo: b.id_asaas, novo: g.id, ...c });
+  return { ok: true, contrato: b.tc, titulo_id: b.titulo_id, novo: g.id, fatura: g.invoiceNumber, valor: c.total };
+}
+export async function rodaCobranca60(limiteMs = 15000) {
+  await garanteAuto(); await garanteBoletos();
+  const [st] = await q(`select valor from carteira.asaas_estado where chave='cobranca60'`);
+  if (!st?.valor?.ativo) return { desligado: true };
+  const inicio = st.valor.inicio_auto;
+  const t0 = Date.now(), out = [];
+  for (const b of (await candidatosCobranca(inicio)).filter(b => b.automatico)) {
+    if (Date.now() - t0 > limiteMs) break;
+    try { out.push(await passarParaCobranca(b, 'automatico')); } catch (e) { out.push({ id: b.id_asaas, erro: e.message }); }
+  }
+  return out;
+}
+/* importa/atualiza boletos que existem no Asaas (feitos pelo sistema ou direto no Asaas) */
+async function vinculaBoletoAsaas(g, X) {
+  const [ja] = await q('select titulo_id from carteira.boletos where id_asaas=$1', [g.id]);
+  if (ja) { await gravaBoleto(g, {}); return 'atualizado'; }
+  if (g.deleted || !ATIVOS_B.includes(g.status)) return 'ignorado';
+  const ref = String(g.externalReference || '').match(/^cbr-(titulo|cobranca)-(\d+)$/);
+  if (ref) { const [t] = await q('select contrato from carteira.titulos where id=$1', [ref[2]]); await gravaBoleto(g, { contrato: t?.contrato, titulo_id: +ref[2], tipo: ref[1] === 'cobranca' ? 'cobranca' : null, origem: 'sistema' }); return 'vinculado'; }
+  const k = acharContrato(g, X);
+  if (k.erro) { await gravaBoleto(g, { origem: 'asaas', motivo: k.erro }); return 'sem_vinculo'; }
+  if (!X.corte[k.n]) { await gravaBoleto(g, { contrato: k.n, origem: 'asaas', motivo: 'Contrato sem conferência fechada' }); return 'sem_vinculo'; }
+  const D = X.cache[k.n] || (X.cache[k.n] = await carregar(k.n, 'luis'));
+  const r = parseDesc(g.description);
+  const e = escolherTitulo(g, D);
+  const tipo = r.tipo === 'reneg' && /\(vencimento em/i.test(g.description || '') ? 'cobranca' : null;
+  if (e.erro && tipo !== 'cobranca') { await gravaBoleto(g, { contrato: k.n, origem: 'asaas', motivo: e.erro }); return 'sem_vinculo'; }
+  let tid = e.t?.id;
+  if (tipo === 'cobranca') { const m = (g.description || '').match(/(\d{1,3})\s*\/\s*(\d{1,3})/); const t = m && D.titulos.find(x => x.grupo !== 'acordo' && x.numero == +m[1] && x.total == +m[2]); tid = t?.id; }
+  const [ativo] = tid ? await q(`select id_asaas from carteira.boletos where titulo_id=$1 and status = any($2) and id_asaas<>$3`, [tid, ATIVOS_B, g.id]) : [];
+  await gravaBoleto(g, { contrato: k.n, titulo_id: tid || null, tipo, origem: 'asaas', motivo: ativo ? 'ATENÇÃO: a parcela já tinha outro boleto ativo (' + ativo.id_asaas + ')' : null });
+  return tid ? 'vinculado' : 'sem_vinculo';
+}
+export async function passoBoletos(limiteMs = 8000) {
+  await garanteBoletos(); await garanteAuto();
+  const t0 = Date.now();
+  const [st] = await q(`select valor from carteira.asaas_estado where chave='boletos'`);
+  const E = st?.valor || {};
+  const X = await contextoAuto();
+  const cont = {};
+  if (!E.importou_abertos) {
+    E.fase = E.fase || 'PENDING'; E.offset = E.offset || 0;
+    while (Date.now() - t0 < limiteMs) {
+      const r = await asaas(`/payments?status=${E.fase}&limit=50&offset=${E.offset}`);
+      for (const g of r?.data || []) { const x = await vinculaBoletoAsaas(g, X).catch(e => 'erro'); cont[x] = (cont[x] || 0) + 1; }
+      E.offset += (r?.data || []).length;
+      if (!r?.hasMore) { if (E.fase === 'PENDING') { E.fase = 'OVERDUE'; E.offset = 0; } else { E.importou_abertos = true; E.ultimo = hojeBR(); break; } }
+    }
+  } else {
+    const desde = somaDias(E.ultimo || hojeBR(), -2), ate = hojeBR();
+    E.off2 = E.off2 || 0;
+    while (Date.now() - t0 < limiteMs) {
+      const r = await asaas(`/payments?dateCreated[ge]=${desde}&dateCreated[le]=${ate}&limit=50&offset=${E.off2}`);
+      for (const g of r?.data || []) { const x = await vinculaBoletoAsaas(g, X).catch(() => 'erro'); cont[x] = (cont[x] || 0) + 1; }
+      E.off2 += (r?.data || []).length;
+      if (!r?.hasMore) { E.ultimo = ate; E.off2 = 0; break; }
+    }
+    const velhos = await q(`select id_asaas from carteira.boletos where status = any($1) order by atualizado_em limit 40`, [ATIVOS_B]);
+    for (const b of velhos) { if (Date.now() - t0 > limiteMs) break; const g = await asaas('/payments/' + b.id_asaas).catch(() => null); if (g) await gravaBoleto(g, {}); else await q(`update carteira.boletos set status='DELETED', atualizado_em=now() where id_asaas=$1`, [b.id_asaas]); cont.conferidos = (cont.conferidos || 0) + 1; }
+  }
+  await q(`insert into carteira.asaas_estado(chave, valor) values ('boletos',$1) on conflict (chave) do update set valor=excluded.valor, em=now()`, [E]);
+  return { estado: E, ...cont };
 }
 
 let schemaOk = false;
@@ -613,6 +847,59 @@ export default async (req) => {
       if (r.erro) return json({ erro: r.erro }, 400);
       if (r.resultado !== 'lancado') return json({ erro: r.motivo || 'Não lancei: ' + r.resultado }, 400);
       return json(r);
+    }
+    if (p[0] === 'boletos' && real === 'luis') {
+      await garanteBoletos();
+      if (p[1] === 'previa' && m === 'GET') return json(await previaBoletos(url.searchParams.get('mes')));
+      if (p[1] === 'emitir' && m === 'POST') {
+        const t0 = Date.now(), out = [];
+        for (const id of body.titulos || []) {
+          if (Date.now() - t0 > 7000) { out.push({ titulo_id: id, adiado: true }); continue; }
+          try { out.push(await emitirBoleto(id, real)); } catch (e) { out.push({ titulo_id: id, erro: e.message }); }
+        }
+        return json(out);
+      }
+      if (p[1] === 'sync' && m === 'POST') return json(await passoBoletos(7000));
+      if (p[1] === 'cobranca' && m === 'GET') {
+        const [st] = await q(`select valor from carteira.asaas_estado where chave='cobranca60'`).catch(() => []);
+        const ini = st?.valor?.inicio_auto || somaDias(hojeBR(), -60);
+        const r = await candidatosCobranca(ini);
+        const ult = await q(`select b.id_asaas, b.contrato, b.valor, b.vencimento::text vencimento, b.status, b.fatura, b.composicao, b.criado_em, t.rotulo from carteira.boletos b left join carteira.titulos t on t.id=b.titulo_id where b.tipo='cobranca' order by b.criado_em desc limit 100`);
+        return json({ ativo: !!st?.valor?.ativo, inicio_auto: ini, candidatos: r.map(b => ({ id_asaas: b.id_asaas, contrato: b.tc, rotulo: (b.grupo === 'acordo' ? 'Acordo ' : '') + b.numero + '/' + b.total, vencimento: dstr(b.vencimento), valor: b.valor, automatico: b.automatico, fatura: b.fatura })), cobrancas: ult });
+      }
+      if (p[1] === 'cobranca' && m === 'POST') {
+        const r = await candidatosCobranca(null), out = [], t0 = Date.now();
+        for (const id of body.ids || []) {
+          const b = r.find(x => x.id_asaas === id); if (!b) { out.push({ id, erro: 'Não está mais na lista' }); continue; }
+          if (Date.now() - t0 > 7000) { out.push({ id, adiado: true }); continue; }
+          try { out.push(await passarParaCobranca(b, real)); } catch (e) { out.push({ id, erro: e.message }); }
+        }
+        return json(out);
+      }
+      if (p[1] === 'cobranca-auto' && m === 'POST') {
+        await garanteAuto();
+        const [st] = await q(`select valor from carteira.asaas_estado where chave='cobranca60'`);
+        const v = { ...(st?.valor || {}), ativo: !!body.ativo };
+        if (v.ativo && !v.inicio_auto) v.inicio_auto = somaDias(hojeBR(), -60);
+        await q(`insert into carteira.asaas_estado(chave, valor) values ('cobranca60',$1) on conflict (chave) do update set valor=excluded.valor, em=now()`, [v]);
+        await log(real, 'cobranca_automatica', v);
+        return json(v);
+      }
+      if (p[1] === 'sem-vinculo' && m === 'GET') return json(await q(`select id_asaas, contrato, fatura, valor, vencimento::text vencimento, status, motivo, descricao from carteira.boletos where titulo_id is null and status = any($1) order by vencimento`, [ATIVOS_B]));
+      if (p[1] === 'vincular' && m === 'POST') {
+        const [t] = await q('select id, contrato from carteira.titulos where id=$1', [body.titulo_id]);
+        if (!t) return json({ erro: 'Parcela não encontrada' }, 404);
+        const [ativo] = await q(`select id_asaas from carteira.boletos where titulo_id=$1 and status = any($2) and id_asaas<>$3`, [t.id, ATIVOS_B, body.id_asaas]);
+        if (ativo) return json({ erro: 'Essa parcela já tem outro boleto ativo (' + ativo.id_asaas + ')' }, 409);
+        await q(`update carteira.boletos set titulo_id=$2, contrato=$3, motivo=null, atualizado_em=now() where id_asaas=$1`, [body.id_asaas, t.id, t.contrato]);
+        return json({ ok: true });
+      }
+    }
+    if (p[0] === 'boleto' && p[1] && real === 'luis') {
+      await garanteBoletos();
+      if (m === 'DELETE') return json(await excluirBoleto(p[1], real, url.searchParams.get('motivo') || 'Excluído pelo sistema'));
+      if (m === 'PUT') return json(await editarBoleto(p[1], body, real));
+      if (m === 'GET') return json(await asaas('/payments/' + p[1]));
     }
     if (p[0] === 'contrato-novo' && m === 'POST') {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
@@ -895,6 +1182,11 @@ export default async (req) => {
       await q(`insert into carteira.conferencia_titulo(conferente, titulo_id, situacao) values ($1,$2,'paga')
                on conflict (conferente, titulo_id) do update set situacao='paga', salvo_em=now()`, [conf, t.id]);
       await log(conf, 'pagamento_novo', { id: g.id, titulo: t.id });
+      if (!body.id_asaas && conf === 'luis') {
+        const ab = await q(`select id_asaas from carteira.boletos where titulo_id=$1 and status = any($2)`, [t.id, ATIVOS_B]).catch(() => []);
+        g.boletos_cancelados = [];
+        for (const b of ab) { try { await excluirBoleto(b.id_asaas, conf, 'Baixa manual: ' + (body.forma || 'pagamento fora do boleto')); g.boletos_cancelados.push(b.id_asaas); } catch (e) { g.erro_boleto = e.message; } }
+      }
       return json(g);
     }
 

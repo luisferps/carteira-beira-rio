@@ -117,7 +117,7 @@ function route(){const h=location.hash.slice(1);COMO='';
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
-  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
+  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='boletos'&&EU==='luis')telaBoletos();else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function novaPend(){const t=prompt('Descreva a pendência deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
 async function novaObs(){const t=prompt('Observação deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'observacao',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
@@ -128,8 +128,66 @@ function telaModulos(){
   app.innerHTML=`<div class="mods">
    <div class="mod" onclick="location.hash='contratos'"><b>Contratos</b><span>Carteira do Beira Rio: parcelas, pagamentos, acordos, cessões, relatórios e conferência.</span></div>
    <div class="mod" style="border-left-color:#2e9e4f" onclick="location.hash='clientes'"><b>Clientes</b><span>Cadastro dos clientes: telefones, e-mails, endereço, documentos e os contratos de cada um.</span></div>
-   ${EU==='luis'?`<div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
+   ${EU==='luis'?`<div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar os boletos do mês, cobrança dos 60 dias e boletos feitos direto no Asaas.</span></div><div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
   </div>`}
+
+/* ---------- BOLETOS ---------- */
+const STB={PENDING:'Aguardando pagamento',OVERDUE:'Vencido',RECEIVED:'Pago',CONFIRMED:'Pago',RECEIVED_IN_CASH:'Pago em dinheiro',DELETED:'Excluído',SUBSTITUIDO:'Substituído (cobrança)',REFUNDED:'Estornado',AWAITING_RISK_ANALYSIS:'Em análise'};
+const TPB={parcela:'Parcela',acordo:'Acordo',cobranca:'Cobrança 60 dias'};
+let PV=[];
+async function telaBoletos(){
+  const d=new Date();d.setMonth(d.getMonth()+1);const mes=d.toISOString().slice(0,7);
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
+  <div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Gerar boletos</h3><button onclick="syncBoletos()" id="bsync">Atualizar boletos do Asaas</button></div>
+  <div class="info" style="margin-top:8px">Escolha o mês, veja a prévia e gere. Cada parcela recebe um boleto só; parcela paga, em acordo, cancelada ou que já tem boleto não entra. O valor já vem com a correção lançada no contrato e o vencimento já segue as alterações de data.</div>
+  <div class="bt" style="align-items:flex-end;margin-top:8px"><div><label>Mês do vencimento</label><input type="month" id="bmes" value="${mes}" style="width:180px"></div><button class="pri" onclick="previaBol()">Ver prévia</button></div>
+  <div id="bprev"></div></div>
+  <div class="card" id="bcob">Carregando cobrança…</div>
+  <div class="card" id="bsem"></div>`;
+  desenhaCob();desenhaSemVinculo()}
+async function previaBol(){const mes=$('#bmes').value;$('#bprev').innerHTML='<div class="mut">Carregando…</div>';PV=await api('boletos/previa?mes='+mes);
+  const sem=PV.filter(x=>!x.boleto);
+  $('#bprev').innerHTML=PV.length?`<div class="bt" style="align-items:center;margin:10px 0"><b style="flex:1">${PV.length} parcela(s) em ${mes.split('-').reverse().join('/')} · ${sem.length} sem boleto · total ${brl(sem.reduce((a,x)=>a+x.valor,0))}</b>
+   <label style="margin:0"><input type="checkbox" id="btodos" checked style="width:auto" onchange="document.querySelectorAll('.bchk').forEach(c=>c.checked=this.checked)"> todos</label><button class="pri" onclick="gerarBol()">Gerar selecionados</button></div>
+   <table><tr><th></th><th>Contrato</th><th>Titular</th><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Situação</th></tr>
+   ${PV.map(x=>`<tr><td>${x.boleto?'':`<input type="checkbox" class="bchk" value="${x.id}" checked style="width:auto">`}</td><td><a href="#c/${x.contrato}">${x.contrato}</a> <span class="mut">Q${x.quadra} L${x.lote}</span></td><td>${esc(nome(x.titular||''))}</td><td>${esc(x.linha)}</td><td>${dbr(x.vencimento)}</td><td>${brl(x.valor)}</td><td id="bst${x.id}">${x.boleto?'<span class="tag ok">já tem boleto</span>':'<span class="mut">a gerar</span>'}</td></tr>`).join('')}</table>`:'<div class="mut" style="margin-top:10px">Nenhuma parcela em aberto nesse mês.</div>'}
+async function gerarBol(){let ids=[...document.querySelectorAll('.bchk:checked')].map(c=>+c.value);if(!ids.length)return alert('Nenhuma parcela selecionada.');
+  if(!confirm(`Gerar ${ids.length} boleto(s) no Asaas agora?`))return;let ok=0,er=0;
+  while(ids.length){const lote=ids.splice(0,4);const r=await api('boletos/emitir',{method:'POST',body:{titulos:lote}});
+    for(const x of r){if(x.adiado){ids.push(x.titulo_id);continue}const td=$('#bst'+x.titulo_id);if(x.ok){ok++;if(td)td.innerHTML=`<span class="tag ok">gerado</span> <a href="${x.link}" target="_blank">ver</a>`;const c=document.querySelector(`.bchk[value="${x.titulo_id}"]`);if(c)c.remove()}else{er++;if(td)td.innerHTML=`<span class="tag al">${esc(x.erro)}</span>`}}}
+  alert(`Pronto: ${ok} gerado(s)${er?', '+er+' com aviso (veja na lista)':''}.`)}
+async function syncBoletos(){const b=$('#bsync');b.disabled=true;try{for(let i=0;i<40;i++){b.textContent='Atualizando… ('+(i+1)+')';const r=await api('boletos/sync',{method:'POST',body:{}});if(r.estado?.importou_abertos&&!r.estado?.off2)break}}finally{b.disabled=false;b.textContent='Atualizar boletos do Asaas'}desenhaSemVinculo();desenhaCob()}
+async function desenhaCob(){const R=await api('boletos/cobranca');const ant=R.candidatos.filter(x=>!x.automatico),aut=R.candidatos.filter(x=>x.automatico);
+  $('#bcob').innerHTML=`<div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Cobrança dos 60 dias</h3>
+   <span class="tag ${R.ativo?'ok':'al'}">${R.ativo?'Automática LIGADA':'Automática DESLIGADA'}</span><button onclick="togCob(${!R.ativo})">${R.ativo?'Desligar':'Ligar'} automática</button></div>
+   <div class="info" style="margin-top:8px">Quando um boleto completa 60 dias vencido, o sistema exclui ele no Asaas e gera outro com vencimento no mesmo dia: parcela + multa + juros até o dia + 10% de cobrança, com juros de 1% ao mês e sem multa nova. Quando for pago, o sistema separa parcela, multa, juros e cobrança.${R.ativo?` Automático para boletos vencidos a partir de ${dbr(R.inicio_auto)}.`:''}</div>
+   ${aut.length?`<div style="margin-top:8px"><b>Na fila do automático (${aut.length})</b></div>`:''}
+   ${ant.length?`<div class="bt" style="align-items:center;margin-top:10px"><b style="flex:1">Vencidos há mais de 60 dias${R.ativo?' antes do automático':''} (${ant.length}) — só passam se você mandar</b><button onclick="passaCob()">Passar selecionados para cobrança</button></div>
+   <table><tr><th></th><th>Contrato</th><th>Parcela</th><th>Venceu</th><th>Valor do boleto</th><th>Fatura</th></tr>${R.candidatos.map(x=>`<tr><td>${x.automatico?'':`<input type="checkbox" class="cchk" value="${x.id_asaas}" style="width:auto">`}</td><td><a href="#c/${x.contrato}">${x.contrato}</a></td><td>${esc(x.rotulo)}</td><td>${dbr(x.vencimento)}</td><td>${brl(+x.valor)}</td><td>${esc(x.fatura||'')}</td></tr>`).join('')}</table>`:'<div class="mut" style="margin-top:8px">Nenhum boleto esperando passar para cobrança.</div>'}
+   ${R.cobrancas.length?`<h4>Boletos de cobrança gerados</h4><table><tr><th>Contrato</th><th>Parcela</th><th>Gerado em</th><th>Valor</th><th>Composição</th><th>Situação</th></tr>${R.cobrancas.map(b=>{const c=b.composicao||{};return `<tr><td><a href="#c/${b.contrato}">${b.contrato}</a></td><td>${esc(b.rotulo||'')}</td><td>${dbr(b.criado_em)}</td><td>${brl(+b.valor)}</td><td class="mut">parcela ${brl(c.principal)} · correção ${brl(c.correcao)} · multa ${brl(c.multa)} · juros ${brl(c.juros)} · cobrança ${brl(c.cobranca)}</td><td>${STB[b.status]||b.status}</td></tr>`}).join('')}</table>`:''}`}
+async function togCob(v){if(!confirm(v?'Ligar a cobrança automática dos 60 dias? A partir de agora, todo boleto que completar 60 dias vencido é trocado sozinho pelo boleto de cobrança.':'Desligar a cobrança automática?'))return;await api('boletos/cobranca-auto',{method:'POST',body:{ativo:v}});desenhaCob()}
+async function passaCob(){const ids=[...document.querySelectorAll('.cchk:checked')].map(c=>c.value);if(!ids.length)return alert('Nenhum selecionado.');if(!confirm(`Passar ${ids.length} boleto(s) para cobrança? O boleto atual é excluído no Asaas e sai um novo com os 10%.`))return;
+  let fila=[...ids],ok=0,er=[];while(fila.length){const r=await api('boletos/cobranca',{method:'POST',body:{ids:fila.splice(0,3)}});for(const x of r){if(x.adiado)fila.push(x.id);else if(x.ok)ok++;else er.push(x.erro)}}
+  alert(`${ok} passado(s) para cobrança.${er.length?' Avisos: '+er.join('; '):''}`);desenhaCob()}
+async function desenhaSemVinculo(){const L=await api('boletos/sem-vinculo');$('#bsem').innerHTML=`<h3 style="margin-top:0">Boletos do Asaas sem parcela ligada (${L.length})</h3>${L.length?`<div class="info">Boletos em aberto no Asaas que o sistema não conseguiu ligar a uma parcela. Ligue à parcela certa para o sistema controlar.</div><table><tr><th>Contrato</th><th>Fatura</th><th>Vencimento</th><th>Valor</th><th>Motivo</th><th>Descrição</th><th></th></tr>
+  ${L.map(b=>`<tr><td>${b.contrato||'—'}</td><td>${esc(b.fatura||'')}</td><td>${dbr(b.vencimento)}</td><td>${brl(+b.valor)}</td><td>${esc(b.motivo||'')}</td><td class="mut">${esc((b.descricao||'').replace(/\s+/g,' ').replace(/á Servi.*/,'').slice(0,90))}</td><td><button onclick="vinculaBol('${b.id_asaas}','${b.contrato||''}')">Ligar à parcela</button></td></tr>`).join('')}</table>`:'<div class="mut">Nenhum.</div>'}`}
+async function vinculaBol(id,ct){const n=prompt('Contrato do boleto:',ct||'');if(!n)return;const num=n.padStart(4,'0');const D=await api('contrato/'+num);const pagos=new Set(D.pagamentos.map(p=>String(p.titulo_id)));
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Ligar boleto ao contrato ${num}</h3><button onclick="fechaModal()">Fechar</button></div><label>Parcela</label><select id="vb_t">${D.titulos.filter(t=>!pagos.has(String(t.id))).map(t=>`<option value="${t.id}">${esc(t.rotulo)} — venc. ${dbr(t.vencimento)} — ${brl(+t.valor_face)}</option>`).join('')}</select>
+  <div class="bt"><button class="pri" onclick="(async()=>{await api('boletos/vincular',{method:'POST',body:{id_asaas:'${id}',titulo_id:+$('#vb_t').value}});fechaModal();desenhaSemVinculo()})()">Ligar</button></div>`)}
+/* boletos dentro do contrato */
+function cardBoletos(){if(EU!=='luis'||COMO)return'';const B=C.boletos||[];const rot=id=>C.titulos.find(t=>t.id==id)?.rotulo||'—';
+  const pagos=new Set(C.pagamentos.map(p=>String(p.titulo_id)));const ativos=new Set(B.filter(b=>['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS'].includes(b.status)).map(b=>String(b.titulo_id)));
+  const abertas=C.titulos.filter(t=>!pagos.has(String(t.id))&&!ativos.has(String(t.id))&&String(t.vencimento)>=C.hoje&&!acordoDe(t)).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).slice(0,24);
+  return `<div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Boletos</h3>
+   ${abertas.length?`<select id="nb_t" style="width:auto">${abertas.map(t=>`<option value="${t.id}">${esc(t.rotulo)} — ${dbr(t.vencimento)}</option>`).join('')}</select><button class="pri" onclick="geraUm()">Gerar boleto</button>`:''}</div>
+   ${B.length?`<table style="margin-top:8px"><tr><th>Parcela</th><th>Tipo</th><th>Fatura</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th></th></tr>${B.map(b=>{const at=['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS'].includes(b.status);
+     return `<tr><td>${esc(rot(b.titulo_id))}</td><td>${TPB[b.tipo]||b.tipo}${b.origem==='asaas'?' <span class="mut">(feito no Asaas)</span>':''}</td><td>${esc(b.fatura||'')}</td><td>${dbr(b.vencimento)}</td><td>${brl(+b.valor)}</td><td>${STB[b.status]||b.status}${b.motivo?`<div class="mut" style="font-size:11px">${esc(b.motivo)}</div>`:''}</td>
+     <td style="white-space:nowrap">${b.link?`<a href="${b.link}" target="_blank">ver</a> `:''}${at?`<button style="font-size:12px;padding:2px 8px" onclick="editaBol('${b.id_asaas}',${b.valor},'${b.vencimento}')">Editar</button> <button class="per" style="font-size:12px;padding:2px 8px" onclick="excluiBol('${b.id_asaas}')">Excluir</button>`:''}</td></tr>`}).join('')}</table>`:'<div class="mut" style="margin-top:6px">Nenhum boleto registrado no sistema para este contrato.</div>'}</div>`}
+async function geraUm(){const id=+$('#nb_t').value;if(!confirm('Gerar o boleto dessa parcela no Asaas?'))return;const [r]=await api('boletos/emitir',{method:'POST',body:{titulos:[id]}});if(r.erro)alert(r.erro);recarrega()}
+async function excluiBol(id){const m=prompt('Excluir este boleto no Asaas. Motivo:','');if(m===null)return;await api('boleto/'+id+'?motivo='+encodeURIComponent(m||'Excluído pelo sistema'),{method:'DELETE'});recarrega()}
+async function editaBol(id,v,venc){abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Editar boleto</h3><button onclick="fechaModal()">Fechar</button></div>
+  <label>Valor</label><input id="eb_v" value="${v}"><label>Vencimento</label><input id="eb_d" type="date" value="${venc}">
+  <div class="bt"><button class="pri" onclick="(async()=>{await api('boleto/${id}',{method:'PUT',body:{valor:+String($('#eb_v').value).replace(',','.'),vencimento:$('#eb_d').value}});fechaModal();recarrega()})()">Salvar no Asaas</button></div>`)}
 
 /* ---------- ASAAS AUTOMÁTICO ---------- */
 let AS=null;
@@ -424,6 +482,7 @@ function desenhaContrato(){
    <div class="tot"><div><span class="mut">Principal</span><b>${brl(tt.pg.pr)}</b></div><div><span class="mut">Multa</span><b>${brl(tt.pg.mu)}</b></div><div><span class="mut">Juros</span><b>${brl(tt.pg.ju)}</b></div><div><span class="mut">Custo de cobrança</span><b>${brl(tt.pg.ho)}</b></div>${tt.pg.de>0.009||tt.pg.cp>0.009?`<div><span class="mut">Desconto dado</span><b>${brl(tt.pg.de)}</b></div><div><span class="mut">Compensação (pago a mais)</span><b>${brl(tt.pg.cp)}</b></div>`:''}</div>
    <div class="mut" style="margin:10px 0 4px;font-weight:600;color:var(--tx)">Do que está em atraso (calculado até hoje)</div>
    <div class="tot"><div><span class="mut">Principal</span><b>${brl(tt.at.pr)}</b></div><div><span class="mut">Multa</span><b>${brl(tt.at.mu)}</b></div><div><span class="mut">Juros</span><b>${brl(tt.at.ju)}</b></div><div><span class="mut">Correção anual</span><b>${brl(tt.at.co)}</b></div><div><span class="mut">Custo de cobrança</span><b>${brl(tt.at.ho)}</b></div></div></div>
+  ${cardBoletos()}
   <div class="card"><div class="bt">
    <button id="bsel" onclick="modoSel()">${SELMODO?'Cancelar seleção':'Selecionar parcelas para acordo'}</button>
    <button class="pri" ${SELMODO&&SEL.size?'':'disabled'} onclick="modalAcordo()">Adicionar acordo (${SEL.size})</button>
@@ -813,7 +872,10 @@ function acordoParaTermo(aid){const a=C.acordos.find(x=>x.id==aid);if(!a)return 
 function pDados(id){return (C.propostas||[]).find(x=>x.id==id)?.dados}
 async function efetivaProposta(id){const d=pDados(id);if(!d)return;await carregaTermo();await window.escolhePastaTermo().catch(()=>{});
   if(!confirm('Efetivar a proposta '+(d.termo||'')+'? O acordo entra no sistema, as parcelas de origem ficam quitadas por acordo e o termo é salvo na pasta Renegociações.'))return;
-  await api('acordo',{method:'POST',body:{...d,tipo:'acordo'}});await api('proposta/'+id,{method:'DELETE'});await recarrega();
+  const na=await api('acordo',{method:'POST',body:{...d,tipo:'acordo'}});await api('proposta/'+id,{method:'DELETE'});await recarrega();
+  if(EU==='luis'&&!COMO&&confirm('Gerar agora os boletos das parcelas deste acordo no Asaas?')){const ids=C.titulos.filter(t=>t.acordo_id==na.id).map(t=>+t.id);let fila=[...ids],er=[];
+    while(fila.length){const r=await api('boletos/emitir',{method:'POST',body:{titulos:fila.splice(0,4)}});for(const x of r){if(x.adiado)fila.push(x.titulo_id);else if(x.erro)er.push(x.erro)}}
+    await recarrega();alert(er.length?'Boletos gerados, com avisos: '+er.join('; '):'Boletos do acordo gerados.')}
   const hs=await htmlSalvo(d.termo);await window.emitirTermo(d,'pasta',hs||undefined)}
 async function apagaProposta(id){const d=pDados(id);if(!confirm('Excluir a proposta '+(d?.termo||'')+'? Ela some sem deixar nada no sistema.'))return;await api('proposta/'+id,{method:'DELETE'});recarrega()}
 async function salvaAcordo(aid){const b=window._salvaAcordoDados();

@@ -1,8 +1,10 @@
-import { passoSync } from './api.mjs';
+import { passoSync, passoBoletos, rodaCobranca60 } from './api.mjs';
 
 export default async () => {
-  try { console.log('asaas', JSON.stringify(await passoSync(22000))); }
-  catch (e) { console.error('asaas', e.message); }
+  for (const [nome, f] of [['pagamentos', () => passoSync(10000)], ['boletos', () => passoBoletos(8000)], ['cobranca60', () => rodaCobranca60(6000)]]) {
+    try { console.log('asaas', nome, JSON.stringify(await f())); }
+    catch (e) { console.error('asaas', nome, e.message); }
+  }
 };
 
 export const config = { schedule: '0 */2 * * *' };
