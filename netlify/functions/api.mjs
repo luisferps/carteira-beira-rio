@@ -470,7 +470,8 @@ async function processaPagamentoAsaas(g, X, opc = {}) {
   const b0 = await bloqueioEncerrado(t, 'luis'); if (b0) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: b0 });
   if (!(g.customer in X.nomes)) { const cu = await asaas('/customers/' + g.customer).catch(() => null); X.nomes[g.customer] = cu?.name || null; }
   const conf = g.confirmedDate || g.paymentDate || g.clientPaymentDate;
-  const cob = g.originalValue != null ? +g.originalValue : (pagoEm <= g.dueDate ? +g.value : R2(valorAno(t, D)));
+  const mesmoMes = String(g.dueDate || '').slice(0, 7) === dstr(t.vencimento).slice(0, 7);
+  const cob = g.originalValue != null && mesmoMes ? +g.originalValue : (mesmoMes && pagoEm <= g.dueDate ? +g.value : R2(valorAno(t, D)));
   const body = { forma: FORMA_A[g.billingType] || g.billingType, fatura: g.invoiceNumber ? String(g.invoiceNumber) : null, situacao_asaas: SIT_A[g.status] || g.status,
     valor_cobranca: cob, valor_pago: +g.value, criada_em: g.dateCreated, vencimento_boleto: g.dueDate, confirmada_em: conf, saque_em: g.creditDate || null,
     cliente_asaas: X.nomes[g.customer], descricao: g.description, obs: 'Lançado automaticamente pela integração com o Asaas' + (opc.titulo_id ? ' (parcela escolhida à mão)' : ''),
