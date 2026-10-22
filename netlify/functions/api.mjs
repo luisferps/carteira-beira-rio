@@ -463,7 +463,10 @@ async function processaPagamentoAsaas(g, X, opc = {}) {
   if (pagoEm === corte && !opc.titulo_id) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: 'Pago no mesmo dia em que a conferência foi fechada — confirme se já não estava na conferência' });
   const D = X.cache[n] || (X.cache[n] = await carregar(n, 'luis'));
   let t;
-  if (opc.titulo_id) { t = D.titulos.find(x => x.id == opc.titulo_id); if (!t) return { erro: 'Parcela não é deste contrato' }; }
+  if (opc.titulo_id) {
+    t = D.titulos.find(x => x.id == opc.titulo_id); if (!t) return { erro: 'Parcela não é deste contrato' };
+    if (!titulosLivres(D).some(x => x.id == t.id)) return { erro: `A parcela ${t.rotulo} já está paga, em acordo ou cancelada — não vou sobrescrever` };
+  }
   else { const e = escolherTitulo(g, D); if (e.erro) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: e.erro }); t = e.t; }
   const b0 = await bloqueioEncerrado(t, 'luis'); if (b0) return registraAuto(g, { resultado: 'pendente', contrato: n, motivo: b0 });
   if (!(g.customer in X.nomes)) { const cu = await asaas('/customers/' + g.customer).catch(() => null); X.nomes[g.customer] = cu?.name || null; }
