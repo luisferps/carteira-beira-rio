@@ -203,7 +203,7 @@ async function enviaCob(n,lote){const ns=lote?[...document.querySelectorAll('.sg
   const r=await api('cobranca/caso',{method:'POST',body:{contratos:ns}});if(lote)telaCobranca();else location.hash='cob/'+r[0].id}
 /* caso */
 async function telaCaso(id){app.innerHTML='<div class="card">Carregando…</div>';CASO=await api('cobranca/caso/'+id);const X=CASO,c=X.caso,d=X.divida,ct=X.contrato;
-  const cl=await api('clientes?contrato='+c.contrato).catch(()=>[]);X.cli=cl.map(cliDados);const fones=X.cli.flatMap(x=>x.tel.map(t=>({...t,nome:x.nome})));X.fones=fones;
+  const cl=await api('clientes?contrato='+c.contrato).catch(()=>[]);X.cli=cl.map(cliDados);const jf=new Set(),fones=X.cli.flatMap(x=>x.tel.map(t=>({...t,nome:x.nome}))).filter(t=>{const k=digs(t.v).slice(-8);if(jf.has(k))return false;jf.add(k);return true});X.fones=fones;
   const enc=!!c.encerrado_em;
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='cobranca'">← Cobrança</button><button onclick="location.hash='c/${c.contrato}'">Abrir o contrato</button></div>
   <div class="card"><div class="bt" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">Contrato ${c.contrato} — Q${ct.quadra} L${ct.lote}</h2><div style="font-size:15px">${esc(nome(d.titular||(ct.compradores||[]).map(x=>x.nome).join(' e ')))}</div>
