@@ -385,7 +385,7 @@ const semAc=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase
 function statusC(c){if(c.cancelado)return /reaproveit/i.test(c.motivo_enc||'')?'troca':/retom/i.test(c.motivo_enc||'')?'retom':/distrat|devol/i.test(c.motivo_enc||'')?'dev':'canc';if(!+c.conferidas&&+c.vencidas)return 'conf';return +c.em_atraso?(+(c.devido??c.em_atraso_valor)>5000?'atrasoG':'atraso'):'dia'}
 const STNOME={troca:'Troca de lote (crédito reaproveitado em outro contrato)',dia:'Em dia',atraso:'Em atraso',atrasoG:'Atraso grave (dívida acima de R$ 5 mil)',canc:'Cancelado',retom:'Retomado',dev:'Distrato (devolução)',conf:'A conferir'};
 const GRP=s=>s==='atrasoG'?'grave':s;
-const FILTROS=[['dia','Em dia'],['atraso','Em atraso'],['grave','Atraso grave'],['canc','Cancelados'],['retom','Retomados'],['dev','Distratos (devolução)'],['troca','Troca de lote'],['conf','A conferir'],['fech','Conferência fechada'],['pend','Com pendência']];
+const FILTROS=[['dia','Em dia'],['atraso','Em atraso'],['grave','Atraso grave'],['canc','Cancelados'],['retom','Retomados'],['dev','Distratos (devolução)'],['troca','Troca de lote'],['pend','Com pendência']];
 const passaFiltro=c=>!FILTRO.size||[...FILTRO].some(f=>f==='fech'?!!c.fechado_em:f==='pend'?!!c.pendencia:GRP(statusC(c))===f);
 async function telaLista(){
   app.innerHTML='<div class="card">Carregando…</div>';
