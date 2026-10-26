@@ -1031,6 +1031,7 @@ async function rotasPublicas(p, req, url) {
     if (!u || !confereSenha(String(b.senha || ''), u.senha_hash)) return json({ erro: 'E-mail ou senha incorretos.' }, 401);
     if (u.status === 'aguardando_email') return json({ erro: 'Confirme seu e-mail pelo link que enviamos.' }, 403);
     if (u.status === 'aguardando_aprovacao') return json({ erro: 'Seu cadastro está aguardando a liberação do administrador.' }, 403);
+    if (u.status === 'definir_senha') return json({ erro: 'Crie sua senha pelo link que o administrador enviou.' }, 403);
     if (u.status !== 'ativo') return json({ erro: 'Acesso bloqueado. Fale com o administrador.' }, 403);
     const tok = crypto.randomBytes(32).toString('hex');
     await q(`insert into carteira.sessoes(token, usuario_id, expira_em) values ($1,$2, now() + interval '30 days')`, [tok, u.id]);
@@ -1292,11 +1293,11 @@ export default async (req) => {
         where b.status = any($1) and t.id not in (select x.id from (${SQL_ABERTAS}) x) order by b.contrato, b.vencimento`, [ATIVOS_B, ATIVOS_B]));
       if (p[1] === 'sem-vinculo' && m === 'GET') return json(await q(`select id_asaas, contrato, fatura, valor, vencimento::text vencimento, status, motivo, descricao from carteira.boletos where titulo_id is null and status = any($1) order by vencimento`, [ATIVOS_B]));
       if (p[1] === 'vincular' && m === 'POST') {
-        const [t] = await q('select id, contrato from carteira.titulos where id=$1', [body.titulo_id]);
+        const [t] = await q('select id, contrato, grupo from carteira.titulos where id=$1', [body.titulo_id]);
         if (!t) return json({ erro: 'Parcela não encontrada' }, 404);
         const [ativo] = await q(`select id_asaas from carteira.boletos where titulo_id=$1 and status = any($2) and id_asaas<>$3`, [t.id, ATIVOS_B, body.id_asaas]);
         if (ativo) return json({ erro: 'Essa parcela já tem outro boleto ativo (' + ativo.id_asaas + ')' }, 409);
-        await q(`update carteira.boletos set titulo_id=$2, contrato=$3, motivo=null, atualizado_em=now() where id_asaas=$1`, [body.id_asaas, t.id, t.contrato]);
+        await q(`update carteira.boletos set titulo_id=$2, contrato=$3, motivo=null, tipo=case when $4 then 'acordo' else tipo end, atualizado_em=now() where id_asaas=$1`, [body.id_asaas, t.id, t.contrato, t.grupo === 'acordo']);
         return json({ ok: true });
       }
     }

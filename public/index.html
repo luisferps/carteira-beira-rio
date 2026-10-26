@@ -450,7 +450,7 @@ function origensAc(a){const g={},ord=[];for(const i of a.titulos_origem||[]){con
   return ord.map(k=>{const n=[...new Set(g[k])].sort((x,y)=>x-y),r=[];for(let i=0;i<n.length;i++){let j=i;while(j+1<n.length&&n[j+1]===n[j]+1)j++;r.push(j>i?n[i]+'/'+n[j]:''+n[i]);i=j}
     if(!r.length)return k;if(/\.$/.test(k))return k.slice(0,-1)+': '+r.join(', ');return r.map(x=>k+x).join(', ')}).join(', ')}
 const ehRep=a=>a&&a.tipo==='repactuacao';const nomeAc=a=>(ehRep(a)?'Repactuação ':'Acordo ')+numAc(a);const nomeCurto=a=>(ehRep(a)?'Repact. ':'Acordo ')+numAc(a);
-function numAc(a){const l=[...C.acordos].filter(x=>ehRep(x)===ehRep(a)).sort((x,y)=>String(x.data_acordo).localeCompare(String(y.data_acordo))||x.id-y.id);return l.findIndex(x=>x.id==a.id)+1}
+function numAc(a){const l=[...C.acordos].filter(x=>ehRep(x)===ehRep(a)&&ehSegVia(x)===ehSegVia(a)).sort((x,y)=>String(x.data_acordo).localeCompare(String(y.data_acordo))||x.id-y.id);return l.findIndex(x=>x.id==a.id)+1}
 /* "acordo" de uma parcela só, pago num boleto só = 2ª via (reemissão com encargos). Acordo de verdade junta mais de uma parcela ou reparcela. */
 function ehSegVia(a){return !!a&&!ehRep(a)&&(a.titulos_origem||[]).length===1&&C.titulos.filter(t=>t.acordo_id==a.id).length===1}
 function tituloSegVia(t){return t&&t.grupo==='acordo'&&ehSegVia(C.acordos.find(a=>a.id==t.acordo_id))}
