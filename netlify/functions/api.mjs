@@ -32,6 +32,7 @@ async function q(sql, params = []) {
 }
 
 async function log(conf, acao, detalhe) {
+  if (Array.isArray(detalhe)) detalhe = { itens: detalhe };
   await q('insert into carteira.historico(conferente, acao, detalhe) values ($1,$2,$3)', [conf, acao, detalhe]);
 }
 
@@ -808,7 +809,7 @@ async function cobrancaVoltaParaParcela(conf) {
     await q(`delete from carteira.acordos where id=$1`, [ac.id]);
     out.push({ contrato: ac.contrato, acordo: ac.id, boletos: bs.length, pagamentos: pags.length });
   }
-  if (out.length) await log(conf, 'cobranca_volta_para_parcela', out);
+  if (out.length) await log(conf, 'cobranca_volta_para_parcela', { itens: out });
   return out;
 }
 export async function rodaCobranca60(limiteMs = 15000) {
