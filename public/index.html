@@ -270,7 +270,7 @@ async function vinculaBol(id,ct){const n=prompt('Contrato do boleto:',ct||'');if
   <div class="bt"><button class="pri" onclick="(async()=>{await api('boletos/vincular',{method:'POST',body:{id_asaas:'${id}',titulo_id:+$('#vb_t').value}});fechaModal();desenhaSemVinculo()})()">Ligar</button></div>`)}
 /* boletos dentro do contrato */
 let BOLMOD=false;
-function modalBoletos(){BOLMOD=true;abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1;margin:0">Boletos do contrato ${C.contrato.numero}</h3><button onclick="BOLMOD=false;fechaModal()">Fechar</button></div>`+cardBoletos().replace(/^<div class="card">/,'<div>'))}
+function modalBoletos(){BOLMOD=true;abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1;margin:0">Boletos do contrato ${C.contrato.numero}</h3><button onclick="BOLMOD=false;fechaModal()">Fechar</button></div>`+cardBoletos().replace(/^<div class="card">/,'<div>').replace('<h3 style="margin:0;flex:1">Boletos</h3>','<span style="flex:1"></span>'));const m=document.querySelector('#modal .card');if(m){m.style.maxWidth='1150px';m.style.width='96vw'}}
 async function recarregaBol(){await recarrega();if(BOLMOD)modalBoletos()}
 function cardBoletos(){if(!(EU==='luis'||EU==='assistente')||COMO)return'';const B=C.boletos||[];const rot=id=>C.titulos.find(t=>t.id==id)?.rotulo||'—';
   const pagos=new Set(C.pagamentos.map(p=>String(p.titulo_id)));const ativos=new Set(B.filter(b=>['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS'].includes(b.status)).map(b=>String(b.titulo_id)));
