@@ -1211,6 +1211,13 @@ async function rotasCobranca(p, m, body, url, real) {
     await log(real, 'cobranca_encerrada', { caso: c.id, contrato: c.contrato, motivo: body.motivo });
     return json({ ok: true });
   }
+  if (p[1] === 'caso' && p[2] && !p[3] && m === 'DELETE') {
+    if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+    const [c] = await q(`delete from carteira.cobranca_casos where id=$1 returning contrato`, [p[2]]);
+    await q(`delete from carteira.cobranca_registros where caso_id=$1`, [p[2]]);
+    await log(real, 'cobranca_caso_excluido', { caso: p[2], contrato: c?.contrato });
+    return json({ ok: true });
+  }
   if (p[1] === 'contrato' && p[2] && m === 'GET') {
     const [c] = await q(`select id, etapa from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [p[2]]);
     return json(c || null);
