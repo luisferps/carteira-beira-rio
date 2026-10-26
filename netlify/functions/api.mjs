@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import pg from 'pg';
 
 pg.types.setTypeParser(1082, v => v);
@@ -31,8 +32,10 @@ async function q(sql, params = []) {
   return r.rows;
 }
 
+let ATOR = null;
 async function log(conf, acao, detalhe) {
   if (Array.isArray(detalhe)) detalhe = { itens: detalhe };
+  if (ATOR && ATOR !== conf && detalhe && typeof detalhe === 'object') detalhe = { ...detalhe, por: ATOR };
   await q('insert into carteira.historico(conferente, acao, detalhe) values ($1,$2,$3)', [conf, acao, detalhe]);
 }
 
@@ -961,6 +964,113 @@ async function aplicarCorrecao(itens, conf, ano) {
   return out;
 }
 
+/* ---------- usuários (cadastro próprio, confirmação por e-mail, aprovação do administrador) ---------- */
+async function garanteUsuarios() {
+  await q(`create table if not exists carteira.usuarios(id serial primary key, nome text not null, email text unique not null, cpf text, telefone text,
+           senha_hash text not null, perfil text not null default 'assistente', status text not null default 'aguardando_aprovacao',
+           token_email text, criado_em timestamptz default now(), aprovado_em timestamptz, aprovado_por text, ultimo_acesso timestamptz)`);
+  await q(`create table if not exists carteira.sessoes(token text primary key, usuario_id int not null, criado_em timestamptz default now(), expira_em timestamptz not null)`);
+}
+const hashSenha = s => { const sal = crypto.randomBytes(16).toString('hex'); return sal + ':' + crypto.scryptSync(s, sal, 64).toString('hex'); };
+const confereSenha = (s, h) => { const [sal, x] = String(h).split(':'); if (!sal || !x) return false; const y = crypto.scryptSync(s, sal, 64).toString('hex'); return crypto.timingSafeEqual(Buffer.from(x, 'hex'), Buffer.from(y, 'hex')); };
+async function enviaEmail(para, assunto, html) {
+  const key = (process.env.RESEND_API_KEY || '').trim(), de = (process.env.EMAIL_FROM || '').trim();
+  if (!key || !de) return false;
+  const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + key, 'content-type': 'application/json' }, body: JSON.stringify({ from: de, to: [para], subject: assunto, html }) }).catch(() => null);
+  return !!(r && r.ok);
+}
+async function usuarioDaSessao(req) {
+  const pin = (req.headers.get('x-pin') || '').trim();
+  if (!pin.startsWith('tok:')) return null;
+  await garanteUsuarios();
+  const [u] = await q(`select u.* from carteira.sessoes s join carteira.usuarios u on u.id=s.usuario_id where s.token=$1 and s.expira_em > now() and u.status='ativo'`, [pin.slice(4)]);
+  if (u) q(`update carteira.usuarios set ultimo_acesso=now() where id=$1`, [u.id]).catch(() => {});
+  return u || null;
+}
+async function rotasPublicas(p, req, url) {
+  if (p[0] === 'cadastro' && req.method === 'POST') {
+    await garanteUsuarios();
+    const b = await req.json().catch(() => ({}));
+    const nome = String(b.nome || '').trim(), email = String(b.email || '').trim().toLowerCase(), senha = String(b.senha || '');
+    if (nome.length < 3 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ erro: 'Informe nome e e-mail válidos.' }, 400);
+    if (senha.length < 8) return json({ erro: 'A senha precisa ter pelo menos 8 caracteres.' }, 400);
+    const [ja] = await q('select id, status from carteira.usuarios where email=$1', [email]);
+    if (ja) return json({ erro: 'Esse e-mail já tem cadastro' + (ja.status === 'ativo' ? '.' : ' aguardando liberação.') }, 409);
+    const temEmail = !!((process.env.RESEND_API_KEY || '').trim() && (process.env.EMAIL_FROM || '').trim());
+    const tok = crypto.randomBytes(24).toString('hex');
+    await q(`insert into carteira.usuarios(nome, email, cpf, telefone, senha_hash, status, token_email) values ($1,$2,$3,$4,$5,$6,$7)`,
+      [nome, email, String(b.cpf || '').replace(/\D/g, '') || null, String(b.telefone || '').trim() || null, hashSenha(senha), temEmail ? 'aguardando_email' : 'aguardando_aprovacao', tok]);
+    let enviado = false;
+    if (temEmail) enviado = await enviaEmail(email, 'Confirme seu e-mail — Carteira Beira Rio',
+      `<p>Olá, ${nome.replace(/</g, '')}.</p><p>Clique no link para confirmar seu e-mail:</p><p><a href="${url.origin}/api/confirmar?t=${tok}">Confirmar meu e-mail</a></p><p>Depois disso, o administrador libera o seu acesso.</p>`);
+    if (temEmail && !enviado) await q(`update carteira.usuarios set status='aguardando_aprovacao' where email=$1`, [email]);
+    await log('cadastro', 'usuario_cadastrado', { nome, email });
+    return json({ ok: true, confirmar_email: temEmail && enviado });
+  }
+  if (p[0] === 'confirmar' && req.method === 'GET') {
+    await garanteUsuarios();
+    const t = url.searchParams.get('t') || '';
+    const r = t ? await q(`update carteira.usuarios set status='aguardando_aprovacao', token_email=null where token_email=$1 and status='aguardando_email' returning nome`, [t]) : [];
+    const msg = r.length ? `E-mail confirmado, ${r[0].nome.replace(/</g, '')}. Agora é só aguardar o administrador liberar o seu acesso.` : 'Link inválido ou já usado.';
+    return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Confirmação</title><body style="font:16px system-ui;padding:40px;max-width:520px;margin:auto"><h2>Carteira Beira Rio</h2><p>${msg}</p><p><a href="/">Ir para o sistema</a></p></body>`, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+  }
+  if (p[0] === 'login' && req.method === 'POST') {
+    await garanteUsuarios();
+    const b = await req.json().catch(() => ({}));
+    const email = String(b.email || '').trim().toLowerCase();
+    const [u] = await q('select * from carteira.usuarios where email=$1', [email]);
+    if (!u || !confereSenha(String(b.senha || ''), u.senha_hash)) return json({ erro: 'E-mail ou senha incorretos.' }, 401);
+    if (u.status === 'aguardando_email') return json({ erro: 'Confirme seu e-mail pelo link que enviamos.' }, 403);
+    if (u.status === 'aguardando_aprovacao') return json({ erro: 'Seu cadastro está aguardando a liberação do administrador.' }, 403);
+    if (u.status !== 'ativo') return json({ erro: 'Acesso bloqueado. Fale com o administrador.' }, 403);
+    const tok = crypto.randomBytes(32).toString('hex');
+    await q(`insert into carteira.sessoes(token, usuario_id, expira_em) values ($1,$2, now() + interval '30 days')`, [tok, u.id]);
+    await log(u.email, 'login', { usuario: u.id });
+    return json({ token: tok, nome: u.nome, perfil: u.perfil });
+  }
+  return null;
+}
+/* o que o assistente administrativo pode fazer */
+async function permitidoAssistente(p, m, body) {
+  const a = p[0], s = p[1];
+  if (m === 'GET') return ['eu', 'contratos', 'contrato', 'clientes', 'print', 'termo-arq', 'relatorios', 'boleto'].includes(a)
+    || (a === 'boletos' && ['previa', 'cobranca', 'sem-vinculo', 'sobras'].includes(s));
+  if (a === 'sair') return true;
+  if (a === 'boletos' && m === 'POST') return ['emitir', 'segunda-via', 'cobranca', 'cobranca-sem-boleto', 'ligar-acordo'].includes(s);
+  if (a === 'boleto' && (m === 'PUT' || m === 'DELETE')) { const [b] = await q('select status from carteira.boletos where id_asaas=$1', [s]); return !!b && ATIVOS_B.includes(b.status); }
+  if (a === 'proposta') return true;
+  if (a === 'termo-arq') return true;
+  if (a === 'cliente' && m === 'PUT') return true;
+  if (a === 'acordo') {
+    if (m === 'POST') return true;
+    const pg = await q(`select 1 from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.acordo_id=$1 limit 1`, [s]);
+    return !pg.length;
+  }
+  if (a === 'evento') {
+    if (m === 'POST') return ['observacao', 'pendencia'].includes(body.tipo);
+    const [e] = await q('select tipo from carteira.eventos where id=$1', [s]);
+    return !!e && ['observacao', 'pendencia'].includes(e.tipo);
+  }
+  return false;
+}
+async function rotasUsuarios(p, m, body, real) {
+  if (p[0] === 'sair' && m === 'POST') return json({ ok: true });
+  if (p[0] !== 'usuarios' && p[0] !== 'usuario') return null;
+  if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+  await garanteUsuarios();
+  if (p[0] === 'usuarios' && m === 'GET') return json(await q(`select id, nome, email, cpf, telefone, perfil, status, criado_em, aprovado_em, ultimo_acesso from carteira.usuarios order by criado_em desc`));
+  if (p[0] === 'usuario' && p[1] && m === 'POST') {
+    const id = p[1], acao = p[2];
+    if (acao === 'aprovar') await q(`update carteira.usuarios set status='ativo', aprovado_em=now(), aprovado_por='luis' where id=$1`, [id]);
+    else if (acao === 'bloquear') { await q(`update carteira.usuarios set status='bloqueado' where id=$1`, [id]); await q(`delete from carteira.sessoes where usuario_id=$1`, [id]); }
+    else if (acao === 'excluir') { await q(`delete from carteira.sessoes where usuario_id=$1`, [id]); await q(`delete from carteira.usuarios where id=$1`, [id]); }
+    else return json({ erro: 'Ação inválida' }, 400);
+    await log('luis', 'usuario_' + acao, { id });
+    return json({ ok: true });
+  }
+  return null;
+}
+
 let schemaOk = false;
 async function garanteEsquema() {
   if (schemaOk) return;
@@ -993,7 +1103,10 @@ export default async (req) => {
     const k = (process.env.ANTHROPIC_API_KEY || '').trim();
     return json({ teste_conexao: teste, chave_ia: k ? { comeca_com_sk_ant: k.startsWith('sk-ant-'), tamanho: k.length, tem_espaco: /\s/.test(k) } : 'não configurada' });
   }
-  let conf = quem(req);
+  ATOR = null;
+  { const pub = await rotasPublicas(p, req, url); if (pub) return pub; }
+  let conf = quem(req), usuario = null;
+  if (!conf) { usuario = await usuarioDaSessao(req); if (usuario) conf = usuario.perfil === 'gestor' ? 'luis' : 'assistente'; }
   if (!conf) {
     const falta = [!PL && 'PIN_LUIS', !PS && 'PIN_SECRETARIA', !process.env.DATABASE_URL && 'DATABASE_URL'].filter(Boolean);
     return json({ erro: falta.length ? 'O servidor não está lendo: ' + falta.join(', ') : 'Senha inválida' }, 401);
@@ -1001,10 +1114,16 @@ export default async (req) => {
   const m = req.method;
   const body = m === 'GET' || m === 'DELETE' ? {} : await req.json().catch(() => ({}));
   const real = conf;
-  if (conf === 'luis' && req.headers.get('x-como') === 'final') conf = 'final';
+  if (conf === 'assistente') {
+    conf = 'luis';
+    if (!(await permitidoAssistente(p, m, body))) return json({ erro: 'Seu perfil (assistente administrativo) não permite essa ação.' }, 403);
+  }
+  if (real === 'luis' && req.headers.get('x-como') === 'final') conf = 'final';
+  ATOR = usuario ? usuario.email : real;
+  { const ru = await rotasUsuarios(p, m, body, real); if (ru) return ru; }
 
   try {
-    if (p[0] === 'eu') return json({ conferente: real });
+    if (p[0] === 'eu') return json({ conferente: real, nome: usuario?.nome || null });
 
     if (p[0] === 'ajusta-vencimentos' && m === 'POST') {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
@@ -1047,7 +1166,7 @@ export default async (req) => {
       if (r.resultado !== 'lancado') return json({ erro: r.motivo || 'Não lancei: ' + r.resultado }, 400);
       return json(r);
     }
-    if (p[0] === 'boletos' && real === 'luis') {
+    if (p[0] === 'boletos' && (real === 'luis' || real === 'assistente')) {
       await garanteBoletos();
       if (p[1] === 'previa' && m === 'GET') return json(await previaBoletos(url.searchParams.get('mes')));
       if (p[1] === 'emitir' && m === 'POST') {
@@ -1155,7 +1274,7 @@ export default async (req) => {
         return json({ ok: true });
       }
     }
-    if (p[0] === 'boleto' && p[1] && real === 'luis') {
+    if (p[0] === 'boleto' && p[1] && (real === 'luis' || real === 'assistente')) {
       await garanteBoletos();
       if (m === 'DELETE') return json(await excluirBoleto(p[1], real, url.searchParams.get('motivo') || 'Excluído pelo sistema'));
       if (m === 'PUT') return json(await editarBoleto(p[1], body, real));

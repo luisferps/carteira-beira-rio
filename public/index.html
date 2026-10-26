@@ -8,6 +8,7 @@
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--tx:#16181d;--mut:#6b7280;--ln:#e3e6eb;--az:#29c5f6;--azd:#0b8fbf;
 --pg:#16a34a;--ac:#eab308;--ca:#4b5563;--at:#b91c1c;--ve:#ef4444;--fu:#d1d5db;--pa:#6fbf8a;--rp:#0d9488}
+body.assist [onclick^="modalCorrecao"],body.assist [onclick^="modalEvento"],body.assist [onclick^="modalCredito"],body.assist [onclick^="modalRepact"],body.assist [onclick^="modalDevolucao"],body.assist [onclick^="fechar()"],body.assist [onclick^="reabrir"],body.assist [onclick^="puxarDesc"],body.assist [onclick^="apagar("],body.assist [onclick^="marca("],body.assist .ficha [onclick^="modalTitulo("],body.assist [onclick^="togCob"],body.assist [onclick^="syncBoletos"],body.assist [onclick^="excluiSobras"],body.assist [onclick^="vinculaBol"],body.assist [onclick^="passaCob"]{display:none!important}
 *{box-sizing:border-box}body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--tx)}
 header{display:flex;align-items:center;gap:12px;padding:10px 20px;background:#111;color:#fff;position:sticky;top:0;z-index:5}
 header img{height:30px;background:#fff;border-radius:6px;padding:2px}header b{font-size:16px}header .sp{flex:1}
@@ -99,16 +100,33 @@ async function api(path,opt={}){
   return d;
 }
 function telaLogin(msg){
-  $('#quem').textContent='';$('#sair').classList.add('hid');
-  app.innerHTML=`<div class="card" style="max-width:380px;margin:60px auto"><h3>Entrar</h3>${msg?`<div class="aviso">${msg}</div>`:''}
-  <label>Senha</label><input id="pin" type="password" autofocus><br><br><button class="pri" id="ent">Entrar</button></div>`;
-  const go=async()=>{PIN=$('#pin').value.trim();try{localStorage.setItem('cbr_pin',PIN)}catch(e){};iniciar()};
+  $('#quem').textContent='';$('#sair').classList.add('hid');document.body.classList.remove('assist');
+  app.innerHTML=`<div class="card" style="max-width:400px;margin:60px auto"><h3>Entrar</h3>${msg?`<div class="aviso">${msg}</div>`:''}
+  <label>E-mail</label><input id="em" type="email" autocomplete="username" placeholder="seu e-mail (o administrador pode deixar em branco)"><br><br>
+  <label>Senha</label><input id="pin" type="password" autocomplete="current-password"><br><br><button class="pri" id="ent">Entrar</button>
+  <div style="margin-top:14px" class="mut">Não tem acesso? <a href="#cadastro" onclick="telaCadastro();return false">Criar meu acesso</a></div></div>`;
+  const go=async()=>{const em=$('#em').value.trim(),s=$('#pin').value;
+    if(em){const r=await fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:em,senha:s})});const d=await r.json().catch(()=>({}));if(!r.ok||!d.token)return telaLogin(d.erro||'Não foi possível entrar.');PIN='tok:'+d.token}
+    else PIN=s.trim();
+    try{localStorage.setItem('cbr_pin',PIN)}catch(e){};iniciar()};
   $('#ent').onclick=go;$('#pin').onkeydown=e=>{if(e.key==='Enter')go()};
 }
+function telaCadastro(msg){
+  app.innerHTML=`<div class="card" style="max-width:440px;margin:40px auto"><h3>Criar meu acesso</h3>${msg?`<div class="aviso">${msg}</div>`:''}
+  <div class="info">Preencha seus dados. ${'Você vai receber um e-mail para confirmar (se não chegar, olhe no lixo eletrônico).'} Depois o administrador libera o acesso.</div>
+  <label>Nome completo</label><input id="c_nome"><br><br><label>CPF</label><input id="c_cpf" inputmode="numeric"><br><br><label>Telefone</label><input id="c_tel" inputmode="tel"><br><br>
+  <label>E-mail</label><input id="c_em" type="email"><br><br><label>Senha (mínimo 8 caracteres)</label><input id="c_s1" type="password"><br><br><label>Repita a senha</label><input id="c_s2" type="password"><br><br>
+  <button class="pri" id="c_ok">Criar acesso</button> <button onclick="telaLogin()">Voltar</button></div>`;
+  $('#c_ok').onclick=async()=>{if($('#c_s1').value!==$('#c_s2').value)return telaCadastro('As senhas não conferem.');
+    const r=await fetch('/api/cadastro',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({nome:$('#c_nome').value,cpf:$('#c_cpf').value,telefone:$('#c_tel').value,email:$('#c_em').value,senha:$('#c_s1').value})});
+    const d=await r.json().catch(()=>({}));if(!r.ok)return telaCadastro(d.erro||'Erro ao cadastrar.');
+    app.innerHTML=`<div class="card" style="max-width:440px;margin:60px auto"><h3>Cadastro enviado</h3><p>${d.confirmar_email?'Enviamos um link para o seu e-mail. Confirme por ele e aguarde o administrador liberar o seu acesso.':'Agora é só aguardar o administrador liberar o seu acesso.'}</p><button onclick="telaLogin()">Ir para o login</button></div>`}}
 async function iniciar(){
+  if(location.hash==='#cadastro')return telaCadastro();
   if(!PIN)return telaLogin();
-  try{const d=await api('eu');EU=d.conferente}catch(e){return}
-  $('#quem').innerHTML=EU==='luis'?'<button onclick="location.hash=\'\'">Início</button> <button onclick="location.hash=\'x\'">Cruzamento</button>':'<button onclick="location.hash=\'\'">Início</button> Conferência da Secretária';
+  try{const d=await api('eu');EU=d.conferente;NOMEU=d.nome||''}catch(e){return}
+  document.body.classList.toggle('assist',EU==='assistente');
+  $('#quem').innerHTML=EU==='assistente'?`<button onclick="location.hash=''">Início</button> <span style="font-size:13px">${esc(NOMEU)} · assistente administrativo</span>`:EU==='luis'?'<button onclick="location.hash=\'\'">Início</button> <button onclick="location.hash=\'x\'">Cruzamento</button>':'<button onclick="location.hash=\'\'">Início</button> Conferência da Secretária';
   $('#sair').classList.remove('hid');$('#sair').onclick=()=>{PIN='';try{localStorage.removeItem('cbr_pin')}catch(e){};telaLogin()};
   route();
 }
@@ -117,7 +135,7 @@ function route(){const h=location.hash.slice(1);COMO='';
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
-  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='boletos'&&EU==='luis')telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
+  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function novaPend(){const t=prompt('Descreva a pendência deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
 async function novaObs(){const t=prompt('Observação deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'observacao',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
@@ -128,8 +146,19 @@ function telaModulos(){
   app.innerHTML=`<div class="mods">
    <div class="mod" onclick="location.hash='contratos'"><b>Contratos</b><span>Carteira do Beira Rio: parcelas, pagamentos, acordos, cessões, relatórios e conferência.</span></div>
    <div class="mod" style="border-left-color:#2e9e4f" onclick="location.hash='clientes'"><b>Clientes</b><span>Cadastro dos clientes: telefones, e-mails, endereço, documentos e os contratos de cada um.</span></div>
-   ${EU==='luis'?`<div class="mod" style="border-left-color:#0d9488" onclick="location.hash='correcao'"><b>Correção anual</b><span>Prévia e aplicação da correção de janeiro (IGP-M + 2% para quem atrasou), contrato por contrato.</span></div><div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar os boletos do mês, cobrança dos 60 dias e boletos feitos direto no Asaas.</span></div><div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
+   ${EU==='assistente'?`<div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar boletos, 2ª via, cobrança e relatórios de cobrança.</span></div>`:''}
+   ${EU==='luis'?`<div class="mod" style="border-left-color:#64748b" onclick="location.hash='usuarios'"><b>Usuários</b><span>Liberar ou bloquear o acesso da equipe.</span></div><div class="mod" style="border-left-color:#0d9488" onclick="location.hash='correcao'"><b>Correção anual</b><span>Prévia e aplicação da correção de janeiro (IGP-M + 2% para quem atrasou), contrato por contrato.</span></div><div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar os boletos do mês, cobrança dos 60 dias e boletos feitos direto no Asaas.</span></div><div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
   </div>`}
+
+/* ---------- USUÁRIOS ---------- */
+const STU={aguardando_email:'Aguardando confirmar o e-mail',aguardando_aprovacao:'Aguardando sua liberação',ativo:'Ativo',bloqueado:'Bloqueado'};
+async function telaUsuarios(){const L=await api('usuarios');
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div><div class="card"><h3 style="margin-top:0">Usuários</h3>
+  <div class="info">A pessoa cria o próprio acesso em "Criar meu acesso" na tela de entrada, confirma pelo e-mail e aparece aqui para você liberar. Perfil: <b>assistente administrativo</b> — vê tudo, faz acordos e propostas, emite boletos, 2ª via e relatórios; não lança, não edita e não apaga pagamentos, não mexe em correção, encerramento, cessão nem na conferência.</div>
+  <table style="margin-top:8px"><tr><th>Nome</th><th>E-mail</th><th>CPF</th><th>Telefone</th><th>Situação</th><th>Último acesso</th><th></th></tr>
+  ${L.map(u=>`<tr><td><b>${esc(u.nome)}</b><div class="mut" style="font-size:12px">${u.perfil==='assistente'?'Assistente administrativo':esc(u.perfil)}</div></td><td>${esc(u.email)}</td><td>${esc(u.cpf||'')}</td><td>${esc(u.telefone||'')}</td><td>${STU[u.status]||u.status}</td><td>${u.ultimo_acesso?new Date(u.ultimo_acesso).toLocaleString('pt-BR'):'—'}</td>
+   <td style="white-space:nowrap">${u.status!=='ativo'?`<button class="pri" onclick="acaoU(${u.id},'aprovar')">Liberar</button> `:''}${u.status==='ativo'?`<button onclick="acaoU(${u.id},'bloquear')">Bloquear</button> `:''}<button class="per" onclick="acaoU(${u.id},'excluir')">Excluir</button></td></tr>`).join('')||'<tr><td colspan="7" class="mut">Ninguém cadastrado ainda.</td></tr>'}</table></div>`}
+async function acaoU(id,a){if(!confirm({aprovar:'Liberar o acesso?',bloquear:'Bloquear o acesso?',excluir:'Excluir este usuário?'}[a]))return;await api('usuario/'+id+'/'+a,{method:'POST',body:{}});telaUsuarios()}
 
 /* ---------- 2ª VIA ATUALIZADA ---------- */
 function modalSegundaVia(id){const t=C.titulos.find(x=>x.id==id);
@@ -227,7 +256,7 @@ async function vinculaBol(id,ct){const n=prompt('Contrato do boleto:',ct||'');if
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Ligar boleto ao contrato ${num}</h3><button onclick="fechaModal()">Fechar</button></div><label>Parcela</label><select id="vb_t">${D.titulos.filter(t=>!pagos.has(String(t.id))).map(t=>`<option value="${t.id}">${esc(t.rotulo)} — venc. ${dbr(t.vencimento)} — ${brl(+t.valor_face)}</option>`).join('')}</select>
   <div class="bt"><button class="pri" onclick="(async()=>{await api('boletos/vincular',{method:'POST',body:{id_asaas:'${id}',titulo_id:+$('#vb_t').value}});fechaModal();desenhaSemVinculo()})()">Ligar</button></div>`)}
 /* boletos dentro do contrato */
-function cardBoletos(){if(EU!=='luis'||COMO)return'';const B=C.boletos||[];const rot=id=>C.titulos.find(t=>t.id==id)?.rotulo||'—';
+function cardBoletos(){if(!(EU==='luis'||EU==='assistente')||COMO)return'';const B=C.boletos||[];const rot=id=>C.titulos.find(t=>t.id==id)?.rotulo||'—';
   const pagos=new Set(C.pagamentos.map(p=>String(p.titulo_id)));const ativos=new Set(B.filter(b=>['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS'].includes(b.status)).map(b=>String(b.titulo_id)));
   const abertas=C.titulos.filter(t=>!pagos.has(String(t.id))&&!ativos.has(String(t.id))&&String(t.vencimento)>=C.hoje&&!acordoDe(t)).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).slice(0,24);
   return `<div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Boletos</h3>
@@ -335,7 +364,7 @@ async function salvaCliente(id){const manual={telefone:$('#ce_t').value.trim(),e
   await api('cliente/'+id,{method:'PUT',body:{manual}});const c=CLI.find(c=>c.id==id);c.manual=manual;$('#modal').innerHTML='';fichaCliente(id)}
 
 /* ---------- LISTA ---------- */
-let FILTRO='todos';
+let FILTRO='todos',NOMEU='';
 function statusC(c){if(c.cancelado)return /reaproveit/i.test(c.motivo_enc||'')?'troca':/retom/i.test(c.motivo_enc||'')?'retom':/distrat|devol/i.test(c.motivo_enc||'')?'dev':'canc';if(!+c.conferidas&&+c.vencidas)return 'conf';return +c.em_atraso?(+(c.devido??c.em_atraso_valor)>5000?'atrasoG':'atraso'):'dia'}
 const STNOME={troca:'Troca de lote (crédito reaproveitado em outro contrato)',dia:'Em dia',atraso:'Em atraso',atrasoG:'Em atraso acima de R$ 5 mil',canc:'Cancelado',retom:'Retomado',dev:'Distrato (devolução)',conf:'A conferir'};const GRP=s=>s==='atrasoG'?'atraso':s==='troca'||s==='retom'||s==='dev'?'canc':s;
 async function telaLista(){
@@ -727,7 +756,7 @@ function modalTitulo(id,editId,novo){
   const cab=`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
   ${acT?`<div class="aviso" style="background:#fef3c7;border-color:#f59e0b;color:#78350f"><b>Esta parcela já está em negociação:</b> ${nomeAc(acT)} de ${dbr(acT.data_acordo)}${C.titulos.filter(x=>x.acordo_id==acT.id).every(x=>C.pagamentos.some(p=>p.titulo_id==x.id))?' (pago)':' (aguardando pagamento)'}. Não dá para criar outra negociação para ela — se precisar renegociar, use as parcelas desse acordo.</div>`:''}
   ${prT?`<div class="aviso" style="background:#fef3c7;border-color:#f59e0b;color:#78350f"><b>Esta parcela está na proposta de acordo ${esc(prT.dados?.termo||'')}</b>, ainda não efetivada.</div>`:''}
-  ${EU==='luis'&&!COMO&&!acT&&!prT&&t.vencimento<C.hoje&&!pags.length&&['vencida','em_atraso'].includes(estado(t))?`<div class="bt" style="margin:6px 0"><button class="pri" onclick="modalSegundaVia(${t.id})">2ª via atualizada</button><span class="mut" style="font-size:12px">Reemite o boleto desta parcela com multa, juros${t.grupo!=='acordo'?' (e os 10% de cobrança depois de 60 dias)':''} até a data que o cliente pedir.</span></div>`:''}
+  ${(EU==='luis'||EU==='assistente')&&!COMO&&!acT&&!prT&&t.vencimento<C.hoje&&!pags.length&&['vencida','em_atraso'].includes(estado(t))?`<div class="bt" style="margin:6px 0"><button class="pri" onclick="modalSegundaVia(${t.id})">2ª via atualizada</button><span class="mut" style="font-size:12px">Reemite o boleto desta parcela com multa, juros${t.grupo!=='acordo'?' (e os 10% de cobrança depois de 60 dias)':''} até a data que o cliente pedir.</span></div>`:''}
   ${bolT.length?`<div class="info"><b>Boleto em aberto:</b> ${bolT.map(b=>`${esc(b.fatura||'')} · vence ${dbr(b.vencimento)} · ${brl(+b.valor)}${b.link?` · <a href="${b.link}" target="_blank">ver</a>`:''}`).join('<br>')}</div>`:''}
   ${t.grupo==='acordo'?(()=>{const ac=C.acordos.find(x=>x.id==t.acordo_id);if(!ac)return'';const d=(l,v)=>`<div class="dado"><span>${l}</span><b>${v}</b></div>`;
     return `<div class="ficha" style="border-left-color:#c79a00;background:rgba(199,154,0,.06);margin:8px 0">
@@ -759,6 +788,7 @@ function modalTitulo(id,editId,novo){
        <div class="desc">${esc(desc)}</div></div>`}).join(''));
     return;
   }
+  if(EU==='assistente'){document.onpaste=null;abreModal(cab+(pags.length?pags.map(p=>fichaPag(p,id)).join(''):'<div class="mut" style="margin-top:8px">Nenhum pagamento lançado nesta parcela.</div>'));return}
   if(pags.length&&!ed&&!novo){
     document.onpaste=null;
     abreModal(cab+pags.map(p=>fichaPag(p,id)).join('')+`<div class="bt" style="margin-top:12px"><button onclick="modalTitulo(${id},null,1)">Lançar outro pagamento nesta parcela</button><span style="flex:1"></span>
@@ -936,10 +966,10 @@ function pDados(id){return (C.propostas||[]).find(x=>x.id==id)?.dados}
 async function efetivaProposta(id){const d=pDados(id);if(!d)return;await carregaTermo();await window.escolhePastaTermo().catch(()=>{});
   if(!confirm('Efetivar a proposta '+(d.termo||'')+'? O acordo entra no sistema, as parcelas de origem ficam quitadas por acordo e o termo é salvo na pasta Renegociações.'))return;
   const na=await api('acordo',{method:'POST',body:{...d,tipo:'acordo'}});await api('proposta/'+id,{method:'DELETE'});await recarrega();
-  if(EU==='luis'&&!COMO&&confirm('Gerar agora os boletos das parcelas deste acordo no Asaas?')){const ids=C.titulos.filter(t=>t.acordo_id==na.id).map(t=>+t.id);let fila=[...ids],er=[];
+  if((EU==='luis'||EU==='assistente')&&!COMO&&confirm('Gerar agora os boletos das parcelas deste acordo no Asaas?')){const ids=C.titulos.filter(t=>t.acordo_id==na.id).map(t=>+t.id);let fila=[...ids],er=[];
     while(fila.length){const r=await api('boletos/emitir',{method:'POST',body:{titulos:fila.splice(0,4)}});for(const x of r){if(x.adiado)fila.push(x.titulo_id);else if(x.erro)er.push(x.erro)}}
     await recarrega();alert(er.length?'Boletos gerados, com avisos: '+er.join('; '):'Boletos do acordo gerados.')}
-  else if(EU==='luis'&&!COMO){const r=await api('boletos/ligar-acordo',{method:'POST',body:{acordo_id:+na.id}});await recarrega();if(r.ligados)alert(`${r.ligados} boleto(s) que já estavam emitidos no Asaas foram ligados às parcelas do acordo.${r.pago?' A 1ª parcela já estava paga e foi lançada.':''}`)}
+  else if((EU==='luis'||EU==='assistente')&&!COMO){const r=await api('boletos/ligar-acordo',{method:'POST',body:{acordo_id:+na.id}});await recarrega();if(r.ligados)alert(`${r.ligados} boleto(s) que já estavam emitidos no Asaas foram ligados às parcelas do acordo.${r.pago?' A 1ª parcela já estava paga e foi lançada.':''}`)}
   const hs=await htmlSalvo(d.termo);await window.emitirTermo(d,'pasta',hs||undefined)}
 async function apagaProposta(id){const d=pDados(id);if(!confirm('Excluir a proposta '+(d?.termo||'')+'? Ela some sem deixar nada no sistema.'))return;await api('proposta/'+id,{method:'DELETE'});recarrega()}
 async function salvaAcordo(aid){const b=window._salvaAcordoDados();
