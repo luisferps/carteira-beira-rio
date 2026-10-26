@@ -1109,6 +1109,27 @@ export default async (req) => {
         for (const c of cs) { const d = await deslocamento(c.numero, 'mensal'); if (d) out.push({ contrato: c.numero, deslocamento: d }); }
         return json(out);
       }
+      if (p[1] === 'ligar-acordo' && m === 'POST') {
+        const [ac] = await q(`select * from carteira.acordos where id=$1 and conferente='luis'`, [body.acordo_id]);
+        if (!ac) return json({ erro: 'Acordo não encontrado' }, 404);
+        const ts = await q(`select id, numero, total, vencimento::text vencimento from carteira.titulos where acordo_id=$1 order by numero`, [ac.id]);
+        const cli = await clienteDoContrato(ac.contrato);
+        const desde = somaDias(dstr(ac.data_acordo), -20);
+        const r = cli ? await asaas(`/payments?customer=${cli}&dateCreated[ge]=${desde}&limit=100`) : null;
+        let ligados = 0, pago = false; const X = await contextoAuto();
+        for (const g of r?.data || []) {
+          if (g.deleted) continue;
+          const mm = String(g.description || '').replace(/\s+/g, ' ').match(/Renegocia\S*\s+(\d+)\s+de\s+(\d+)/i);
+          if (!mm || +mm[2] !== ts.length) continue;
+          const t = ts.find(x => x.numero === +mm[1]); if (!t) continue;
+          await gravaBoleto(g, { contrato: ac.contrato, titulo_id: t.id, tipo: 'acordo', origem: 'asaas' });
+          await q(`update carteira.boletos set titulo_id=$2, contrato=$3, tipo='acordo', motivo=null where id_asaas=$1`, [g.id, t.id, ac.contrato]);
+          ligados++;
+          if (PAGO_A.includes(g.status)) { const x = await processaPagamentoAsaas(g, X, { forcar: true, contrato: ac.contrato, titulo_id: t.id }); if (x.resultado === 'lancado') pago = true; }
+        }
+        await log(real, 'boletos_ligados_acordo', { acordo: ac.id, ligados });
+        return json({ ligados, pago });
+      }
       if (p[1] === 'cobranca-para-acordo' && m === 'POST') return json(await cobrancasParaAcordo(real));
       if (p[1] === 'desfaz-cobranca' && m === 'POST') return json(await desfazCobranca(body.id_asaas, real));
       if (p[1] === 'cobranca-sem-boleto' && m === 'POST') {
@@ -1493,6 +1514,17 @@ export default async (req) => {
       const [r] = await q('insert into carteira.propostas(contrato, conferente, dados) values ($1,$2,$3) returning id', [body.contrato, conf, body.dados]);
       await log(conf, 'proposta_nova', { id: r.id, contrato: body.contrato });
       return json(r);
+    }
+    if (p[0] === 'proposta' && p[1] && m === 'PUT') {
+      const [pr] = await q('select * from carteira.propostas where id=$1 and conferente=$2', [p[1], conf]);
+      if (!pr) return json({ erro: 'Proposta não encontrada' }, 404);
+      const ids = (body.dados?.titulos_origem || []).map(Number);
+      const ja = await q(`select t.rotulo from carteira.acordos a join carteira.titulos t on t.id = any(a.titulos_origem) where a.contrato=$1 and a.conferente=$2 and t.id = any($3)`, [pr.contrato, conf, ids]);
+      const jp = (await q(`select dados from carteira.propostas where contrato=$1 and conferente=$2 and id<>$3`, [pr.contrato, conf, p[1]])).filter(x => (x.dados?.titulos_origem || []).map(Number).some(i => ids.includes(i)));
+      if (ja.length || jp.length) return json({ erro: 'Já existe negociação para essa(s) parcela(s): ' + [...ja.map(x => x.rotulo + ' (acordo)'), ...jp.map(x => 'proposta ' + (x.dados?.termo || ''))].join(', ') + '.' }, 409);
+      await q('update carteira.propostas set dados=$2 where id=$1', [p[1], body.dados]);
+      await log(conf, 'proposta_alterada', { id: p[1], antes: pr.dados, depois: body.dados });
+      return json({ ok: true });
     }
     if (p[0] === 'proposta' && p[1] && m === 'DELETE') {
       await q('delete from carteira.propostas where id=$1 and conferente=$2', [p[1], conf]);
