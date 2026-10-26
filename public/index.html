@@ -384,8 +384,8 @@ let FILTRO=new Set(),NOMEU='';
 const semAc=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
 function statusC(c){if(c.cancelado)return /reaproveit/i.test(c.motivo_enc||'')?'troca':/retom/i.test(c.motivo_enc||'')?'retom':/distrat|devol/i.test(c.motivo_enc||'')?'dev':'canc';if(!+c.conferidas&&+c.vencidas)return 'conf';return +c.em_atraso?(+(c.devido??c.em_atraso_valor)>5000?'atrasoG':'atraso'):'dia'}
 const STNOME={troca:'Troca de lote (crédito reaproveitado em outro contrato)',dia:'Em dia',atraso:'Em atraso',atrasoG:'Atraso grave (dívida acima de R$ 5 mil)',canc:'Cancelado',retom:'Retomado',dev:'Distrato (devolução)',conf:'A conferir'};
-const GRP=s=>s==='atrasoG'?'grave':s==='troca'||s==='retom'||s==='dev'?'canc':s;
-const FILTROS=[['dia','Em dia'],['atraso','Em atraso'],['grave','Atraso grave'],['canc','Cancelados/encerrados'],['conf','A conferir'],['fech','Conferência fechada'],['pend','Com pendência']];
+const GRP=s=>s==='atrasoG'?'grave':s;
+const FILTROS=[['dia','Em dia'],['atraso','Em atraso'],['grave','Atraso grave'],['canc','Cancelados'],['retom','Retomados'],['dev','Distratos (devolução)'],['troca','Troca de lote'],['conf','A conferir'],['fech','Conferência fechada'],['pend','Com pendência']];
 const passaFiltro=c=>!FILTRO.size||[...FILTRO].some(f=>f==='fech'?!!c.fechado_em:f==='pend'?!!c.pendencia:GRP(statusC(c))===f);
 async function telaLista(){
   app.innerHTML='<div class="card">Carregando…</div>';
@@ -394,7 +394,7 @@ async function telaLista(){
   <input id="bus" placeholder="Buscar por número, quadra, lote ou nome (com ou sem acento)">
   <div class="filtros" id="filt"></div><div class="mut" style="font-size:12px;margin-top:6px">Clique em mais de um filtro para ver juntos. "Todos" limpa a seleção. Atraso grave = dívida acima de R$ 5 mil.</div></div><div class="cgrid mini" id="tb"></div>`;
   const conta=k=>k==='todos'?LISTA.length:LISTA.filter(c=>k==='fech'?!!c.fechado_em:k==='pend'?!!c.pendencia:GRP(statusC(c))===k).length;
-  const botoes=()=>{$('#filt').innerHTML=`<button data-f="todos" class="${FILTRO.size?'':'on'}">Todos (${LISTA.length})</button>`+FILTROS.map(([k,l])=>`<button data-f="${k}" class="${FILTRO.has(k)?'on':''}">${l} (${conta(k)})</button>`).join('')};
+  const botoes=()=>{$('#filt').innerHTML=`<button data-f="todos" class="${FILTRO.size?'':'on'}">Todos (${LISTA.length})</button>`+FILTROS.filter(([k])=>k!=='troca'||conta(k)).map(([k,l])=>`<button data-f="${k}" class="${FILTRO.has(k)?'on':''}">${l} (${conta(k)})</button>`).join('')};
   const casa=(c,t)=>{if(!t)return true;const ql=`q${+c.quadra||c.quadra} l${+c.lote||c.lote}`;const alvo=semAc([c.numero,+c.numero,'q'+c.quadra+' l'+c.lote,'q'+c.quadra+'l'+c.lote,ql,ql.replace(' ',''),'quadra '+(+c.quadra)+' lote '+(+c.lote),c.titular].join(' | '));
     return t.split(/\s+/).filter(Boolean).every(w=>alvo.includes(w))||alvo.includes(t)};
   const desenha=()=>{const t=semAc($('#bus').value.trim());botoes();
