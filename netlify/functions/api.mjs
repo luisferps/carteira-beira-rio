@@ -1014,6 +1014,15 @@ async function rotasPublicas(p, req, url) {
     const msg = r.length ? `E-mail confirmado, ${r[0].nome.replace(/</g, '')}. Agora é só aguardar o administrador liberar o seu acesso.` : 'Link inválido ou já usado.';
     return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Confirmação</title><body style="font:16px system-ui;padding:40px;max-width:520px;margin:auto"><h2>Carteira Beira Rio</h2><p>${msg}</p><p><a href="/">Ir para o sistema</a></p></body>`, { headers: { 'content-type': 'text/html; charset=utf-8' } });
   }
+  if (p[0] === 'definir-senha' && req.method === 'POST') {
+    await garanteUsuarios();
+    const b = await req.json().catch(() => ({}));
+    if (String(b.senha || '').length < 8) return json({ erro: 'A senha precisa ter pelo menos 8 caracteres.' }, 400);
+    const r = b.token ? await q(`update carteira.usuarios set senha_hash=$2, status='ativo', token_email=null, aprovado_em=coalesce(aprovado_em, now()) where token_email=$1 and status='definir_senha' returning nome, email`, [String(b.token), hashSenha(String(b.senha))]) : [];
+    if (!r.length) return json({ erro: 'Link inválido ou já usado. Peça um novo ao administrador.' }, 400);
+    await log(r[0].email, 'senha_definida', {});
+    return json({ ok: true, email: r[0].email, nome: r[0].nome });
+  }
   if (p[0] === 'login' && req.method === 'POST') {
     await garanteUsuarios();
     const b = await req.json().catch(() => ({}));
@@ -1059,6 +1068,23 @@ async function rotasUsuarios(p, m, body, real) {
   if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
   await garanteUsuarios();
   if (p[0] === 'usuarios' && m === 'GET') return json(await q(`select id, nome, email, cpf, telefone, perfil, status, criado_em, aprovado_em, ultimo_acesso from carteira.usuarios order by criado_em desc`));
+  if (p[0] === 'usuarios' && m === 'POST') {
+    const nome = String(body.nome || '').trim(), email = String(body.email || '').trim().toLowerCase();
+    if (nome.length < 3 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ erro: 'Informe nome e e-mail válidos.' }, 400);
+    const [ja] = await q('select id from carteira.usuarios where email=$1', [email]);
+    if (ja) return json({ erro: 'Esse e-mail já tem cadastro.' }, 409);
+    const tok = crypto.randomBytes(24).toString('hex');
+    await q(`insert into carteira.usuarios(nome, email, cpf, telefone, senha_hash, perfil, status, token_email, aprovado_por) values ($1,$2,$3,$4,$5,'assistente','definir_senha',$6,'luis')`,
+      [nome, email, String(body.cpf || '').replace(/\D/g, '') || null, String(body.telefone || '').trim() || null, hashSenha(crypto.randomBytes(16).toString('hex')), tok]);
+    await log('luis', 'usuario_criado', { nome, email });
+    return json({ ok: true, token: tok });
+  }
+  if (p[0] === 'usuario' && p[1] && p[2] === 'novo-link' && m === 'POST') {
+    const tok = crypto.randomBytes(24).toString('hex');
+    await q(`update carteira.usuarios set token_email=$2, status='definir_senha' where id=$1`, [p[1], tok]);
+    await q(`delete from carteira.sessoes where usuario_id=$1`, [p[1]]);
+    return json({ ok: true, token: tok });
+  }
   if (p[0] === 'usuario' && p[1] && m === 'POST') {
     const id = p[1], acao = p[2];
     if (acao === 'aprovar') await q(`update carteira.usuarios set status='ativo', aprovado_em=now(), aprovado_por='luis' where id=$1`, [id]);
@@ -1678,6 +1704,15 @@ export default async (req) => {
 
     if (p[0] === 'acordo' && m === 'POST') {
       const b = body;
+      /* "acordo" de 1 parcela só, sem pagamento (2ª via vencida antiga) não bloqueia: é desfeito e a parcela entra no acordo novo */
+      const sv = await q(`select a.id from carteira.acordos a where a.contrato=$1 and a.conferente=$2 and a.titulos_origem && $3::bigint[] and array_length(a.titulos_origem,1)=1 and a.qtd_parcelas=1
+                          and not exists (select 1 from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.acordo_id=a.id)`, [b.contrato, conf, (b.titulos_origem || []).map(Number)]);
+      for (const x of sv) {
+        const ts = await q('select id from carteira.titulos where acordo_id=$1', [x.id]);
+        for (const bo of await q(`select id_asaas from carteira.boletos where titulo_id = any($1) and status = any($2)`, [ts.map(t => t.id), ATIVOS_B]).catch(() => [])) await excluirBoleto(bo.id_asaas, conf, 'Parcela entrou em acordo novo').catch(() => {});
+        await q('delete from carteira.titulos where acordo_id=$1', [x.id]); await q('delete from carteira.acordos where id=$1', [x.id]);
+        await log(conf, 'segunda_via_desfeita_para_acordo', { acordo: x.id });
+      }
       const ja = await q(`select a.data_acordo::text d, t.rotulo from carteira.acordos a join carteira.titulos t on t.id = any(a.titulos_origem)
                           where a.contrato=$1 and a.conferente=$2 and t.id = any($3)`, [b.contrato, conf, (b.titulos_origem || []).map(Number)]);
       if (ja.length) return json({ erro: 'Já existe negociação para: ' + ja.map(x => x.rotulo + ' (acordo de ' + x.d.split('-').reverse().join('/') + ')').join(', ') + '. Não é possível negociar a mesma parcela duas vezes.' }, 409);

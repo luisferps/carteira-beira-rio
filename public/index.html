@@ -111,9 +111,16 @@ function telaLogin(msg){
     try{localStorage.setItem('cbr_pin',PIN)}catch(e){};iniciar()};
   $('#ent').onclick=go;$('#pin').onkeydown=e=>{if(e.key==='Enter')go()};
 }
+function telaSenha(tok,msg){
+  app.innerHTML=`<div class="card" style="max-width:420px;margin:50px auto"><h3>Criar sua senha</h3>${msg?`<div class="aviso">${msg}</div>`:''}
+  <div class="info">Crie a sua senha de acesso ao sistema. Ninguém mais vê essa senha.</div>
+  <label>Senha (mínimo 8 caracteres)</label><input id="ns1" type="password"><br><br><label>Repita a senha</label><input id="ns2" type="password"><br><br><button class="pri" id="nsok">Salvar senha</button></div>`;
+  $('#nsok').onclick=async()=>{if($('#ns1').value!==$('#ns2').value)return telaSenha(tok,'As senhas não conferem.');
+    const r=await fetch('/api/definir-senha',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:tok,senha:$('#ns1').value})});const d=await r.json().catch(()=>({}));
+    if(!r.ok)return telaSenha(tok,d.erro||'Erro.');location.hash='';telaLogin('Senha criada. Entre com o e-mail '+esc(d.email)+' e a senha que você acabou de criar.')}}
 function telaCadastro(msg){
   app.innerHTML=`<div class="card" style="max-width:440px;margin:40px auto"><h3>Criar meu acesso</h3>${msg?`<div class="aviso">${msg}</div>`:''}
-  <div class="info">Preencha seus dados. ${'Você vai receber um e-mail para confirmar (se não chegar, olhe no lixo eletrônico).'} Depois o administrador libera o acesso.</div>
+  <div class="info">Preencha seus dados e crie sua senha. Depois o administrador libera o seu acesso.</div>
   <label>Nome completo</label><input id="c_nome"><br><br><label>CPF</label><input id="c_cpf" inputmode="numeric"><br><br><label>Telefone</label><input id="c_tel" inputmode="tel"><br><br>
   <label>E-mail</label><input id="c_em" type="email"><br><br><label>Senha (mínimo 8 caracteres)</label><input id="c_s1" type="password"><br><br><label>Repita a senha</label><input id="c_s2" type="password"><br><br>
   <button class="pri" id="c_ok">Criar acesso</button> <button onclick="telaLogin()">Voltar</button></div>`;
@@ -123,6 +130,7 @@ function telaCadastro(msg){
     app.innerHTML=`<div class="card" style="max-width:440px;margin:60px auto"><h3>Cadastro enviado</h3><p>${d.confirmar_email?'Enviamos um link para o seu e-mail. Confirme por ele e aguarde o administrador liberar o seu acesso.':'Agora é só aguardar o administrador liberar o seu acesso.'}</p><button onclick="telaLogin()">Ir para o login</button></div>`}}
 async function iniciar(){
   if(location.hash==='#cadastro')return telaCadastro();
+  if(location.hash.startsWith('#senha/'))return telaSenha(location.hash.slice(7));
   if(!PIN)return telaLogin();
   try{const d=await api('eu');EU=d.conferente;NOMEU=d.nome||''}catch(e){return}
   document.body.classList.toggle('assist',EU==='assistente');
@@ -151,13 +159,17 @@ function telaModulos(){
   </div>`}
 
 /* ---------- USUÁRIOS ---------- */
-const STU={aguardando_email:'Aguardando confirmar o e-mail',aguardando_aprovacao:'Aguardando sua liberação',ativo:'Ativo',bloqueado:'Bloqueado'};
+const STU={definir_senha:'Aguardando criar a senha',aguardando_email:'Aguardando confirmar o e-mail',aguardando_aprovacao:'Aguardando sua liberação',ativo:'Ativo',bloqueado:'Bloqueado'};
 async function telaUsuarios(){const L=await api('usuarios');
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div><div class="card"><h3 style="margin-top:0">Usuários</h3>
-  <div class="info">A pessoa cria o próprio acesso em "Criar meu acesso" na tela de entrada, confirma pelo e-mail e aparece aqui para você liberar. Perfil: <b>assistente administrativo</b> — vê tudo, faz acordos e propostas, emite boletos, 2ª via e relatórios; não lança, não edita e não apaga pagamentos, não mexe em correção, encerramento, cessão nem na conferência.</div>
+  <div class="bt" style="align-items:flex-end;margin-bottom:10px"><div><label>Nome</label><input id="nu_n" style="width:220px"></div><div><label>E-mail</label><input id="nu_e" type="email" style="width:220px"></div><div><label>CPF</label><input id="nu_c" style="width:140px"></div><div><label>Telefone</label><input id="nu_t" style="width:140px"></div><button class="pri" onclick="novoUsuario()">Cadastrar usuário</button></div><div id="nu_link"></div>
+  <div class="info">Você cadastra a pessoa e o sistema gera um link para ela criar a própria senha (mande pelo WhatsApp). Ela também pode se cadastrar sozinha em "Criar meu acesso" na tela de entrada, e aí aparece aqui para você liberar. Perfil: <b>assistente administrativo</b> — vê tudo, faz acordos e propostas, emite boletos, 2ª via e relatórios; não lança, não edita e não apaga pagamentos, não mexe em correção, encerramento, cessão nem na conferência.</div>
   <table style="margin-top:8px"><tr><th>Nome</th><th>E-mail</th><th>CPF</th><th>Telefone</th><th>Situação</th><th>Último acesso</th><th></th></tr>
   ${L.map(u=>`<tr><td><b>${esc(u.nome)}</b><div class="mut" style="font-size:12px">${u.perfil==='assistente'?'Assistente administrativo':esc(u.perfil)}</div></td><td>${esc(u.email)}</td><td>${esc(u.cpf||'')}</td><td>${esc(u.telefone||'')}</td><td>${STU[u.status]||u.status}</td><td>${u.ultimo_acesso?new Date(u.ultimo_acesso).toLocaleString('pt-BR'):'—'}</td>
-   <td style="white-space:nowrap">${u.status!=='ativo'?`<button class="pri" onclick="acaoU(${u.id},'aprovar')">Liberar</button> `:''}${u.status==='ativo'?`<button onclick="acaoU(${u.id},'bloquear')">Bloquear</button> `:''}<button class="per" onclick="acaoU(${u.id},'excluir')">Excluir</button></td></tr>`).join('')||'<tr><td colspan="7" class="mut">Ninguém cadastrado ainda.</td></tr>'}</table></div>`}
+   <td style="white-space:nowrap">${u.status==='definir_senha'?`<button onclick="linkU(${u.id})">Novo link de senha</button> `:''}${u.status!=='ativo'&&u.status!=='definir_senha'?`<button class="pri" onclick="acaoU(${u.id},'aprovar')">Liberar</button> `:''}${u.status==='ativo'?`<button onclick="linkU(${u.id})">Trocar senha (link)</button> `:''}${u.status==='ativo'?`<button onclick="acaoU(${u.id},'bloquear')">Bloquear</button> `:''}<button class="per" onclick="acaoU(${u.id},'excluir')">Excluir</button></td></tr>`).join('')||'<tr><td colspan="7" class="mut">Ninguém cadastrado ainda.</td></tr>'}</table></div>`}
+function mostraLink(tok,nome){const l=location.origin+'/#senha/'+tok;$('#nu_link').innerHTML=`<div class="info" style="margin-bottom:10px"><b>Link para ${esc(nome||'a pessoa')} criar a senha:</b><br><input value="${l}" readonly onclick="this.select()" style="margin:6px 0"><button onclick="navigator.clipboard.writeText('${l}');this.textContent='Copiado'">Copiar link</button> <a class="btn" target="_blank" href="https://wa.me/?text=${encodeURIComponent('Seu acesso à Carteira Beira Rio: crie sua senha neste link: '+l)}">Enviar pelo WhatsApp</a><div class="mut" style="font-size:12px">O link só funciona uma vez.</div></div>`}
+async function novoUsuario(){const r=await api('usuarios',{method:'POST',body:{nome:$('#nu_n').value,email:$('#nu_e').value,cpf:$('#nu_c').value,telefone:$('#nu_t').value}});const n=$('#nu_n').value;await telaUsuarios();mostraLink(r.token,n)}
+async function linkU(id){if(!confirm('Gerar um novo link de senha? A senha atual deixa de valer até a pessoa criar a nova.'))return;const r=await api('usuario/'+id+'/novo-link',{method:'POST',body:{}});await telaUsuarios();mostraLink(r.token)}
 async function acaoU(id,a){if(!confirm({aprovar:'Liberar o acesso?',bloquear:'Bloquear o acesso?',excluir:'Excluir este usuário?'}[a]))return;await api('usuario/'+id+'/'+a,{method:'POST',body:{}});telaUsuarios()}
 
 /* ---------- 2ª VIA ATUALIZADA ---------- */
@@ -181,7 +193,7 @@ function telaCorrecao(){const d=new Date(),ano=d.getMonth()>=9?d.getFullYear()+1
   <div class="card"><h3 style="margin-top:0">Correção anual</h3>
   <div class="info">Roda em dezembro para a parcela de janeiro já sair com o valor novo. Só corrige contrato que completou 1 ano até a parcela de janeiro. Leva IGP-M acumulado; quem teve atraso no ano anterior (parcela paga atrasada, não paga ou renegociada) leva mais 2%. Pagamento no fim de semana compensado no dia útil seguinte não conta como atraso. Se em algum ano a correção foi esquecida ou aplicada a mais, o acerto entra junto nesta correção (coluna "Acerto").</div>
   <div class="bt" style="align-items:flex-end;margin-top:8px"><div><label>Ano da correção</label><input id="ca_ano" type="number" value="${ano}" style="width:120px"></div>
-  <div><label>IGP-M acumulado (%)</label><input id="ca_ig" placeholder="ex.: 4,15" style="width:140px"></div><div><label>Acertar correções desde</label><select id="ca_de" style="width:150px"><option value="2024">2024</option><option value="2025">2025</option><option value="2026">2026</option><option value="${ano}">não acertar</option></select></div><button class="pri" onclick="previaCA()">Ver prévia</button></div><div id="ca_res"></div></div>`}
+  <div><label>IGP-M acumulado (%)</label><input id="ca_ig" placeholder="ex.: 4,15" style="width:140px"></div><div><label>Acertar correções desde</label><select id="ca_de" style="width:150px"><option value="2024" selected>2024 (tudo)</option><option value="2025">2025</option><option value="2026">2026</option><option value="${ano}">não acertar</option></select></div><button class="pri" onclick="previaCA()">Ver prévia</button></div><div id="ca_res"></div></div>`}
 async function previaCA(){const ig=String($('#ca_ig').value||'').replace(',','.').replace('%','');if(ig===''||isNaN(+ig))return alert('Informe o IGP-M acumulado.');
   $('#ca_res').innerHTML='<div class="mut">Calculando…</div>';CA=await api(`correcao-anual/previa?ano=${$('#ca_ano').value}&igpm=${ig}&desde=${$('#ca_de').value}`);
   const ok=CA.filter(x=>x.situacao==='corrigir');
@@ -420,12 +432,14 @@ const FERIADOS={};function feriados(y){if(FERIADOS[y])return FERIADOS[y];const f
 function proxUtil(iso){if(!iso)return iso;const d=new Date(String(iso).slice(0,10)+'T12:00:00Z');for(;;){const s=d.toISOString().slice(0,10),w=d.getUTCDay();if(w!==0&&w!==6&&!feriados(d.getUTCFullYear()).has(s))return s;d.setUTCDate(d.getUTCDate()+1)}}
 function diasUteisDepois(venc,pago){const v=proxUtil(venc);return Math.max(0,Math.round((new Date(String(pago).slice(0,10))-new Date(v))/864e5))}
 function estado(t){
+  if(tituloSegVia(t))return 'cancelada';
   const hoje=C.hoje, pags=C.pagamentos.filter(p=>p.titulo_id==t.id), sit=C.situacoes.find(s=>s.titulo_id==t.id);
   const enc=C.eventos.find(e=>e.tipo==='encerramento'&&t.grupo!=='acordo'&&(()=>{const t0=C.titulos.find(x=>x.id==e.a_partir_titulo);return t0&&t.vencimento&&t.vencimento>=t0.vencimento})());
   if(sit&&sit.situacao==='cancelada'||enc)return 'cancelada';
   if(pags.length){const tarde=pags.some(p=>Number(p.multa_paga||0)+Number(p.juros_pago||0)+Number(p.honorarios_pago||0)>0.009||(p.confirmada_em&&(p.vencimento_boleto||t.vencimento)&&diasUteisDepois(p.vencimento_boleto||t.vencimento,p.confirmada_em)>3));return t.grupo!=='acordo'&&tarde?'paga_atraso':'paga'}
   const ac=C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)));
-  if(ac){const pago=C.titulos.some(x=>x.acordo_id==ac.id&&C.pagamentos.some(p=>p.titulo_id==x.id));return ehRep(ac)?(pago?'quitada_repact':'em_repact'):(pago?'quitada_acordo':'em_acordo')}
+  if(ac&&!ehSegVia(ac)){const pago=C.titulos.some(x=>x.acordo_id==ac.id&&C.pagamentos.some(p=>p.titulo_id==x.id));return ehRep(ac)?(pago?'quitada_repact':'em_repact'):(pago?'quitada_acordo':'em_acordo')}
+  if(ac&&C.titulos.some(x=>x.acordo_id==ac.id&&C.pagamentos.some(p=>p.titulo_id==x.id)))return 'paga_atraso';
   if(sit&&sit.situacao==='em_atraso')return 'em_atraso';
   if(t.vencimento&&t.vencimento<=hoje)return 'vencida';
   return 'futura';
@@ -437,6 +451,10 @@ function origensAc(a){const g={},ord=[];for(const i of a.titulos_origem||[]){con
     if(!r.length)return k;if(/\.$/.test(k))return k.slice(0,-1)+': '+r.join(', ');return r.map(x=>k+x).join(', ')}).join(', ')}
 const ehRep=a=>a&&a.tipo==='repactuacao';const nomeAc=a=>(ehRep(a)?'Repactuação ':'Acordo ')+numAc(a);const nomeCurto=a=>(ehRep(a)?'Repact. ':'Acordo ')+numAc(a);
 function numAc(a){const l=[...C.acordos].filter(x=>ehRep(x)===ehRep(a)).sort((x,y)=>String(x.data_acordo).localeCompare(String(y.data_acordo))||x.id-y.id);return l.findIndex(x=>x.id==a.id)+1}
+/* "acordo" de uma parcela só, pago num boleto só = 2ª via (reemissão com encargos). Acordo de verdade junta mais de uma parcela ou reparcela. */
+function ehSegVia(a){return !!a&&!ehRep(a)&&(a.titulos_origem||[]).length===1&&C.titulos.filter(t=>t.acordo_id==a.id).length===1}
+function tituloSegVia(t){return t&&t.grupo==='acordo'&&ehSegVia(C.acordos.find(a=>a.id==t.acordo_id))}
+function segViaDe(t){const a=t&&t.grupo!=='acordo'?C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id))):null;return a&&ehSegVia(a)?a:null}
 function acordoDe(t){return C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)))}
 const NOMES={paga:'Paga em dia',paga_atraso:'Paga com atraso',quitada_acordo:'Paga em cobrança (acordo)',em_acordo:'Não paga, em acordo aguardando pagamento',quitada_repact:'Paga por repactuação',em_repact:'Repactuada (boletos em aberto)',cancelada:'Cancelada',em_atraso:'Não paga (conferido)',vencida:'Vencida sem nada lançado',futura:'A vencer'};
 const FATOR_ANO={2024:1.02,2025:1.0854,2026:1.02};
@@ -513,7 +531,7 @@ function btn(t){
   const lab=t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?nomeCurto(C.acordos.find(a=>a.id==t.acordo_id))+(t.total>1?' · '+t.numero+'/'+t.total:''):t.grupo==='mensal'?'M '+t.numero:t.grupo==='anual'?'A '+t.numero:t.grupo==='entrada'?'E '+t.numero:t.grupo==='acordo'?'Ac '+t.numero:'P '+t.numero;
   const corr=t.grupo!=='acordo'&&C.correcoes.some(k=>k.grupo===t.grupo&&+k.a_partir===+t.numero);
   const ces=C.eventos.some(e=>e.tipo==='cessao'&&e.dados?.subtipo!=='credito'&&+e.a_partir_titulo===+t.id);const rep=C.eventos.some(e=>e.tipo==='repactuacao'&&e.dados?.subtipo!=='diluicao'&&+e.a_partir_titulo===+t.id);
-  const bAt=(C.boletos||[]).find(b=>b.titulo_id==t.id&&['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS'].includes(b.status));const emCob=bAt&&bAt.tipo==='cobranca';const pCob=C.pagamentos.some(p=>p.titulo_id==t.id&&Number(p.honorarios_pago||0)>0.005);
+  const bAt=(C.boletos||[]).find(b=>b.titulo_id==t.id&&['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS'].includes(b.status));const emCob=bAt&&bAt.tipo==='cobranca';const svA=segViaDe(t);const pCob=C.pagamentos.some(p=>p.titulo_id==t.id&&Number(p.honorarios_pago||0)>0.005)||(svA&&+svA.honorarios>0.005&&e==='paga_atraso');
   return `<button class="pc ${e} ${emCob?'cob':''} ${pCob?'pcob':''} ${t.grupo==='anual'?'anual':''} ${SEL.has(+t.id)?'sel':''} ${SELMODO&&podeAcordo(t)?'selok':''} ${corr?'corr':''} ${ces?'ces':''} ${rep?'rep':''}" title="${esc(t.rotulo)}${rep?' — repactuada (parcelada sem atraso)':''} — ${dbr(t.vencimento)} — ${NOMES[e]}${emCob?' — EM COBRANÇA (boleto com os 10% emitido)':''}${pCob?' — paga em cobrança':''}${bAt&&bAt.tipo==='segunda_via'?' — 2ª via atualizada emitida':''}${corr?' — começa correção aqui':''}${ces?' — primeira parcela do novo titular (cessão)':''}" onclick="clicaTitulo(${t.id})">
   ${conf?'<span class="cf">✓</span>':''}<b>${lab}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${(e==='quitada_acordo'||e==='em_acordo'||e==='quitada_repact'||e==='em_repact')&&acordoDe(t)?nomeCurto(acordoDe(t)):brl(valorAno(t)).replace('R$','').trim()}</small>${t.grupo==='acordo'&&t.total>1&&C.acordos.find(a=>a.id==t.acordo_id)?`<small>total ${brl(C.acordos.find(a=>a.id==t.acordo_id).valor_acordado).replace('R$','').trim()}</small>`:''}${t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?.termo?`<small style="font-weight:700">Termo ${esc(C.acordos.find(a=>a.id==t.acordo_id).termo)}</small>`:''}${t.grupo==='acordo'&&C.acordos.find(a=>a.id==t.acordo_id)?`<small class="orig" style="font-weight:700">${esc(origensAc(C.acordos.find(a=>a.id==t.acordo_id))).replace(/\+/g,'+&#8203;')}</small>`:''}</button>`;
 }
@@ -535,7 +553,7 @@ function desenhaContrato(){
   const comp=(c.compradores||[]).map(x=>esc(nome(x.nome))+(x.cpf?' <span class="mut">('+esc(x.cpf)+')</span>':'')).join('<br>')||esc(nome(c.nome_planilha));
   const ces=C.eventos.filter(e=>e.tipo==='cessao'&&e.dados?.novos_titulares).sort((x,y)=>String(x.data).localeCompare(String(y.data)));
   const tit=ces.length?`<b>${esc(nome(ces[ces.length-1].dados.novos_titulares))}</b> <span class="mut">(titular atual, por cessão em ${dbr(ces[ces.length-1].data)})</span><div class="mut" style="font-size:12px">Comprador original: ${(c.compradores||[]).map(x=>esc(nome(x.nome))).join(', ')||esc(nome(c.nome_planilha))}${ces.length>1?' · cessões anteriores: '+ces.slice(0,-1).map(e=>esc(nome(e.dados.novos_titulares))+' ('+dbr(e.data)+')').join(', '):''}</div>`:comp;
-  const ACS=C.acordos.filter(a=>!ehRep(a)),RPS=C.acordos.filter(ehRep);
+  const ACS=C.acordos.filter(a=>!ehRep(a)&&!ehSegVia(a)),RPS=C.acordos.filter(ehRep);
   const ac=ACS.length?'<div class="lin acl">'+[...ACS].sort((x,y)=>numAc(x)-numAc(y)).map(a=>{const ts=T.filter(t=>t.acordo_id==a.id);
     return `${ts.length?ts.map(btn).join(''):`<button class="pc ev evac" onclick="verAcordo(${a.id})"><b>${nomeAc(a)}</b><small>${dbr(a.data_acordo).slice(0,5)}</small><small>sem parcelas</small></button>`}`}).join('')+'</div>':'<div class="mut">Nenhum acordo lançado.</div>';
   const DLS=C.eventos.filter(e=>e.tipo==='repactuacao'&&e.dados?.subtipo==='diluicao');const dlT=DLS.map(e=>`<button class="pc ev evdil" onclick="verEvento(${e.id})"><b>Diluição da dívida</b><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small><small style="font-weight:700">${brl(e.dados.total).replace('R$','').trim()}</small><small class="orig">em ${(e.dados.itens||[]).length} parcela(s)</small></button>`).join('');
@@ -750,10 +768,11 @@ function resumoAc(a){const T=C.titulos,ps=T.filter(t=>t.acordo_id==a.id).sort((x
   const lin=ps.map(t=>{const pg=C.pagamentos.filter(p=>p.titulo_id==t.id);pg.forEach(p=>tp+=Number(p.valor_pago||0));return `<div class="mut">Parcela ${t.numero}/${t.total} — vence ${dbr(t.vencimento)} — ${brl(t.valor_face)} → ${pg.length?pg.map(p=>'pago '+brl(p.valor_pago)+' em '+dbr(p.confirmada_em||p.pago_cliente_em)+' (fatura '+esc(p.fatura||'—')+')').join('; '):'<b style="color:var(--at)">sem pagamento</b>'}</div>`}).join('');
   return `<div style="margin:8px 0;padding:8px;border:1px solid #e5e7eb;border-radius:8px"><b>Valor total do ${nomeAc(a)}: ${brl(a.valor_acordado)} em ${ps.length} parcela(s) · Total pago: ${brl(tp)}</b>${lin}</div>`}
 function modalTitulo(id,editId,novo){
-  const t=C.titulos.find(x=>x.id==id),pags=C.pagamentos.filter(p=>p.titulo_id==id),sit=C.situacoes.find(s=>s.titulo_id==id);
+  const t=C.titulos.find(x=>x.id==id),svM=segViaDe(t),svT=svM?C.titulos.find(x=>x.acordo_id==svM.id):null,pags=C.pagamentos.filter(p=>p.titulo_id==id||(svT&&p.titulo_id==svT.id)),sit=C.situacoes.find(s=>s.titulo_id==id);
   const ed=editId?pags.find(p=>p.id==editId):null;PRINT=null;
-  const acT=t.grupo!=='acordo'?acordoDe(t):null,prT=t.grupo!=='acordo'?propostaDe(t):null,bolT=(C.boletos||[]).filter(b=>b.titulo_id==t.id&&['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS'].includes(b.status));
+  const acT=t.grupo!=='acordo'&&!svM?acordoDe(t):null,prT=t.grupo!=='acordo'?propostaDe(t):null,bolT=(C.boletos||[]).filter(b=>b.titulo_id==t.id&&['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS'].includes(b.status));
   const cab=`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)} — ${brl(valorAno(t))}</h3><button onclick="fechaModal()">Fechar</button></div>
+  ${svM?`<div class="info"><b>2ª via com encargos</b> emitida em ${dbr(svM.data_acordo)}: ${brl(svM.valor_acordado)} (parcela ${brl(svM.principal)} · multa ${brl(svM.multa)} · juros ${brl(svM.juros)} · cobrança ${brl(svM.honorarios)})${pags.length?' — paga.':' — aguardando pagamento.'}</div>`:''}
   ${acT?`<div class="aviso" style="background:#fef3c7;border-color:#f59e0b;color:#78350f"><b>Esta parcela já está em negociação:</b> ${nomeAc(acT)} de ${dbr(acT.data_acordo)}${C.titulos.filter(x=>x.acordo_id==acT.id).every(x=>C.pagamentos.some(p=>p.titulo_id==x.id))?' (pago)':' (aguardando pagamento)'}. Não dá para criar outra negociação para ela — se precisar renegociar, use as parcelas desse acordo.</div>`:''}
   ${prT?`<div class="aviso" style="background:#fef3c7;border-color:#f59e0b;color:#78350f"><b>Esta parcela está na proposta de acordo ${esc(prT.dados?.termo||'')}</b>, ainda não efetivada.</div>`:''}
   ${(EU==='luis'||EU==='assistente')&&!COMO&&!acT&&!prT&&t.vencimento<C.hoje&&!pags.length&&['vencida','em_atraso'].includes(estado(t))?`<div class="bt" style="margin:6px 0"><button class="pri" onclick="modalSegundaVia(${t.id})">2ª via atualizada</button><span class="mut" style="font-size:12px">Reemite o boleto desta parcela com multa, juros${t.grupo!=='acordo'?' (e os 10% de cobrança depois de 60 dias)':''} até a data que o cliente pedir.</span></div>`:''}
@@ -1028,7 +1047,7 @@ async function salvaEvento(tipo,eid){const old=eid?C.eventos.find(x=>x.id==eid)?
 function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
   const ces=C.eventos.filter(e=>e.tipo==='cessao'&&e.dados?.novos_titulares).sort((x,y)=>String(x.data).localeCompare(String(y.data)));
   const tit=ces.length?nome(ces[ces.length-1].dados.novos_titulares):(c.compradores||[]).map(x=>nome(x.nome)).join(' e ')||nome(c.nome_planilha);
-  const rot=t=>t.grupo==='acordo'?nomeAc(C.acordos.find(a=>a.id==t.acordo_id))+(t.total>1?' ('+t.numero+'/'+t.total+')':''):t.rotulo;
+  const rot=t=>{if(tituloSegVia(t)){const a=C.acordos.find(a=>a.id==t.acordo_id);const o=C.titulos.find(x=>x.id==a.titulos_origem[0]);return (o?o.rotulo:'Parcela')+' (2ª via)'}return t.grupo==='acordo'?nomeAc(C.acordos.find(a=>a.id==t.acordo_id))+(t.total>1?' ('+t.numero+'/'+t.total+')':''):t.rotulo};
   let corpo='',titulo='';
   if(tipo==='pagos'){titulo='Relatório de valores pagos';
     const baseG=g=>{const vs=C.titulos.filter(x=>x.grupo===g&&!x.conferente).map(x=>+x.valor_face).filter(v=>v>0);return vs.length?Math.min(...vs):0};
@@ -1036,7 +1055,9 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
     let T={or:0,co:0,mu:0,ju:0,ho:0,pg:0};
     const qa=C.titulos.filter(t=>['quitada_acordo','quitada_repact'].includes(estado(t))).map(t=>({t,a:acordoDe(t)}));
     const its=[...ls.map(x=>({...x,d:String(x.p.confirmada_em||x.t.vencimento)})),...qa.map(x=>({...x,d:String(x.a.data_acordo)}))].sort((x,y)=>x.d.localeCompare(y.d)||String(x.t.vencimento).localeCompare(String(y.t.vencimento)));
-    const rows=its.map(({p,t,a})=>{if(a&&!p)return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td>${dbr(a.data_acordo)}</td><td>Pago pelo ${esc(nomeAc(a))}</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">R$ 0,00</td></tr>`;const mu=+p.multa_paga||0,ju=+p.juros_pago||0,ho=+p.honorarios_pago||0,pg=+p.valor_pago||0,parte=r2(pg-mu-ju-ho);
+    const rows=its.map(({p,t:t0,a})=>{let t=t0;if(a&&!p)return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td>${dbr(a.data_acordo)}</td><td>Pago pelo ${esc(nomeAc(a))}</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">R$ 0,00</td></tr>`;let mu=+p.multa_paga||0,ju=+p.juros_pago||0,ho=+p.honorarios_pago||0;const pg=+p.valor_pago||0;
+      if(tituloSegVia(t)){const sa=C.acordos.find(a=>a.id==t.acordo_id),f=+sa.valor_acordado>0?(pg-mu-ju-ho)/+sa.valor_acordado:0;mu=r2(mu+(+sa.multa||0)*f);ju=r2(ju+(+sa.juros||0)*f);ho=r2(ho+(+sa.honorarios||0)*f);const o=C.titulos.find(x=>x.id==sa.titulos_origem[0]);if(o)t={...o,rotulo:o.rotulo+' (2ª via)'}}
+      const parte=r2(pg-mu-ju-ho);
       const b=(t.grupo==='mensal'||t.grupo==='anual')?baseG(t.grupo):0,or=b&&parte>b?b:parte,co=r2(parte-or);T.or+=or;T.co+=co;T.mu+=mu;T.ju+=ju;T.ho+=ho;T.pg+=pg;
       return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td>${dbr(p.confirmada_em)}</td><td>${esc(p.forma||'')}</td><td class="n">${brl(or)}</td><td class="n">${co?brl(co):'—'}</td><td class="n">${mu?brl(mu):'—'}</td><td class="n">${ju?brl(ju):'—'}</td><td class="n">${ho?brl(ho):'—'}</td><td class="n"><b>${brl(pg)}</b></td></tr>`}).join('');
     corpo=`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th>Pago em</th><th>Forma</th><th class="n">Valor original</th><th class="n">Correção</th><th class="n">Multa</th><th class="n">Juros</th><th class="n">Custo cobr.</th><th class="n">Total pago</th></tr></thead><tbody>${rows}</tbody>
