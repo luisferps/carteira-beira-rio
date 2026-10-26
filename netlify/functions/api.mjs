@@ -1579,7 +1579,23 @@ export default async (req) => {
       }
       for (const t of atuais.slice(b.parcelas.length)) await q('delete from carteira.titulos where id=$1', [t.id]);
       await log(conf, 'acordo_alterado', { id: p[1], ...b });
-      return json({ ok: true });
+      const avisos = [];
+      if (conf === 'luis') {
+        for (let i = 0; i < Math.min(atuais.length, b.parcelas.length); i++) {
+          const par = b.parcelas[i], t = atuais[i];
+          const bs = await q(`select id_asaas, valor, vencimento::text v from carteira.boletos where titulo_id=$1 and status = any($2)`, [t.id, ATIVOS_B]).catch(() => []);
+          for (const bo of bs) {
+            if (bo.v === par.vencimento && Math.abs(+bo.valor - +par.valor) < 0.01) continue;
+            try { await editarBoleto(bo.id_asaas, { valor: par.valor, vencimento: par.vencimento < hojeBR() ? undefined : par.vencimento }, conf); }
+            catch (e) { avisos.push(`Parcela ${i + 1}: não consegui alterar o boleto no Asaas (${e.message})`); }
+          }
+        }
+        for (const t of atuais.slice(b.parcelas.length)) {
+          const bs = await q(`select id_asaas from carteira.boletos where titulo_id=$1 and status = any($2)`, [t.id, ATIVOS_B]).catch(() => []);
+          for (const bo of bs) await excluirBoleto(bo.id_asaas, conf, 'Parcela removida do acordo').catch(e => avisos.push(e.message));
+        }
+      }
+      return json({ ok: true, avisos });
     }
 
     if (p[0] === 'acordo' && p[1] && m === 'DELETE') {

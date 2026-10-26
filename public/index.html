@@ -912,9 +912,9 @@ async function efetivaProposta(id){const d=pDados(id);if(!d)return;await carrega
   const hs=await htmlSalvo(d.termo);await window.emitirTermo(d,'pasta',hs||undefined)}
 async function apagaProposta(id){const d=pDados(id);if(!confirm('Excluir a proposta '+(d?.termo||'')+'? Ela some sem deixar nada no sistema.'))return;await api('proposta/'+id,{method:'DELETE'});recarrega()}
 async function salvaAcordo(aid){const b=window._salvaAcordoDados();
-  const s=r2(b.parcelas.reduce((a,p)=>a+Number(p.valor||0),0));if(Math.abs(s-b.valor_acordado)>0.009)return alert('A soma das parcelas precisa ser igual ao valor acordado.');
-  await api(aid?'acordo/'+aid:'acordo',{method:aid?'PUT':'POST',body:b});
-  SEL.clear();SELMODO=false;fechaModal();recarrega()}
+  const s=r2(b.parcelas.reduce((a,p)=>a+Number(p.valor||0),0));const fin=/Juros de financiamento/.test(b.obs||'');if(fin?s<b.valor_acordado-0.009:Math.abs(s-b.valor_acordado)>0.009)return alert('A soma das parcelas precisa ser igual ao valor acordado.');
+  const r=await api(aid?'acordo/'+aid:'acordo',{method:aid?'PUT':'POST',body:b});
+  SEL.clear();SELMODO=false;fechaModal();await recarrega();if(r&&r.avisos&&r.avisos.length)alert(r.avisos.join('\n'));else if(aid&&(C.boletos||[]).some(x=>C.titulos.find(t=>t.id==x.titulo_id)?.acordo_id==aid))alert('Acordo salvo. Os boletos em aberto deste acordo foram ajustados no Asaas.')}
 
 /* correção */
 function modalCorrecao(){
