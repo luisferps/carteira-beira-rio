@@ -1218,6 +1218,7 @@ async function rotasCobranca(p, m, body, url, real) {
     await log(real, 'cobranca_caso_excluido', { caso: p[2], contrato: c?.contrato });
     return json({ ok: true });
   }
+  if (p[1] === 'ativos' && m === 'GET') return json(await q(`select id, contrato, etapa from carteira.cobranca_casos where encerrado_em is null`));
   if (p[1] === 'contrato' && p[2] && m === 'GET') {
     const [c] = await q(`select id, etapa from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [p[2]]);
     return json(c || null);
