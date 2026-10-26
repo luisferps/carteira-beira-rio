@@ -507,19 +507,10 @@ async function processaPagamentoAsaas(g, X, opc = {}) {
     id_asaas: g.id, link_fatura: g.invoiceUrl || null, nosso_numero: g.nossoNumero || null, valor_liquido: g.netValue, vencimento_original: dstr(t.vencimento),
     pago_cliente_em: g.clientPaymentDate || g.paymentDate || null, id_cliente_asaas: g.customer, id_parcelamento_asaas: g.installment || null,
     ...encargos(cob, +g.value, dstr(t.vencimento), conf) };
-  if (bol?.composicao && t.grupo === 'acordo') {
-    const c = bol.composicao, B = +c.total, pago = +g.value, extra = R2(pago - B);
-    const hoX = extra > 0 ? R2(extra * (+c.cobranca || 0) / B) : 0;
-    Object.assign(body, { valor_cobranca: B, multa_paga: 0, juros_pago: extra > 0 ? R2(extra - hoX) : 0, honorarios_pago: hoX, desconto_dado: extra < 0 ? -extra : 0,
-      obs: 'Lançado automaticamente pela integração com o Asaas' + (c.cobranca ? ' — boleto de cobrança (60 dias)' : '') + (extra > 0 ? '; juros depois do vencimento do boleto separados entre juros e cobrança' : '') });
-  } else if (bol?.composicao) {
-    const c = bol.composicao, B = +c.total, pago = +g.value, base = R2(c.principal + c.correcao);
-    let ho = +c.cobranca, de = 0;
-    if (pago > B) ho = R2(ho + (pago - B) * c.cobranca / B); else de = R2(B - pago);
-    const ju = Math.max(0, R2(pago + de - base - c.multa - ho));
-    Object.assign(body, { valor_cobranca: base, multa_paga: c.multa, juros_pago: ju, honorarios_pago: ho, desconto_dado: de,
-      obs: 'Lançado automaticamente pela integração com o Asaas — boleto de cobrança (60 dias)' });
+  if (bol?.composicao) {
+    Object.assign(body, separaPagamento(bol.composicao, +g.value), { obs: 'Lançado automaticamente pela integração com o Asaas — ' + (+bol.composicao.cobranca ? 'pago em cobrança (boleto com os 10%)' : '2ª via atualizada') });
   }
+
   const [pg] = await q(`insert into carteira.pagamentos(conferente, titulo_id, ${CAMPOS_PAG.join(',')}, tem_print)
                         values ('luis',$1,${CAMPOS_PAG.map((_, i) => '$' + (i + 2)).join(',')}, false) returning id`, [t.id, ...CAMPOS_PAG.map(c => limpa(body[c]))]);
   await q(`insert into carteira.conferencia_titulo(conferente, titulo_id, situacao) values ('luis',$1,'paga')
@@ -725,7 +716,7 @@ async function candidatosCobranca(inicioAuto) {
   await garanteBoletos();
   const lim = somaDias(hojeBR(), -60);
   const r = await q(`select b.*, t.contrato tc, t.grupo, t.numero, t.total, t.vencimento::text tv from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
-                     where b.tipo = 'parcela' and t.grupo <> 'acordo' and b.status = any($1) and b.vencimento <= $2
+                     where b.tipo in ('parcela','segunda_via') and t.grupo <> 'acordo' and b.status = any($1) and t.vencimento <= $2
                        and coalesce(b.descricao,'') !~* 'renegocia|acordo|inclus'
                        and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')
                        and not exists (select 1 from carteira.acordos a where a.contrato=t.contrato and a.conferente='luis' and t.id = any(a.titulos_origem))
@@ -734,93 +725,91 @@ async function candidatosCobranca(inicioAuto) {
                        and not exists (select 1 from carteira.eventos e join carteira.titulos t0 on t0.id=e.a_partir_titulo
                                        where e.contrato=t.contrato and e.conferente='luis' and e.tipo='encerramento' and t.grupo<>'acordo' and t.vencimento >= t0.vencimento)
                        and not exists (select 1 from carteira.boletos b2 where b2.titulo_id=t.id and b2.tipo='cobranca' and b2.status = any($1))
-                     order by b.vencimento`, [ATIVOS_B, lim]);
-  return r.map(b => ({ ...b, automatico: !inicioAuto || String(b.vencimento instanceof Date ? b.vencimento.toISOString() : b.vencimento).slice(0, 10) >= inicioAuto }));
+                     order by t.vencimento`, [ATIVOS_B, lim]);
+  return r.map(b => ({ ...b, automatico: !inicioAuto || b.tv >= inicioAuto }));
+}
+/* 2ª via atualizada: a mesma parcela, com multa, juros (e os 10% de cobrança depois de 60 dias) até a data escolhida.
+   Não é acordo: quando paga, dá baixa na própria parcela com os encargos separados. */
+async function segundaVia(tituloId, data, conf, opts = {}) {
+  await garanteBoletos();
+  const hoje = hojeBR(); data = data || hoje;
+  if (data < hoje) return { titulo_id: tituloId, erro: 'A data de vencimento não pode ser no passado' };
+  const [t] = await q(SQL_ABERTAS + ` and t.id=$1`, [tituloId, ATIVOS_B]);
+  if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto (paga, em acordo, em proposta ou cancelada)' };
+  if (t.vencimento >= hoje && !opts.previa) return { titulo_id: tituloId, erro: 'Essa parcela ainda não venceu — use "Gerar boleto"' };
+  const ehAcordo = t.grupo === 'acordo';
+  const c = compoAtraso(R2(+t.valor), t.vencimento, data, !ehAcordo && t.grupo !== 'entrada');
+  c.cobranca = !ehAcordo && !opts.semCobranca && c.dias > 60 ? R2((c.principal + c.correcao + c.multa + c.juros) * .10) : 0;
+  c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca);
+  c.data = data; c.emitido_em = hoje; c.vencimento_original = t.vencimento;
+  if (opts.previa) return { previa: true, rotulo: t.rotulo, ...c };
+  const cliente = await clienteDoContrato(t.contrato);
+  if (!cliente) return { titulo_id: tituloId, erro: 'Não achei o cliente deste contrato no Asaas' };
+  const rot = ehAcordo ? rotuloBoleto(t) : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ');
+  const linha = `${c.cobranca ? 'Renegociação' : '2ª via'} ${rot} (original vencido em ${t.vencimento.split('-').reverse().join('/')})`;
+  const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: c.total, dueDate: data,
+    description: descricaoBoleto({ numero: t.contrato, quadra: t.quadra, lote: t.lote }, linha, false), externalReference: 'cbr-titulo-' + t.id, interest: { value: 1 }, fine: { value: 0 } });
+  const tipo = c.cobranca ? 'cobranca' : 'segunda_via';
+  await gravaBoleto(g, { contrato: t.contrato, titulo_id: t.id, tipo, origem: 'sistema', composicao: c, motivo: opts.motivo || (c.cobranca ? 'Cobrança (mais de 60 dias vencida)' : '2ª via atualizada') });
+  await q(`update carteira.boletos set tipo=$2 where id_asaas=$1`, [g.id, tipo]);
+  const velhos = await q(`select id_asaas, fatura from carteira.boletos where titulo_id=$1 and status = any($2) and id_asaas<>$3`, [t.id, ATIVOS_B, g.id]);
+  for (const v of velhos) {
+    try { await asaasReq('DELETE', '/payments/' + v.id_asaas); } catch (e) { const gg = await asaas('/payments/' + v.id_asaas).catch(() => null); if (!gg?.deleted) console.error('excluir antigo', e.message); }
+    await q(`update carteira.boletos set status='SUBSTITUIDO', substituido_por=$2, motivo=$3, atualizado_em=now() where id_asaas=$1`, [v.id_asaas, g.id, c.cobranca ? 'Substituído pelo boleto de cobrança' : 'Substituído pela 2ª via atualizada']);
+  }
+  await log(conf, tipo === 'cobranca' ? 'boleto_cobranca' : 'boleto_segunda_via', { contrato: t.contrato, titulo: t.id, novo: g.id, substituidos: velhos.map(v => v.id_asaas), ...c });
+  return { ok: true, contrato: t.contrato, titulo_id: t.id, novo: g.id, fatura: g.invoiceNumber, valor: c.total, link: g.bankSlipUrl || g.invoiceUrl, composicao: c };
 }
 async function passarParaCobranca(b, conf) {
-  const hoje = hojeBR(), venc = String(b.vencimento instanceof Date ? b.vencimento.toISOString() : b.vencimento).slice(0, 10);
-  const g0 = await asaas('/payments/' + b.id_asaas);
-  if (!g0 || g0.deleted || !ATIVOS_B.includes(g0.status)) { if (g0) await gravaBoleto(g0, {}); return { id: b.id_asaas, erro: 'Boleto já não está em aberto no Asaas' }; }
-  const v = +(g0.originalValue ?? g0.value);
-  const c = compoAtraso(v, venc, hoje, b.grupo !== 'acordo' && b.grupo !== 'entrada');
-  c.cobranca = R2((c.principal + c.correcao + c.multa + c.juros) * .10);
-  c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca);
-  c.data = hoje; c.vencimento_original = venc;
-  const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [b.tc]);
-  const t = { grupo: b.grupo, numero: b.numero, total: b.total };
-  const linha = `Renegociação ${b.grupo === 'acordo' ? 'acordo ' + String(b.numero).padStart(2, '0') + '/' + String(b.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (original vencido em ${venc.split('-').reverse().join('/')})`;
-  const g = await asaasReq('POST', '/payments', { customer: g0.customer, billingType: 'BOLETO', value: c.total, dueDate: hoje,
-    description: descricaoBoleto(ct, linha, false), externalReference: 'cbr-cobranca-' + b.titulo_id, interest: { value: 1 }, fine: { value: 0 } });
-  const ac = await acordoDaCobranca(b.tc, b.titulo_id, c, g.dueDate, 'Cobrança dos 60 dias — boleto ' + (g.invoiceNumber || g.id));
-  await gravaBoleto(g, { contrato: b.tc, titulo_id: ac.titulo_id, tipo: 'cobranca', origem: 'sistema', composicao: c, motivo: 'Cobrança dos 60 dias (substitui ' + (g0.invoiceNumber || g0.id) + ')' });
-  try { await asaasReq('DELETE', '/payments/' + b.id_asaas); } catch (e) { console.error('excluir antigo', e.message); }
-  await q(`update carteira.boletos set status='SUBSTITUIDO', substituido_por=$2, motivo='Passou para cobrança aos 60 dias', atualizado_em=now() where id_asaas=$1`, [b.id_asaas, g.id]);
-  await log(conf, 'boleto_cobranca_60', { contrato: b.tc, titulo: b.titulo_id, antigo: b.id_asaas, novo: g.id, ...c });
-  return { ok: true, contrato: b.tc, titulo_id: b.titulo_id, novo: g.id, fatura: g.invoiceNumber, valor: c.total };
-}
-async function acordoDaCobranca(contrato, tituloOrigemId, c, vencBoleto, obs) {
-  const [a] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios, valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo)
-                       values ($1,'luis',$2,$3,$4,$5,$6,$7,$8,$8,0,1,$9,'acordo') returning id`,
-    [contrato, c.data, [tituloOrigemId], R2(c.principal + (c.correcao || 0)), c.multa, c.juros, c.cobranca || 0, c.total, obs]);
-  const [t] = await q(`insert into carteira.titulos(contrato, grupo, numero, total, rotulo, vencimento, valor_face, conferente, acordo_id)
-                       values ($1,'acordo',1,1,$2,$3,$4,'luis',$5) returning id`, [contrato, `Acordo ${c.data.split('-').reverse().join('/')} — 1/1`, vencBoleto, c.total, a.id]);
-  return { acordo_id: a.id, titulo_id: t.id };
-}
-async function cobrancasParaAcordo(conf) {
-  const L = await q(`select b.*, t.contrato tc from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
-                     where b.composicao is not null and b.origem='sistema' and t.grupo<>'acordo' and b.tipo in ('cobranca','acordo')
-                       and not exists (select 1 from carteira.acordos a where a.conferente='luis' and t.id = any(a.titulos_origem))`);
-  const out = [];
-  for (const b of L) {
-    const c = b.composicao, venc = dstr(b.vencimento);
-    const r = await acordoDaCobranca(b.tc, b.titulo_id, c, venc, (c.cobranca ? 'Cobrança dos 60 dias' : 'Boleto reemitido (já era renegociação, sem os 10%)') + ' — boleto ' + (b.fatura || b.id_asaas));
-    await q(`update carteira.boletos set titulo_id=$2, atualizado_em=now() where id_asaas=$1`, [b.id_asaas, r.titulo_id]);
-    out.push({ contrato: b.tc, boleto: b.fatura, acordo: r.acordo_id });
-  }
-  if (out.length) await log(conf, 'cobrancas_viraram_acordo', out);
-  return out;
-}
-async function desfazCobranca(idCob, conf) {
-  const [cb] = await q(`select * from carteira.boletos where id_asaas=$1 and tipo='cobranca'`, [idCob]);
-  if (!cb || !ATIVOS_B.includes(cb.status)) return { erro: 'Boleto de cobrança não encontrado ou não está em aberto' };
-  const [old] = await q(`select * from carteira.boletos where substituido_por=$1`, [idCob]);
-  const c0 = cb.composicao || {};
-  const c = { principal: c0.principal, correcao: c0.correcao || 0, multa: c0.multa, juros: c0.juros, cobranca: 0, data: c0.data, vencimento_original: c0.vencimento_original, sem_cobranca: true };
-  c.total = R2(c.principal + c.correcao + c.multa + c.juros);
-  const g0 = await asaas('/payments/' + idCob);
-  const g = await asaasReq('POST', '/payments', { customer: g0.customer, billingType: 'BOLETO', value: c.total, dueDate: hojeBR(),
-    description: old?.descricao || g0.description, externalReference: 'cbr-titulo-' + cb.titulo_id, interest: { value: 1 }, fine: { value: 0 } });
-  await asaasReq('DELETE', '/payments/' + idCob).catch(() => null);
-  await q(`update carteira.boletos set status='DELETED', motivo='Era renegociação — não leva os 10% de cobrança', atualizado_em=now() where id_asaas=$1`, [idCob]);
-  await gravaBoleto(g, { contrato: cb.contrato, titulo_id: cb.titulo_id, tipo: 'acordo', origem: 'sistema', composicao: c, motivo: 'Reemitido sem os 10% (renegociação), com multa e juros até ' + c.data });
-  const [ta] = await q(`select id, acordo_id from carteira.titulos where id=$1 and grupo='acordo'`, [cb.titulo_id]);
-  if (ta && (await q(`select 1 from carteira.acordos where id=$1 and obs like 'Cobrança dos 60 dias%'`, [ta.acordo_id])).length) {
-    await q(`update carteira.acordos set honorarios=0, valor_calculado=$2, valor_acordado=$2, obs=$3 where id=$1`, [ta.acordo_id, c.total, 'Boleto reemitido (já era renegociação, sem os 10%) — boleto ' + (g.invoiceNumber || g.id)]);
-    await q(`update carteira.titulos set valor_face=$2 where id=$1`, [ta.id, c.total]);
-  }
-  await log(conf, 'cobranca_desfeita', { antigo: idCob, novo: g.id, ...c });
-  return { ok: true, novo: g.id, fatura: g.invoiceNumber, valor: c.total };
+  const g0 = await asaas('/payments/' + b.id_asaas).catch(() => null);
+  if (g0 && (g0.deleted || !ATIVOS_B.includes(g0.status))) { await gravaBoleto(g0, {}); return { id: b.id_asaas, erro: 'Boleto já não está em aberto no Asaas' }; }
+  const r = await segundaVia(b.titulo_id, hojeBR(), conf, { motivo: 'Cobrança dos 60 dias' });
+  return r.ok ? r : { id: b.id_asaas, ...r };
 }
 async function cobrancaSemBoleto(tituloId, conf) {
   const [t] = await q(SQL_ABERTAS + ` and t.id=$1`, [tituloId, ATIVOS_B]);
   if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto' };
   if (t.boleto) return { titulo_id: tituloId, erro: 'Parcela já tem boleto ativo' };
   if (t.grupo === 'acordo') return { titulo_id: tituloId, erro: 'Parcela de renegociação não leva os 10% de cobrança' };
-  const [jc] = await q(`select 1 from carteira.boletos where titulo_id=$1 and tipo='cobranca' and status = any($2)`, [t.id, ATIVOS_B]);
-  if (jc) return { titulo_id: tituloId, erro: 'Já tem boleto de cobrança' };
-  const cliente = await clienteDoContrato(t.contrato);
-  if (!cliente) return { titulo_id: tituloId, erro: 'Não achei o cliente no Asaas' };
-  const hoje = hojeBR();
-  const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, t.grupo !== 'acordo' && t.grupo !== 'entrada');
-  c.cobranca = R2((c.principal + c.correcao + c.multa + c.juros) * .10);
-  c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca); c.data = hoje; c.vencimento_original = t.vencimento;
-  const linha = `Renegociação ${t.grupo === 'acordo' ? 'acordo ' + String(t.numero).padStart(2, '0') + '/' + String(t.total).padStart(2, '0') : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ')} (original vencido em ${t.vencimento.split('-').reverse().join('/')})`;
-  const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: c.total, dueDate: hoje,
-    description: descricaoBoleto({ numero: t.contrato, quadra: t.quadra, lote: t.lote }, linha, false), externalReference: 'cbr-cobranca-' + t.id, interest: { value: 1 }, fine: { value: 0 } });
-  const ac = await acordoDaCobranca(t.contrato, t.id, c, g.dueDate, 'Cobrança dos 60 dias — boleto ' + (g.invoiceNumber || g.id));
-  await gravaBoleto(g, { contrato: t.contrato, titulo_id: ac.titulo_id, tipo: 'cobranca', origem: 'sistema', composicao: c, motivo: 'Cobrança dos 60 dias (parcela estava sem boleto)' });
-  await log(conf, 'boleto_cobranca_sem_boleto', { contrato: t.contrato, titulo: t.id, novo: g.id, ...c });
-  return { ok: true, contrato: t.contrato, titulo_id: t.id, novo: g.id, fatura: g.invoiceNumber, valor: c.total };
+  return segundaVia(tituloId, hojeBR(), conf, { motivo: 'Cobrança dos 60 dias (parcela estava sem boleto)' });
+}
+async function desfazCobranca(idCob, conf) {
+  const [cb] = await q(`select * from carteira.boletos where id_asaas=$1 and tipo='cobranca'`, [idCob]);
+  if (!cb || !ATIVOS_B.includes(cb.status)) return { erro: 'Boleto de cobrança não encontrado ou não está em aberto' };
+  return segundaVia(cb.titulo_id, hojeBR(), conf, { semCobranca: true, motivo: 'Reemitido sem os 10% (já era renegociação)' });
+}
+function separaPagamento(c, pago) {
+  const B = +c.total, base = R2(c.principal + (c.correcao || 0));
+  let ho = +c.cobranca || 0, de = 0;
+  if (pago > B) ho = R2(ho + (pago - B) * (+c.cobranca || 0) / B); else de = R2(B - pago);
+  const ju = Math.max(0, R2(pago + de - base - c.multa - ho));
+  return { valor_cobranca: base, multa_paga: c.multa, juros_pago: ju, honorarios_pago: ho, desconto_dado: de };
+}
+/* desfaz os "acordos de 1 parcela" que a cobrança dos 60 dias tinha criado: boleto e pagamento voltam para a própria parcela */
+async function cobrancaVoltaParaParcela(conf) {
+  const acs = await q(`select * from carteira.acordos where conferente='luis' and (obs like 'Cobrança dos 60 dias%' or obs like 'Boleto reemitido (já era renegociação%') and qtd_parcelas=1 and array_length(titulos_origem,1)=1`);
+  const out = [];
+  for (const ac of acs) {
+    const orig = ac.titulos_origem[0];
+    const ts = await q(`select id from carteira.titulos where acordo_id=$1`, [ac.id]);
+    const ids = ts.map(t => t.id);
+    const bs = await q(`select * from carteira.boletos where titulo_id = any($1)`, [ids]);
+    for (const b of bs) await q(`update carteira.boletos set titulo_id=$2, tipo=$3 where id_asaas=$1`, [b.id_asaas, orig, b.composicao && +b.composicao.cobranca ? 'cobranca' : (b.composicao ? 'segunda_via' : b.tipo)]);
+    const pags = await q(`select * from carteira.pagamentos where titulo_id = any($1)`, [ids]);
+    for (const g of pags) {
+      const b = bs.find(x => x.id_asaas === g.id_asaas) || bs.find(x => x.composicao);
+      const s = b?.composicao ? separaPagamento(b.composicao, +g.valor_pago) : {};
+      await q(`update carteira.pagamentos set titulo_id=$2, valor_cobranca=coalesce($3,valor_cobranca), multa_paga=coalesce($4,multa_paga), juros_pago=coalesce($5,juros_pago), honorarios_pago=coalesce($6,honorarios_pago), desconto_dado=coalesce($7,desconto_dado) where id=$1`,
+        [g.id, orig, s.valor_cobranca ?? null, s.multa_paga ?? null, s.juros_pago ?? null, s.honorarios_pago ?? null, s.desconto_dado ?? null]);
+      await q(`insert into carteira.conferencia_titulo(conferente, titulo_id, situacao) values ($1,$2,'paga') on conflict (conferente, titulo_id) do update set situacao='paga', salvo_em=now()`, [g.conferente, orig]);
+    }
+    await q(`delete from carteira.conferencia_titulo where titulo_id = any($1)`, [ids]);
+    await q(`delete from carteira.titulos where id = any($1)`, [ids]);
+    await q(`delete from carteira.acordos where id=$1`, [ac.id]);
+    out.push({ contrato: ac.contrato, acordo: ac.id, boletos: bs.length, pagamentos: pags.length });
+  }
+  if (out.length) await log(conf, 'cobranca_volta_para_parcela', out);
+  return out;
 }
 export async function rodaCobranca60(limiteMs = 15000) {
   await garanteAuto(); await garanteBoletos();
@@ -1130,7 +1119,8 @@ export default async (req) => {
         await log(real, 'boletos_ligados_acordo', { acordo: ac.id, ligados });
         return json({ ligados, pago });
       }
-      if (p[1] === 'cobranca-para-acordo' && m === 'POST') return json(await cobrancasParaAcordo(real));
+      if (p[1] === 'cobranca-volta-parcela' && m === 'POST') return json(await cobrancaVoltaParaParcela(real));
+      if (p[1] === 'segunda-via' && m === 'POST') return json(await segundaVia(body.titulo_id, body.vencimento, real, { previa: !!body.previa }));
       if (p[1] === 'desfaz-cobranca' && m === 'POST') return json(await desfazCobranca(body.id_asaas, real));
       if (p[1] === 'cobranca-sem-boleto' && m === 'POST') {
         const t0 = Date.now(), out = [];
@@ -1169,6 +1159,40 @@ export default async (req) => {
       if (m === 'DELETE') return json(await excluirBoleto(p[1], real, url.searchParams.get('motivo') || 'Excluído pelo sistema'));
       if (m === 'PUT') return json(await editarBoleto(p[1], body, real));
       if (m === 'GET') return json(await asaas('/payments/' + p[1]));
+    }
+    if (p[0] === 'relatorios' && p[1] === 'cobranca-recebida' && m === 'GET') {
+      const de = url.searchParams.get('de'), ate = url.searchParams.get('ate');
+      const r = await q(`select g.id, g.valor_pago, g.multa_paga, g.juros_pago, g.honorarios_pago, coalesce(g.compensacao,0) compensacao, g.confirmada_em::text data, g.fatura, g.forma,
+          t.contrato, t.rotulo, t.grupo, t.acordo_id, a.valor_acordado, a.principal a_pr, a.multa a_mu, a.juros a_ju, a.honorarios a_ho, c.quadra, c.lote,
+          coalesce((select nullif(string_agg(x->>'nome', ' e ' order by o), '') from jsonb_array_elements(case when jsonb_typeof(c.compradores)='array' then c.compradores else '[]'::jsonb end) with ordinality as j(x,o)), c.nome_planilha) titular
+        from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id join carteira.contratos c on c.numero=t.contrato left join carteira.acordos a on a.id=t.acordo_id
+        where g.conferente='luis' and g.confirmada_em between $1 and $2 order by g.confirmada_em, t.contrato`, [de, ate]);
+      const out = [];
+      for (const x of r) {
+        const v = +x.valor_pago, mu = +x.multa_paga || 0, ju = +x.juros_pago || 0, ho = +x.honorarios_pago || 0, base = v - mu - ju - ho - (+x.compensacao || 0);
+        let L = { principal: base, multa: mu, juros: ju, cobranca: ho };
+        if (x.acordo_id && +x.valor_acordado > 0) { const f = base / +x.valor_acordado; L = { principal: +x.a_pr * f, multa: mu + (+x.a_mu || 0) * f, juros: ju + (+x.a_ju || 0) * f, cobranca: ho + (+x.a_ho || 0) * f }; }
+        if (L.cobranca < 0.005) continue;
+        out.push({ contrato: x.contrato, quadra: x.quadra, lote: x.lote, titular: x.titular, parcela: x.rotulo, data: x.data, fatura: x.fatura, forma: x.forma, valor_pago: R2(v),
+          principal: R2(L.principal), multa: R2(L.multa), juros: R2(L.juros), cobranca: R2(L.cobranca), origem: x.acordo_id ? 'acordo' : 'parcela' });
+      }
+      return json(out);
+    }
+    if (p[0] === 'relatorios' && p[1] === 'em-cobranca' && m === 'GET') {
+      await garanteBoletos();
+      const hoje = hojeBR(), lim = somaDias(hoje, -60);
+      const r = await q(SQL_ABERTAS + ` and t.vencimento <= $1::date order by t.contrato, t.vencimento`, [lim, ATIVOS_B]);
+      const bs = await q(`select titulo_id, tipo, fatura, valor, vencimento::text v from carteira.boletos where status = any($1)`, [ATIVOS_B]);
+      const out = r.map(t => {
+        const ac = t.grupo === 'acordo';
+        const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada');
+        const cob = ac ? 0 : R2((c.principal + c.correcao + c.multa + c.juros) * .10);
+        const b = bs.find(x => String(x.titulo_id) === String(t.id));
+        return { contrato: t.contrato, quadra: t.quadra, lote: t.lote, titular: t.cessionario || t.titular, parcela: t.rotulo, vencimento: t.vencimento, dias: c.dias,
+          principal: c.principal, correcao: c.correcao, multa: c.multa, juros: c.juros, cobranca: cob, total: R2(c.principal + c.correcao + c.multa + c.juros + cob),
+          boleto: b ? { tipo: b.tipo, fatura: b.fatura, valor: +b.valor, vencimento: b.v } : null };
+      });
+      return json(out);
     }
     if (p[0] === 'correcao-anual' && real === 'luis') {
       if (p[1] === 'previa' && m === 'GET') return json(await previaCorrecao(url.searchParams.get('ano'), url.searchParams.get('igpm') || 0, url.searchParams.get('desde')));
