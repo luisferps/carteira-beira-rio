@@ -891,7 +891,7 @@ function diasUteisEntre(d1, d2) {
   return n;
 }
 async function previaCorrecao(ano, igpm, desde) {
-  ano = +ano; igpm = +igpm; desde = +desde || 2024;
+  ano = +ano; igpm = +igpm; desde = +desde || 2025;
   const cs = await q(`select c.numero, c.quadra, c.lote, c.data_assinatura::text assin,
       coalesce((select nullif(string_agg(x->>'nome', ' e ' order by o), '') from jsonb_array_elements(case when jsonb_typeof(c.compradores)='array' then c.compradores else '[]'::jsonb end) with ordinality as j(x,o)), c.nome_planilha) titular
     from carteira.contratos c
