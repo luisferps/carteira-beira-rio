@@ -70,6 +70,7 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .pc.ces{box-shadow:0 0 0 3px #fff,0 0 0 6px #ea580c}
 .pc.corr.ces{outline:3px solid #7c3aed;box-shadow:0 0 0 6px #ea580c}
 .pc:has(.orig){height:auto;min-height:50px}.orig{display:block;text-align:center;max-width:100%;white-space:normal;overflow-wrap:break-word;line-height:1.15;font-size:10px}
+.kanban{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(240px,1fr);overflow-x:auto;gap:10px;padding-bottom:8px}.kcol{background:#f1f5f9;border-radius:10px;padding:8px;min-height:120px}.kh{font-weight:700;margin-bottom:8px}.kc{background:#fff;border:1px solid var(--ln);border-radius:8px;padding:8px;margin-bottom:6px;cursor:pointer}.kc:hover{border-color:#1d4ed8}.cgrid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}.reg{border-left:3px solid #cbd5e1;padding:4px 10px;margin:8px 0}.reg-whatsapp{border-color:#25d366}.reg-ligacao{border-color:#2563eb}.reg-pagamento{border-color:#16a34a;background:#f0fdf4}.reg-acordo{border-color:#f59e0b}.reg-etapa,.reg-sistema{opacity:.75}
 .mods{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;max-width:900px;margin:30px auto}
 .mod{text-align:left;background:var(--card);border:1px solid var(--ln);border-left:6px solid #1d4ed8;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:8px;cursor:pointer;min-height:150px}
 .mod:hover{box-shadow:0 4px 16px rgba(0,0,0,.08)}.mod b{font-size:20px}.mod span{color:#666}
@@ -144,7 +145,7 @@ function route(){const h=location.hash.slice(1);COMO='';
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
-  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
+  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function novaPend(){const t=prompt('Descreva a pendência deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
 async function novaObs(){const t=prompt('Observação deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'observacao',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
@@ -155,9 +156,99 @@ function telaModulos(){
   app.innerHTML=`<div class="mods">
    <div class="mod" onclick="location.hash='contratos'"><b>Contratos</b><span>Carteira do Beira Rio: parcelas, pagamentos, acordos, cessões e relatórios.</span></div>
    <div class="mod" style="border-left-color:#2e9e4f" onclick="location.hash='clientes'"><b>Clientes</b><span>Cadastro dos clientes: telefones, e-mails, endereço, documentos e os contratos de cada um.</span></div>
+   ${EU==='luis'||EU==='assistente'?`<div class="mod" style="border-left-color:#dc2626" onclick="location.hash='cobranca'"><b>Cobrança</b><span>Campanha de cobrança: funil, agenda de contatos, promessas e mensagens prontas de WhatsApp.</span></div>`:''}
    ${EU==='assistente'?`<div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar boletos, 2ª via, cobrança e relatórios de cobrança.</span></div>`:''}
    ${EU==='luis'?`<div class="mod" style="border-left-color:#64748b" onclick="location.hash='usuarios'"><b>Usuários</b><span>Liberar ou bloquear o acesso da equipe.</span></div><div class="mod" style="border-left-color:#0d9488" onclick="location.hash='correcao'"><b>Correção anual</b><span>Prévia e aplicação da correção de janeiro (IGP-M + 2% para quem atrasou), contrato por contrato.</span></div><div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar os boletos do mês, cobrança dos 60 dias e boletos feitos direto no Asaas.</span></div><div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
   </div>`}
+
+
+/* ---------- COBRANÇA ---------- */
+const ETAPAS=[['fila','Na fila'],['contato','Contato feito'],['negociando','Negociando'],['promessa','Promessa de pagamento'],['acordo','Acordo feito'],['sem_retorno','Sem retorno'],['notificacao','Notificação / jurídico']];
+const ETN=Object.fromEntries(ETAPAS);
+const TIPOS_REG={whatsapp:'WhatsApp',ligacao:'Ligação',email:'E-mail',visita:'Visita / presencial',nota:'Anotação',etapa:'Mudou de etapa',sistema:'Sistema',pagamento:'Pagamento',acordo:'Acordo'};
+const RESULTADOS=['Atendeu','Não atendeu','Sem resposta','Número errado','Pediu proposta','Prometeu pagar','Recusou','Vai procurar o escritório'];
+let COB=null,COBTAB='funil',CASO=null,MODELOS=null;
+const somaDiasF=(d,n)=>{const x=new Date(d+'T12:00:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)};
+function flagsCaso(c,hoje){const f=[];if(c.proximo_contato&&c.proximo_contato.slice(0,10)<=hoje)f.push('<span class="tag al">contatar hoje</span>');
+  const pr=c.promessa;if(pr&&pr.data_promessa){const pago=c.pago_na_campanha&&c.pago_na_campanha.ult>=String(pr.em).slice(0,10);if(pr.data_promessa.slice(0,10)<hoje&&!pago)f.push('<span class="tag" style="background:#fee2e2;color:#991b1b">promessa não cumprida</span>');else if(!pago)f.push(`<span class="tag" style="background:#e0e7ff;color:#3730a3">promessa ${dbr(pr.data_promessa)}</span>`)}
+  if(c.pago_na_campanha)f.push(`<span class="tag ok">recebido ${brl(+c.pago_na_campanha.v)}</span>`);if(!(+c.divida.total))f.push('<span class="tag ok">sem atraso — pode encerrar</span>');return f.join(' ')}
+async function telaCobranca(){app.innerHTML='<div class="card">Carregando…</div>';COB=await api('cobranca/painel');const hoje=COB.hoje,K=COB.casos;
+  const tot=K.reduce((s,c)=>s+(+c.divida.total||0),0),hojeN=K.filter(c=>c.proximo_contato&&c.proximo_contato.slice(0,10)<=hoje).length;
+  const quebr=K.filter(c=>c.promessa&&c.promessa.data_promessa&&c.promessa.data_promessa.slice(0,10)<hoje&&!(c.pago_na_campanha&&c.pago_na_campanha.ult>=String(c.promessa.em).slice(0,10))).length;
+  const tb=(k,l)=>`<button data-t="${k}" class="${COBTAB===k?'on':''}">${l}</button>`;
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
+  <div class="card"><h3 style="margin-top:0">Cobrança</h3>
+  <div class="tot"><div><span class="mut">Contratos na campanha</span><b>${K.length}</b></div><div class="neg"><span class="mut">Dívida em cobrança hoje</span><b>${brl(tot)}</b></div>
+  <div><span class="mut">Para contatar hoje</span><b>${hojeN}</b></div><div class="${quebr?'neg':''}"><span class="mut">Promessas não cumpridas</span><b>${quebr}</b></div>
+  <div><span class="mut">Recebido no mês (campanha)</span><b>${brl(COB.recuperado_mes)}</b></div><div><span class="mut">Atraso grave fora da campanha</span><b>${COB.sugeridos.length}</b></div></div>
+  <div class="filtros" id="ctab" style="margin-top:12px">${tb('funil','Funil')}${tb('hoje','Agenda de hoje ('+hojeN+')')}${tb('sug','Atraso grave fora da campanha ('+COB.sugeridos.length+')')}${tb('enc','Encerrados')}${tb('mod','Mensagens prontas')}</div></div>
+  <div id="cconteudo"></div>`;
+  $('#ctab').onclick=e=>{const t=e.target.dataset?.t;if(!t)return;COBTAB=t;document.querySelectorAll('#ctab button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));desenhaCobTab()};desenhaCobTab()}
+function cardCaso(c){return `<div class="kc" onclick="location.hash='cob/${c.id}'"><div style="display:flex;justify-content:space-between"><b>${c.contrato}</b><span class="mut">Q${c.divida.quadra||''} L${c.divida.lote||''}</span></div>
+  <div style="font-size:13px">${esc(nome(c.divida.titular||''))}</div><div style="margin:4px 0"><b style="color:var(--at)">${brl(+c.divida.total)}</b> <span class="mut" style="font-size:12px">${c.divida.parcelas.length} parc. · ${c.divida.dias} dias</span></div>
+  <div class="mut" style="font-size:12px">${c.ultimo_contato?'último contato '+dbr(c.ultimo_contato):'sem contato ainda'}${c.proximo_contato?' · próximo '+dbr(c.proximo_contato):''}</div><div style="margin-top:4px">${flagsCaso(c,COB.hoje)}</div></div>`}
+async function desenhaCobTab(){const el=$('#cconteudo'),K=COB.casos,hoje=COB.hoje;
+  if(COBTAB==='funil'){el.innerHTML=`<div class="kanban">${ETAPAS.map(([k,l])=>{const cs=K.filter(c=>c.etapa===k);return `<div class="kcol"><div class="kh">${l} <span class="mut">(${cs.length})</span><div class="mut" style="font-size:12px">${brl(cs.reduce((s,c)=>s+(+c.divida.total||0),0))}</div></div>${cs.map(cardCaso).join('')||'<div class="mut" style="font-size:12px;padding:6px">—</div>'}</div>`}).join('')}</div>`}
+  else if(COBTAB==='hoje'){const L=K.filter(c=>c.proximo_contato&&c.proximo_contato.slice(0,10)<=hoje).sort((a,b)=>String(a.proximo_contato).localeCompare(String(b.proximo_contato))||(+b.divida.total-+a.divida.total));
+    el.innerHTML=`<div class="card">${L.length?`<table><tr><th>Contrato</th><th>Cliente</th><th>Etapa</th><th>Dívida</th><th>Último contato</th><th>Previsto</th><th></th></tr>${L.map(c=>`<tr class="lk" onclick="location.hash='cob/${c.id}'"><td>${c.contrato}</td><td>${esc(nome(c.divida.titular||''))}</td><td>${ETN[c.etapa]||c.etapa}</td><td>${brl(+c.divida.total)}</td><td>${c.ultimo_contato?dbr(c.ultimo_contato):'—'}</td><td>${dbr(c.proximo_contato)}</td><td>${flagsCaso(c,hoje)}</td></tr>`).join('')}</table>`:'<div class="mut">Nenhum contato previsto para hoje.</div>'}</div>`}
+  else if(COBTAB==='sug'){const S=COB.sugeridos;el.innerHTML=`<div class="card"><div class="bt" style="align-items:center"><span class="mut" style="flex:1">Contratos com dívida acima de R$ 5 mil que ainda não estão na campanha.</span>${S.length?'<button class="pri" onclick="enviaCob(null,true)">Enviar selecionados para cobrança</button>':''}</div>
+    ${S.length?`<table style="margin-top:8px"><tr><th><input type="checkbox" style="width:auto" checked onchange="document.querySelectorAll('.sgchk').forEach(c=>c.checked=this.checked)"></th><th>Contrato</th><th>Cliente</th><th>Parcelas</th><th>Maior atraso</th><th>Dívida hoje</th></tr>${S.map(d=>`<tr><td><input type="checkbox" class="sgchk" value="${d.contrato}" checked style="width:auto"></td><td><a href="#c/${d.contrato}">${d.contrato}</a> <span class="mut">Q${d.quadra} L${d.lote}</span></td><td>${esc(nome(d.titular||''))}</td><td>${d.parcelas.length}</td><td>${d.dias} dias</td><td><b>${brl(d.total)}</b></td></tr>`).join('')}</table>`:'<div class="mut" style="margin-top:8px">Todos os contratos em atraso grave já estão na campanha.</div>'}</div>`}
+  else if(COBTAB==='enc'){const E=COB.encerrados;el.innerHTML=`<div class="card">${E.length?`<table><tr><th>Contrato</th><th>Entrou</th><th>Encerrado</th><th>Motivo</th></tr>${E.map(c=>`<tr class="lk" onclick="location.hash='cob/${c.id}'"><td>${c.contrato}</td><td>${dbr(c.criado_em)}</td><td>${dbr(c.encerrado_em)}</td><td>${esc(c.motivo_encerramento||'')}</td></tr>`).join('')}</table>`:'<div class="mut">Nenhum caso encerrado ainda.</div>'}</div>`}
+  else if(COBTAB==='mod'){MODELOS=await api('cobranca/modelos');el.innerHTML=`<div class="card"><div class="info">Mensagens prontas para o WhatsApp. Campos que o sistema preenche sozinho: <b>{nome}</b>, <b>{primeiro_nome}</b>, <b>{contrato}</b>, <b>{quadra}</b>, <b>{lote}</b>, <b>{qtd_parcelas}</b>, <b>{valor_total}</b>, <b>{parcelas}</b> (lista), <b>{data_hoje}</b>, <b>{data_limite}</b> (hoje + 5 dias), <b>{valor_promessa}</b>, <b>{data_promessa}</b>.</div>
+    ${MODELOS.map(md=>`<div class="ficha" style="margin:10px 0"><input id="mt_${md.id}" value="${esc(md.titulo)}" style="font-weight:700;margin-bottom:6px"><textarea id="mx_${md.id}" style="min-height:140px">${esc(md.texto)}</textarea><div class="bt" style="margin-top:6px"><button onclick="salvaModelo(${md.id})">Salvar</button><button class="per" onclick="apagaModelo(${md.id})">Excluir</button></div></div>`).join('')}
+    <div class="ficha"><b>Nova mensagem</b><input id="mt_novo" placeholder="Título" style="margin:6px 0"><textarea id="mx_novo" style="min-height:120px" placeholder="Texto"></textarea><div class="bt" style="margin-top:6px"><button class="pri" onclick="salvaModelo()">Adicionar</button></div></div></div>`}}
+async function salvaModelo(id){const t=$('#mt_'+(id||'novo')).value.trim(),x=$('#mx_'+(id||'novo')).value;if(!t||!x)return alert('Preencha título e texto.');await api('cobranca/modelos'+(id?'/'+id:''),{method:id?'PUT':'POST',body:{titulo:t,texto:x}});desenhaCobTab()}
+async function apagaModelo(id){if(!confirm('Excluir esta mensagem pronta?'))return;await api('cobranca/modelos/'+id,{method:'DELETE'});desenhaCobTab()}
+async function enviaCob(n,lote){const ns=lote?[...document.querySelectorAll('.sgchk:checked')].map(c=>c.value):[n];if(!ns.length)return;if(!confirm(lote?`Enviar ${ns.length} contrato(s) para a campanha de cobrança?`:'Enviar este contrato para a campanha de cobrança?'))return;
+  const r=await api('cobranca/caso',{method:'POST',body:{contratos:ns}});if(lote)telaCobranca();else location.hash='cob/'+r[0].id}
+/* caso */
+async function telaCaso(id){app.innerHTML='<div class="card">Carregando…</div>';CASO=await api('cobranca/caso/'+id);const X=CASO,c=X.caso,d=X.divida,ct=X.contrato;
+  const cl=await api('clientes?contrato='+c.contrato).catch(()=>[]);X.cli=cl.map(cliDados);const fones=X.cli.flatMap(x=>x.tel.map(t=>({...t,nome:x.nome})));X.fones=fones;
+  const enc=!!c.encerrado_em;
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='cobranca'">← Cobrança</button><button onclick="location.hash='c/${c.contrato}'">Abrir o contrato</button></div>
+  <div class="card"><div class="bt" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">Contrato ${c.contrato} — Q${ct.quadra} L${ct.lote}</h2><div style="font-size:15px">${esc(nome(d.titular||(ct.compradores||[]).map(x=>x.nome).join(' e ')))}</div>
+   <div class="mut">Na campanha desde ${dbr(c.criado_em)}${c.criado_por?' · por '+esc(c.criado_por):''}${enc?' · <b>ENCERRADO em '+dbr(c.encerrado_em)+'</b> ('+esc(c.motivo_encerramento||'')+')':''}</div></div>
+   ${enc?'':`<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="pri" onclick="modalMsg()">Mandar WhatsApp</button><button onclick="modalReg()">Registrar contato</button><button class="per" onclick="encerraCaso()">Encerrar caso</button></div>`}</div>
+   <div class="tot" style="margin-top:10px"><div class="neg"><span class="mut">Dívida hoje</span><b>${brl(d.total)}</b></div><div><span class="mut">Parcelas em atraso</span><b>${d.parcelas.length}</b></div><div><span class="mut">Maior atraso</span><b>${d.dias} dias</b></div><div><span class="mut">Recebido desde que entrou</span><b>${brl(X.pagamentos.reduce((s,p)=>s+(+p.valor_pago),0))}</b></div></div>
+   ${enc?'':`<div class="f2" style="margin-top:10px"><div><label>Etapa</label><select id="cs_et" onchange="mudaCaso({etapa:this.value})">${ETAPAS.map(([k,l])=>`<option value="${k}" ${c.etapa===k?'selected':''}>${l}</option>`).join('')}</select></div>
+   <div><label>Próximo contato</label><input type="date" id="cs_px" value="${c.proximo_contato?String(c.proximo_contato).slice(0,10):''}" onchange="mudaCaso({proximo_contato:this.value})"></div>
+   <div><label>Responsável</label><input id="cs_rs" value="${esc(c.responsavel||'')}" onchange="mudaCaso({responsavel:this.value})"></div><div><label>Observação do caso</label><input id="cs_ob" value="${esc(c.obs||'')}" onchange="mudaCaso({obs:this.value})"></div></div>`}</div>
+  <div class="cgrid2"><div class="card"><h3 style="margin-top:0">Contatos</h3>${fones.length?fones.map(t=>`<div style="margin:4px 0"><a href="https://wa.me/55${digs(t.v)}" target="_blank">${esc(t.v)}</a> <span class="mut">${esc(t.nome.split(' ')[0])} · ${t.tipo||t.o}</span> <a href="tel:${digs(t.v)}">ligar</a></div>`).join(''):'<div class="mut">Nenhum telefone no cadastro. Inclua em Clientes.</div>'}
+    ${X.cli.flatMap(x=>x.em).map(e=>`<div class="mut" style="font-size:13px">${esc(e.v)}</div>`).join('')}
+    <h3>O que está devendo</h3><table><tr><th>Parcela</th><th>Venceu</th><th>Dias</th><th>Valor hoje</th></tr>${d.parcelas.map(p=>`<tr><td>${esc(p.rotulo)}</td><td>${dbr(p.vencimento)}</td><td>${p.dias}</td><td title="principal ${brl(p.principal)} · multa ${brl(p.multa)} · juros ${brl(p.juros)} · cobrança ${brl(p.cobranca)}">${brl(p.total)}</td></tr>`).join('')}<tr><td colspan="3"><b>Total</b></td><td><b>${brl(d.total)}</b></td></tr></table>
+    ${X.boletos.length?`<h3>Boletos em aberto</h3>${X.boletos.map(b=>`<div style="margin:3px 0">${esc(b.rotulo||'')} · ${brl(+b.valor)} · vence ${dbr(b.vencimento)} ${b.link?`· <a href="${b.link}" target="_blank">ver</a> · <a href="#" onclick="copia('${b.link}');return false">copiar link</a>`:''}</div>`).join('')}`:''}
+    ${X.acordos.length||X.propostas.length?`<h3>Negociação</h3>${X.propostas.map(p=>`<div>Proposta ${esc(p.termo||'')} (aguardando)</div>`).join('')}${X.acordos.map(a=>`<div>Acordo de ${dbr(a.data)}: ${brl(+a.valor_acordado)} em ${a.qtd_parcelas}x</div>`).join('')}`:''}
+    <div class="bt" style="margin-top:10px"><button onclick="location.hash='c/${c.contrato}'">Fazer proposta / 2ª via no contrato</button></div></div>
+   <div class="card"><h3 style="margin-top:0">Histórico</h3>${X.registros.map(r=>`<div class="reg reg-${r.tipo}"><div class="mut" style="font-size:12px">${new Date(r.em).toLocaleString('pt-BR')} · ${TIPOS_REG[r.tipo]||r.tipo}${r.resultado?' · <b>'+esc(r.resultado)+'</b>':''}${r.por&&r.por!=='sistema'?' · '+esc(r.por):''}</div>
+     ${r.texto?`<div style="white-space:pre-wrap">${esc(r.texto)}</div>`:''}${r.data_promessa?`<div><b>Promessa:</b> ${r.valor_promessa?brl(+r.valor_promessa)+' ':''}até ${dbr(r.data_promessa)}</div>`:''}</div>`).join('')||'<div class="mut">Sem registros.</div>'}</div></div>`}
+function copia(t){navigator.clipboard.writeText(t);alert('Link copiado.')}
+async function mudaCaso(b){await api('cobranca/caso/'+CASO.caso.id,{method:'PUT',body:b});telaCaso(CASO.caso.id)}
+async function encerraCaso(){const m=prompt('Motivo do encerramento (ex.: Regularizado, Acordo cumprido, Retomada, Distrato):',+CASO.divida.total?'':'Regularizado');if(!m)return;await api('cobranca/caso/'+CASO.caso.id+'/encerrar',{method:'POST',body:{motivo:m}});location.hash='cobranca'}
+function modalReg(pre){const hoje=new Date().toISOString().slice(0,10);
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Registrar contato</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="f2"><div><label>Como foi</label><select id="rg_t">${['ligacao','whatsapp','email','visita','nota'].map(k=>`<option value="${k}" ${pre?.tipo===k?'selected':''}>${TIPOS_REG[k]}</option>`).join('')}</select></div>
+  <div><label>Resultado</label><select id="rg_r"><option value="">—</option>${RESULTADOS.map(r=>`<option>${r}</option>`).join('')}</select></div></div>
+  <label>O que foi conversado</label><textarea id="rg_x">${esc(pre?.texto||'')}</textarea>
+  <div class="f2"><div><label>Prometeu pagar até (opcional)</label><input type="date" id="rg_dp"></div><div><label>Valor prometido</label><input id="rg_vp" inputmode="decimal"></div>
+  <div><label>Próximo contato</label><input type="date" id="rg_px" value="${somaDiasF(hoje,3)}"></div><div><label>Mudar etapa para</label><select id="rg_et"><option value="">(manter / automático)</option>${ETAPAS.map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div></div>
+  <div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaReg()">Salvar</button></div>`);
+  $('#rg_dp').onchange=()=>{if($('#rg_dp').value)$('#rg_px').value=somaDiasF($('#rg_dp').value,1)}}
+async function salvaReg(){const b={tipo:$('#rg_t').value,resultado:$('#rg_r').value,texto:$('#rg_x').value,data_promessa:$('#rg_dp').value||null,valor_promessa:numBR($('#rg_vp').value)||null,proximo_contato:$('#rg_px').value||null,etapa:$('#rg_et').value||null};
+  await api('cobranca/caso/'+CASO.caso.id+'/registro',{method:'POST',body:b});fechaModal();telaCaso(CASO.caso.id)}
+function preencheMsg(t,extra={}){const X=CASO,d=X.divida,ct=X.contrato,nm=nome(d.titular||(ct.compradores||[]).map(x=>x.nome).join(' e ')||'');const hoje=new Date().toISOString().slice(0,10);
+  const v={nome:nm,primeiro_nome:nm.split(' ')[0],contrato:ct.numero,quadra:ct.quadra,lote:ct.lote,qtd_parcelas:d.parcelas.length,valor_total:brl(d.total),parcelas:d.parcelas.map(p=>`• ${p.rotulo} (venc. ${dbr(p.vencimento)}): ${brl(p.total)}`).join('\n'),data_hoje:dbr(hoje),data_limite:dbr(somaDiasF(hoje,5)),valor_promessa:extra.valor_promessa||'',data_promessa:extra.data_promessa||''};
+  return t.replace(/\{(\w+)\}/g,(m,k)=>k in v?v[k]:m)}
+async function modalMsg(){MODELOS=MODELOS||await api('cobranca/modelos');const F=CASO.fones;if(!F.length)return alert('Este cliente não tem telefone no cadastro. Inclua em Clientes.');
+  const pr=CASO.registros.find(r=>r.data_promessa);const ex={valor_promessa:pr?.valor_promessa?brl(+pr.valor_promessa):'',data_promessa:pr?.data_promessa?dbr(pr.data_promessa):''};
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Mandar WhatsApp</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="f2"><div><label>Para</label><select id="mg_f">${F.map((t,i)=>`<option value="${i}">${esc(t.v)} — ${esc(t.nome.split(' ')[0])} (${t.tipo||t.o})</option>`).join('')}</select></div>
+  <div><label>Mensagem pronta</label><select id="mg_m">${MODELOS.map((m,i)=>`<option value="${i}">${esc(m.titulo)}</option>`).join('')}</select></div></div>
+  <label>Texto (pode editar antes de mandar)</label><textarea id="mg_x" style="min-height:220px"></textarea>
+  <div class="bt" style="margin-top:8px"><button class="pri" onclick="mandaMsg()">Abrir no WhatsApp e registrar</button><span class="mut" style="font-size:12px">Abre o WhatsApp com o texto pronto; o envio é você quem confirma lá.</span></div>`);
+  const pega=()=>$('#mg_x').value=preencheMsg(MODELOS[+$('#mg_m').value].texto,ex);$('#mg_m').onchange=pega;pega();window._EXM=ex}
+async function mandaMsg(){const t=CASO.fones[+$('#mg_f').value],x=$('#mg_x').value,md=MODELOS[+$('#mg_m').value];
+  window.open(`https://wa.me/55${digs(t.v).replace(/^55(?=\d{10,11}$)/,'')}?text=${encodeURIComponent(x)}`,'_blank');
+  await api('cobranca/caso/'+CASO.caso.id+'/registro',{method:'POST',body:{tipo:'whatsapp',resultado:'Mensagem enviada',texto:`[${md.titulo}] para ${t.v}\n\n${x}`,proximo_contato:somaDiasF(new Date().toISOString().slice(0,10),3)}});fechaModal();telaCaso(CASO.caso.id)}
 
 /* ---------- USUÁRIOS ---------- */
 const STU={definir_senha:'Aguardando criar a senha',aguardando_email:'Aguardando confirmar o e-mail',aguardando_aprovacao:'Aguardando sua liberação',ativo:'Ativo',bloqueado:'Bloqueado'};
@@ -606,8 +697,13 @@ function desenhaContrato(){
    <details open><summary>Acordos (${ACS.length})</summary>${ac}</details>
    <details open><summary>Repactuações (${RPS.length+DLS.length})</summary><div class="mut" style="margin-bottom:4px">Parcela dividida em vários boletos a pedido do cliente, antes de atrasar — sem multa nem juros. Diluição da dívida: parte do que estava devendo foi somada nas parcelas a vencer.</div>${rp}<div class="bt" style="margin-top:6px"><button onclick="modalDiluicao()">Diluir dívida nas parcelas a vencer</button></div></details>
    <details open><summary>Correções (${CORS.length})</summary>${co}</details>
-   <details open><summary>Eventos — cessão, diluição, encerramento, crédito e vencimento (${EVS.length+DIL.length})</summary>${ev}</details></div>`;
+   <details open><summary>Eventos — cessão, diluição, encerramento, crédito e vencimento (${EVS.length+DIL.length})</summary>${ev}</details></div>`;  botaoCob();
 }
+async function botaoCob(){if(!(EU==='luis'||EU==='assistente')||COMO)return;const n=C.contrato.numero,ac=document.querySelector('.acoes');if(!ac)return;
+  const atr=C.titulos.some(t=>estado(t)==='em_atraso');const c=await api('cobranca/contrato/'+n).catch(()=>null);if(!document.querySelector('.acoes')||C.contrato.numero!==n)return;
+  const b=document.createElement('button');if(c){b.textContent='Em cobrança — ver o caso';b.style.cssText='background:#fee2e2;color:#991b1b;border-color:#fca5a5';b.onclick=()=>location.hash='cob/'+c.id}
+  else if(atr){b.textContent='Enviar para cobrança';b.onclick=()=>enviaCob(n)}else return;ac.prepend(b)}
+
 function verAcordo(id){const a=C.acordos.find(x=>x.id==id),T=C.titulos;const orig=(a.titulos_origem||[]).map(i=>T.find(t=>t.id==i)?.rotulo||'?').join(', ');
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${nomeAc(a)} — de ${dbr(a.data_acordo)} — ${brl(a.valor_acordado)}${a.termo?' — Termo nº '+esc(a.termo):''}</h3><button onclick="fechaModal()">Fechar</button></div>
   <div><b>Englobou:</b> ${esc(orig)}</div><div class="mut" style="margin:6px 0">Principal ${brl(a.principal)} · Multa ${brl(a.multa)} · Juros ${brl(a.juros)} · Custo de cobrança ${brl(a.honorarios)} · ${a.qtd_parcelas} parcela(s)</div>

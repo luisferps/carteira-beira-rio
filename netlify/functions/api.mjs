@@ -521,6 +521,7 @@ async function processaPagamentoAsaas(g, X, opc = {}) {
            on conflict (conferente, titulo_id) do update set situacao='paga', salvo_em=now()`, [t.id]);
   D.pagamentos.push({ id: pg.id, titulo_id: t.id });
   await log('asaas', 'pagamento_automatico', { contrato: n, titulo: t.id, fatura: body.fatura, valor: g.value });
+  await anotaCobranca(n, 'pagamento', `Pagamento recebido pelo Asaas: R$ ${(+g.value).toFixed(2).replace('.', ',')} (${t.rotulo}) em ${String(conf || '').split('-').reverse().join('/')}`);
   return registraAuto(g, { resultado: 'lancado', contrato: n, titulo_id: t.id, pagamento_id: pg.id, motivo: t.rotulo, cliente: X.nomes[g.customer] });
 }
 export async function passoSync(limiteMs = 8000, recomecar = false) {
@@ -1045,7 +1046,7 @@ async function permitidoAssistente(p, m, body) {
   const a = p[0], s = p[1];
   if (m === 'GET') return ['eu', 'contratos', 'contrato', 'clientes', 'print', 'termo-arq', 'relatorios', 'boleto'].includes(a)
     || (a === 'boletos' && ['previa', 'cobranca', 'sem-vinculo', 'sobras'].includes(s));
-  if (a === 'sair') return true;
+  if (a === 'sair' || a === 'cobranca') return true;
   if (a === 'boletos' && m === 'POST') return ['emitir', 'segunda-via', 'cobranca', 'cobranca-sem-boleto', 'ligar-acordo'].includes(s);
   if (a === 'boleto' && (m === 'PUT' || m === 'DELETE')) { const [b] = await q('select status from carteira.boletos where id_asaas=$1', [s]); return !!b && ATIVOS_B.includes(b.status); }
   if (a === 'proposta') return true;
@@ -1098,6 +1099,144 @@ async function rotasUsuarios(p, m, body, real) {
   return null;
 }
 
+/* ---------- módulo de cobrança (campanha, funil, contatos, mensagens) ---------- */
+const ETAPAS_COB = ['fila', 'contato', 'negociando', 'promessa', 'acordo', 'sem_retorno', 'notificacao'];
+const MODELOS_PADRAO = [
+  ['Primeiro contato (lembrete)', `Olá, {primeiro_nome}! Tudo bem? Aqui é da Inerente Gestão Imobiliária, administradora do Condomínio de Chácaras Beira Rio.\n\nIdentificamos {qtd_parcelas} parcela(s) em aberto no seu contrato {contrato} (Quadra {quadra}, Lote {lote}), somando hoje {valor_total}.\n\nPode ter sido só um esquecimento. Conseguimos te ajudar a regularizar? É só responder esta mensagem.`],
+  ['Segundo contato (pendência importante)', `Olá, {primeiro_nome}. Tentamos falar com você sobre o contrato {contrato} (Quadra {quadra}, Lote {lote}).\n\nO valor em aberto hoje é de {valor_total}, referente a:\n{parcelas}\n\nQueremos encontrar a melhor forma para você colocar em dia. Qual o melhor horário para conversarmos?`],
+  ['Proposta de negociação', `{primeiro_nome}, temos uma condição para você regularizar o contrato {contrato} (Quadra {quadra}, Lote {lote}).\n\nO débito atualizado é de {valor_total}. Podemos fazer uma entrada e parcelar o restante, de acordo com a sua possibilidade.\n\nMe diga quanto consegue dar de entrada e em quantas vezes fica bom para você, que eu monto a proposta.`],
+  ['Aviso de cobrança (mais de 60 dias)', `Olá, {primeiro_nome}. As parcelas do contrato {contrato} (Quadra {quadra}, Lote {lote}) estão com mais de 60 dias de atraso e, conforme o contrato, passaram a ter acréscimo de custo de cobrança.\n\nValor atualizado hoje: {valor_total}.\n\nPara evitar novos acréscimos, entre em contato para negociarmos.`],
+  ['Notificação antes de medidas', `Prezado(a) {nome},\n\nApesar das tentativas de contato, o contrato {contrato} (Quadra {quadra}, Lote {lote}) segue com débito de {valor_total}.\n\nConforme as cláusulas do contrato, a falta de regularização pode levar à inclusão nos órgãos de proteção ao crédito, protesto e às medidas previstas para rescisão.\n\nAinda queremos resolver de forma amigável. Pedimos que entre em contato até {data_limite}.\n\nInerente Gestão Imobiliária`],
+  ['Confirmação de promessa', `Combinado, {primeiro_nome}! Fica registrado o pagamento de {valor_promessa} até {data_promessa}, referente ao contrato {contrato}. Qualquer coisa, estou à disposição.`],
+  ['Agradecimento', `{primeiro_nome}, recebemos o seu pagamento. Muito obrigado por regularizar o contrato {contrato}! Conte com a gente.`],
+];
+async function garanteCobranca() {
+  await q(`create table if not exists carteira.cobranca_casos(id serial primary key, contrato text not null, etapa text not null default 'fila', responsavel text,
+           proximo_contato date, prioridade int default 0, obs text, criado_em timestamptz default now(), criado_por text, atualizado_em timestamptz default now(),
+           encerrado_em timestamptz, motivo_encerramento text)`);
+  await q(`create unique index if not exists cobranca_caso_ativo on carteira.cobranca_casos(contrato) where encerrado_em is null`);
+  await q(`create table if not exists carteira.cobranca_registros(id serial primary key, caso_id int not null, contrato text not null, tipo text not null, resultado text,
+           texto text, data_promessa date, valor_promessa numeric, por text, em timestamptz default now())`);
+  await q(`create index if not exists cobranca_reg_caso on carteira.cobranca_registros(caso_id)`);
+  await q(`create table if not exists carteira.cobranca_modelos(id serial primary key, titulo text not null, texto text not null, ordem int default 0)`);
+  const [n] = await q(`select count(*)::int n from carteira.cobranca_modelos`);
+  if (!n.n) for (let i = 0; i < MODELOS_PADRAO.length; i++) await q(`insert into carteira.cobranca_modelos(titulo, texto, ordem) values ($1,$2,$3)`, [MODELOS_PADRAO[i][0], MODELOS_PADRAO[i][1], i]);
+}
+/* dívida de hoje por contrato: parcelas vencidas e não pagas (fora de acordo), com correção, multa, juros e cobrança depois de 60 dias */
+async function dividas(contratos) {
+  const hoje = hojeBR();
+  const r = await q(SQL_ABERTAS + ` and t.vencimento < $1::date ${contratos ? 'and t.contrato = any($3)' : ''} order by t.contrato, t.vencimento`, contratos ? [hoje, ATIVOS_B, contratos] : [hoje, ATIVOS_B]);
+  const out = {};
+  for (const t of r) {
+    const ac = t.grupo === 'acordo';
+    const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada');
+    const cob = !ac && c.dias > 60 ? R2((c.principal + c.correcao + c.multa + c.juros) * .10) : 0;
+    const tot = R2(c.principal + c.correcao + c.multa + c.juros + cob);
+    const d = out[t.contrato] || (out[t.contrato] = { contrato: t.contrato, quadra: t.quadra, lote: t.lote, titular: t.cessionario || t.titular, parcelas: [], total: 0, principal: 0, dias: 0 });
+    d.parcelas.push({ id: t.id, rotulo: t.rotulo, grupo: t.grupo, vencimento: t.vencimento, dias: c.dias, principal: R2(c.principal + c.correcao), multa: c.multa, juros: c.juros, cobranca: cob, total: tot, boleto: t.boleto });
+    d.total = R2(d.total + tot); d.principal = R2(d.principal + c.principal + c.correcao); d.dias = Math.max(d.dias, c.dias);
+  }
+  return out;
+}
+async function rotasCobranca(p, m, body, url, real) {
+  if (p[0] !== 'cobranca') return null;
+  await garanteCobranca();
+  const quem = ATOR || real;
+  if (p[1] === 'painel' && m === 'GET') {
+    const casos = await q(`select c.*, (select max(em) from carteira.cobranca_registros r where r.caso_id=c.id and r.tipo not in ('etapa','sistema')) ultimo_contato,
+        (select count(*)::int from carteira.cobranca_registros r where r.caso_id=c.id and r.tipo not in ('etapa','sistema')) contatos,
+        (select row_to_json(x) from (select data_promessa, valor_promessa, em from carteira.cobranca_registros r where r.caso_id=c.id and r.data_promessa is not null order by r.em desc limit 1) x) promessa
+      from carteira.cobranca_casos c where c.encerrado_em is null order by c.id`);
+    const D = await dividas(null);
+    const pagos = await q(`select t.contrato, sum(g.valor_pago)::numeric v, max(g.confirmada_em)::text ult from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
+                           join carteira.cobranca_casos c on c.contrato=t.contrato and c.encerrado_em is null where g.conferente='luis' and g.confirmada_em >= c.criado_em::date group by t.contrato`);
+    const graves = Object.values(D).filter(d => d.total > 5000 && !casos.some(c => c.contrato === d.contrato))
+      .filter(d => !d.parcelas.every(x => x.grupo === 'acordo' && false));
+    const enc = await q(`select id, contrato, motivo_encerramento, encerrado_em, criado_em from carteira.cobranca_casos where encerrado_em is not null order by encerrado_em desc limit 100`);
+    const [rec] = await q(`select coalesce(sum(g.valor_pago),0)::numeric v from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
+                           where g.conferente='luis' and g.confirmada_em >= date_trunc('month', current_date) and exists (select 1 from carteira.cobranca_casos c where c.contrato=t.contrato and g.confirmada_em >= c.criado_em::date)`);
+    return json({ hoje: hojeBR(), casos: casos.map(c => ({ ...c, divida: D[c.contrato] || { total: 0, parcelas: [], dias: 0 }, pago_na_campanha: pagos.find(x => x.contrato === c.contrato) || null })),
+      sugeridos: graves.sort((a, b) => b.total - a.total), encerrados: enc, recuperado_mes: +rec.v });
+  }
+  if (p[1] === 'caso' && !p[2] && m === 'POST') {
+    const ns = (body.contratos || [body.contrato]).filter(Boolean);
+    const out = [];
+    for (const n of ns) {
+      const [ja] = await q(`select id from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [n]);
+      if (ja) { out.push({ contrato: n, id: ja.id, ja: true }); continue; }
+      const [c] = await q(`insert into carteira.cobranca_casos(contrato, etapa, proximo_contato, criado_por, responsavel) values ($1,'fila',current_date,$2,$3) returning id`, [n, quem, body.responsavel || null]);
+      const d = (await dividas([n]))[n];
+      await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,$4)`, [c.id, n, `Enviado para cobrança. Dívida de hoje: R$ ${(d?.total || 0).toFixed(2).replace('.', ',')} em ${d?.parcelas.length || 0} parcela(s).`, quem]);
+      out.push({ contrato: n, id: c.id });
+    }
+    await log(real, 'cobranca_enviada', { itens: out });
+    return json(out);
+  }
+  if (p[1] === 'caso' && p[2] && !p[3] && m === 'GET') {
+    const [c] = await q(`select * from carteira.cobranca_casos where id=$1`, [p[2]]);
+    if (!c) return json({ erro: 'Caso não encontrado' }, 404);
+    const regs = await q(`select * from carteira.cobranca_registros where caso_id=$1 order by em desc, id desc`, [c.id]);
+    const d = (await dividas([c.contrato]))[c.contrato] || { total: 0, parcelas: [], dias: 0 };
+    const bol = await q(`select b.id_asaas, b.fatura, b.valor, b.vencimento::text vencimento, b.status, b.link, b.tipo, t.rotulo from carteira.boletos b left join carteira.titulos t on t.id=b.titulo_id where b.contrato=$1 and b.status = any($2) order by b.vencimento`, [c.contrato, ATIVOS_B]).catch(() => []);
+    const pags = await q(`select g.valor_pago, g.confirmada_em::text data, t.rotulo from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato=$1 and g.conferente='luis' and g.confirmada_em >= $2::date order by g.confirmada_em desc`, [c.contrato, c.criado_em]);
+    const [ct] = await q(`select numero, quadra, lote, compradores, valor_imovel, data_assinatura::text data_assinatura from carteira.contratos where numero=$1`, [c.contrato]);
+    const acs = await q(`select id, data_acordo::text data, valor_acordado, qtd_parcelas from carteira.acordos where contrato=$1 and conferente='luis' and data_acordo >= $2::date order by data_acordo desc`, [c.contrato, c.criado_em]);
+    const props = await q(`select id, dados->>'termo' termo, criado_em from carteira.propostas where contrato=$1 and conferente='luis'`, [c.contrato]);
+    return json({ caso: c, registros: regs, divida: d, boletos: bol, pagamentos: pags, contrato: ct, acordos: acs, propostas: props });
+  }
+  if (p[1] === 'caso' && p[2] && p[3] === 'registro' && m === 'POST') {
+    const [c] = await q(`select * from carteira.cobranca_casos where id=$1 and encerrado_em is null`, [p[2]]);
+    if (!c) return json({ erro: 'Caso não encontrado ou encerrado' }, 404);
+    const b = body;
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, data_promessa, valor_promessa, por) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [c.id, c.contrato, b.tipo || 'nota', b.resultado || null, b.texto || null, b.data_promessa || null, b.valor_promessa || null, quem]);
+    const novaEtapa = b.etapa || (b.data_promessa ? 'promessa' : (c.etapa === 'fila' && ['whatsapp', 'ligacao', 'email', 'visita'].includes(b.tipo) ? 'contato' : null));
+    if (novaEtapa && novaEtapa !== c.etapa) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,$4)`, [c.id, c.contrato, `${c.etapa} → ${novaEtapa}`, quem]);
+    await q(`update carteira.cobranca_casos set etapa=coalesce($2, etapa), proximo_contato=coalesce($3::date, proximo_contato), atualizado_em=now() where id=$1`, [c.id, novaEtapa, b.proximo_contato || b.data_promessa || null]);
+    return json({ ok: true });
+  }
+  if (p[1] === 'caso' && p[2] && !p[3] && m === 'PUT') {
+    const [c] = await q(`select * from carteira.cobranca_casos where id=$1`, [p[2]]);
+    if (!c) return json({ erro: 'Caso não encontrado' }, 404);
+    const b = body;
+    if (b.etapa && b.etapa !== c.etapa) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,$4)`, [c.id, c.contrato, `${c.etapa} → ${b.etapa}`, quem]);
+    await q(`update carteira.cobranca_casos set etapa=coalesce($2, etapa), proximo_contato=case when $3::text = '' then null else coalesce($3::date, proximo_contato) end, responsavel=coalesce($4, responsavel), obs=coalesce($5, obs), prioridade=coalesce($6, prioridade), atualizado_em=now() where id=$1`,
+      [c.id, b.etapa || null, b.proximo_contato === '' ? '' : (b.proximo_contato || null), b.responsavel ?? null, b.obs ?? null, b.prioridade ?? null]);
+    return json({ ok: true });
+  }
+  if (p[1] === 'caso' && p[2] && p[3] === 'encerrar' && m === 'POST') {
+    const [c] = await q(`update carteira.cobranca_casos set encerrado_em=now(), motivo_encerramento=$2, atualizado_em=now() where id=$1 and encerrado_em is null returning *`, [p[2], body.motivo || 'Encerrado']);
+    if (!c) return json({ erro: 'Caso não encontrado' }, 404);
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,$4)`, [c.id, c.contrato, 'Caso encerrado: ' + (body.motivo || ''), quem]);
+    await log(real, 'cobranca_encerrada', { caso: c.id, contrato: c.contrato, motivo: body.motivo });
+    return json({ ok: true });
+  }
+  if (p[1] === 'contrato' && p[2] && m === 'GET') {
+    const [c] = await q(`select id, etapa from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [p[2]]);
+    return json(c || null);
+  }
+  if (p[1] === 'modelos') {
+    if (m === 'GET') return json(await q(`select * from carteira.cobranca_modelos order by ordem, id`));
+    if (m === 'POST') { const [r] = await q(`insert into carteira.cobranca_modelos(titulo, texto, ordem) values ($1,$2,(select coalesce(max(ordem),0)+1 from carteira.cobranca_modelos)) returning id`, [body.titulo, body.texto]); return json(r); }
+    if (m === 'PUT' && p[2]) { await q(`update carteira.cobranca_modelos set titulo=$2, texto=$3 where id=$1`, [p[2], body.titulo, body.texto]); return json({ ok: true }); }
+    if (m === 'DELETE' && p[2]) { await q(`delete from carteira.cobranca_modelos where id=$1`, [p[2]]); return json({ ok: true }); }
+  }
+  return json({ erro: 'Rota de cobrança não encontrada' }, 404);
+}
+/* registros automáticos: pagamento recebido e acordo feito em contrato que está na campanha */
+async function anotaCobranca(contrato, tipo, texto, etapa) {
+  try {
+    await garanteCobranca();
+    const [c] = await q(`select id, etapa from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [contrato]);
+    if (!c) return;
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,$3,$4,'sistema')`, [c.id, contrato, tipo, texto]);
+    if (etapa && etapa !== c.etapa) {
+      await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,'sistema')`, [c.id, contrato, `${c.etapa} → ${etapa}`]);
+      await q(`update carteira.cobranca_casos set etapa=$2, atualizado_em=now() where id=$1`, [c.id, etapa]);
+    }
+  } catch (e) { console.error('anotaCobranca', e.message); }
+}
+
 let schemaOk = false;
 async function garanteEsquema() {
   if (schemaOk) return;
@@ -1148,6 +1287,7 @@ export default async (req) => {
   if (real === 'luis' && req.headers.get('x-como') === 'final') conf = 'final';
   ATOR = usuario ? usuario.email : real;
   { const ru = await rotasUsuarios(p, m, body, real); if (ru) return ru; }
+  { const rc = await rotasCobranca(p, m, body, url, real); if (rc) return rc; }
 
   try {
     if (p[0] === 'eu') return json({ conferente: real, nome: usuario?.nome || null });
@@ -1731,6 +1871,7 @@ export default async (req) => {
           [b.contrato, i, b.parcelas.length, `${b.tipo === 'repactuacao' ? 'Repactuação' : 'Acordo'} ${b.data_acordo.split('-').reverse().join('/')} — ${i}/${b.parcelas.length}`, par.vencimento, par.valor, conf, a.id]);
       }
       await log(conf, 'acordo_novo', { id: a.id, ...b });
+      await anotaCobranca(b.contrato, 'acordo', `Acordo feito em ${String(b.data_acordo).split('-').reverse().join('/')}: R$ ${(+b.valor_acordado).toFixed(2).replace('.', ',')} em ${(b.parcelas || []).length} parcela(s)`, 'acordo');
       if (conf === 'luis') {
         const ab = await q(`select id_asaas from carteira.boletos where titulo_id = any($1) and status = any($2)`, [(b.titulos_origem || []).map(Number), ATIVOS_B]).catch(() => []);
         a.boletos_excluidos = [];
