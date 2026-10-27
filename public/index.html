@@ -628,7 +628,7 @@ function atrasoDe(t,ate){const v=valorAno(t),dias=Math.max(0,Math.round((new Dat
   const mu=v*.02;let pr=v,ju=0,co=0,coH=0,cur=venc;
   const cresce=d2=>{const d=Math.max(0,Math.round((new Date(d2)-new Date(cur))/864e5));ju+=pr*(Math.pow(1.01,d/30)-1);cur=d2};
   if(corr)for(let y=+venc.slice(0,4)+1;y<=+fim.slice(0,4);y++){const dj=`${y}-01-01`;if(dj>fim)break;const f=fa[y]||FATOR_ANO[y]||1;cresce(dj);const inc=(v+co+mu+ju)*(f-1);co+=inc;if((new Date(dj)-new Date(venc))/864e5>60)coH+=inc*.10;pr*=f}
-  cresce(fim);const sub=v+co+mu+ju,ho=dias>60?sub*.10:0;/* a parte da correção que incidiu sobre o custo de cobrança aparece na coluna correção */
+  cresce(fim);const sub=v+co+mu+ju,ho=dias>60&&!tituloSegVia(t)?sub*.10:0;/* 2ª via de uma parcela só não leva os 10% de novo; parcela de acordo de verdade leva. A parte da correção que incidiu sobre o custo de cobrança aparece na coluna correção */
   return embute(t,{v,co:co+coH,mu,ju,ho:ho-coH,dias,tot:sub+ho})}
 /* parcela de acordo já carrega multa, juros e custo de cobrança da dívida antiga: separa o que é principal de verdade */
 function partesAcordo(a){const ac=+a.valor_acordado||0;if(a.tipo==='repactuacao')return{pr:1,mu:0,ju:0,ho:0};

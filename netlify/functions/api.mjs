@@ -628,7 +628,9 @@ const SQL_ABERTAS = `
                   where e.contrato=t.contrato and e.conferente='luis' and e.tipo='repactuacao' and e.dados->>'subtipo'='diluicao' and (i->>'titulo_id')=t.id::text), 0) valor,
     coalesce((select nullif(string_agg(x->>'nome', ' e ' order by o), '') from jsonb_array_elements(case when jsonb_typeof(c.compradores)='array' then c.compradores else '[]'::jsonb end) with ordinality as j(x,o)), c.nome_planilha) titular,
     (select e.dados->>'novos_titulares' from carteira.eventos e where e.contrato=t.contrato and e.conferente='luis' and e.tipo='cessao' and coalesce(e.dados->>'novos_titulares','')<>'' order by e.data desc nulls last, e.id desc limit 1) cessionario,
-    (select b.id_asaas from carteira.boletos b where b.titulo_id=t.id and b.status = any($2) limit 1) boleto
+    (select b.id_asaas from carteira.boletos b where b.titulo_id=t.id and b.status = any($2) limit 1) boleto,
+    (t.grupo='acordo' and exists (select 1 from carteira.acordos a where a.id=t.acordo_id and coalesce(a.tipo,'')<>'repactuacao' and cardinality(a.titulos_origem)=1
+       and (select count(*) from carteira.titulos t2 where t2.acordo_id=a.id)=1)) ac_um
   from carteira.titulos t join carteira.contratos c on c.numero=t.contrato
   where (t.conferente is null or t.conferente='luis')
     and exists (select 1 from carteira.fechamentos f where f.contrato=t.contrato and f.conferente='luis')
@@ -734,8 +736,10 @@ async function candidatosCobranca(inicioAuto) {
   await garanteBoletos();
   const lim = somaDias(hojeBR(), -60);
   const r = await q(`select b.*, t.contrato tc, t.grupo, t.numero, t.total, t.vencimento::text tv from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
-                     where b.tipo in ('parcela','segunda_via') and t.grupo <> 'acordo' and b.status = any($1) and t.vencimento <= $2
-                       and coalesce(b.descricao,'') !~* 'renegocia|acordo|inclus'
+                     where b.tipo in ('parcela','segunda_via','acordo') and b.status = any($1) and t.vencimento <= $2
+                       and (t.grupo <> 'acordo' or not exists (select 1 from carteira.acordos a where a.id=t.acordo_id and coalesce(a.tipo,'')<>'repactuacao' and cardinality(a.titulos_origem)=1
+                              and (select count(*) from carteira.titulos t2 where t2.acordo_id=a.id)=1))
+                       and (t.grupo = 'acordo' or coalesce(b.descricao,'') !~* 'renegocia|acordo|inclus')
                        and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')
                        and not exists (select 1 from carteira.acordos a where a.contrato=t.contrato and a.conferente='luis' and t.id = any(a.titulos_origem))
                        and not exists (select 1 from carteira.propostas pr where pr.contrato=t.contrato and pr.conferente='luis' and pr.dados->'titulos_origem' @> to_jsonb(t.id))
@@ -757,7 +761,7 @@ async function segundaVia(tituloId, data, conf, opts = {}) {
   if (t.vencimento >= hoje && !opts.previa) return { titulo_id: tituloId, erro: 'Essa parcela ainda não venceu — use "Gerar boleto"' };
   const ehAcordo = t.grupo === 'acordo';
   const c = compoAtraso(R2(+t.valor), t.vencimento, data, !ehAcordo && t.grupo !== 'entrada');
-  c.cobranca = !ehAcordo && !opts.semCobranca && c.dias > 60 ? R2((c.principal + c.correcao + c.multa + c.juros) * .10) : 0;
+  c.cobranca = !t.ac_um && !opts.semCobranca && c.dias > 60 ? R2((c.principal + c.correcao + c.multa + c.juros) * .10) : 0;
   c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca);
   c.data = data; c.emitido_em = hoje; c.vencimento_original = t.vencimento;
   if (opts.previa) return { previa: true, rotulo: t.rotulo, ...c };
@@ -788,7 +792,7 @@ async function cobrancaSemBoleto(tituloId, conf) {
   const [t] = await q(SQL_ABERTAS + ` and t.id=$1`, [tituloId, ATIVOS_B]);
   if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto' };
   if (t.boleto) return { titulo_id: tituloId, erro: 'Parcela já tem boleto ativo' };
-  if (t.grupo === 'acordo') return { titulo_id: tituloId, erro: 'Parcela de renegociação não leva os 10% de cobrança' };
+  if (t.ac_um) return { titulo_id: tituloId, erro: 'Reemissão de uma parcela só (2ª via) não leva os 10% de cobrança de novo' };
   return segundaVia(tituloId, hojeBR(), conf, { motivo: 'Cobrança dos 60 dias (parcela estava sem boleto)' });
 }
 async function desfazCobranca(idCob, conf) {
@@ -1166,7 +1170,7 @@ async function dividas(contratos) {
   for (const t of r) {
     const ac = t.grupo === 'acordo';
     const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada');
-    const cob = !ac && c.dias > 60 ? R2((c.principal + c.correcao + c.multa + c.juros) * .10) : 0;
+    const cob = !t.ac_um && c.dias > 60 ? R2((c.principal + c.correcao + c.multa + c.juros) * .10) : 0;
     const tot = R2(c.principal + c.correcao + c.multa + c.juros + cob);
     const d = out[t.contrato] || (out[t.contrato] = { contrato: t.contrato, quadra: t.quadra, lote: t.lote, titular: t.cessionario || t.titular, parcelas: [], total: 0, principal: 0, dias: 0 });
     d.parcelas.push({ id: t.id, rotulo: t.rotulo, grupo: t.grupo, vencimento: t.vencimento, dias: c.dias, principal: R2(c.principal + c.correcao), multa: c.multa, juros: c.juros, cobranca: cob, total: tot, boleto: t.boleto });
@@ -1520,7 +1524,7 @@ export default async (req) => {
       const out = r.map(t => {
         const ac = t.grupo === 'acordo';
         const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada');
-        const cob = ac ? 0 : R2((c.principal + c.correcao + c.multa + c.juros) * .10);
+        const cob = t.ac_um ? 0 : R2((c.principal + c.correcao + c.multa + c.juros) * .10);
         const b = bs.find(x => String(x.titulo_id) === String(t.id));
         return { contrato: t.contrato, quadra: t.quadra, lote: t.lote, titular: t.cessionario || t.titular, parcela: t.rotulo, vencimento: t.vencimento, dias: c.dias,
           principal: c.principal, correcao: c.correcao, multa: c.multa, juros: c.juros, cobranca: cob, total: R2(c.principal + c.correcao + c.multa + c.juros + cob),
