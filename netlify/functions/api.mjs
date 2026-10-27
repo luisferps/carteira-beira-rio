@@ -1403,6 +1403,18 @@ async function rotasCobranca(p, m, body, url, real) {
     const [c] = await q(`select id, etapa from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [p[2]]);
     return json(c || null);
   }
+  if (p[1] === 'importacao' && p[2] === 'refazer' && p[3] && m === 'POST') {
+    if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+    const id = +p[3];
+    const [e0] = await q(`select texto from carteira.cobranca_registros where caso_id=$1 and por='importado do WhatsApp' and tipo='etapa' order by em, id limit 1`, [id]);
+    if (e0) await q(`update carteira.cobranca_casos set etapa=$2 where id=$1`, [id, String(e0.texto).split(' → ')[0]]);
+    if (body.limpaObs) await q(`update carteira.cobranca_casos set obs=null where id=$1`, [id]);
+    await q(`delete from carteira.cobranca_registros where caso_id=$1 and por='importado do WhatsApp'`, [id]);
+    const [st] = await q(`select valor from carteira.cobranca_cfg where chave='whats_import'`); const e = JSON.parse(st.valor);
+    e.feitos = e.feitos.filter(x => x !== id); e.resumir = (e.resumir || []).filter(x => x !== id); delete e.fim; (e.tent ||= {})[id] = 0;
+    await q(`update carteira.cobranca_cfg set valor=$1 where chave='whats_import'`, [JSON.stringify(e)]);
+    return json({ ok: true });
+  }
   if (p[1] === 'importacao' && m === 'GET') {
     const [st] = await q(`select valor from carteira.cobranca_cfg where chave='whats_import'`);
     const e = st ? JSON.parse(st.valor) : null; const [n] = await q(`select count(*)::int n from carteira.cobranca_casos where encerrado_em is null`);
@@ -2293,13 +2305,17 @@ async function resumeCasoWhats(casoId) {
   if (!c) return { erro: 'caso não existe' };
   const regs = await q(`select id, em, texto from carteira.cobranca_registros where caso_id=$1 and por='importado do WhatsApp' and tipo='whatsapp' order by em`, [casoId]);
   if (!regs.length) return { erro: 'nada importado' };
+  const props = await q(`select dados from carteira.propostas where contrato=$1 and conferente='luis'`, [c.contrato]);
+  const temProp = props.length > 0;
   const conversa = regs.map(r => `### ${diaBR(new Date(r.em).getTime() / 1000)}\n${String(r.texto).split('\n\n').slice(1).join('\n\n').slice(0, 3000)}`).join('\n\n').slice(-14000);
   const prompt = `Você organiza o histórico de cobrança de um loteamento (Condomínio Beira Rio). "Eu" é o Luis Fernando, responsável pela cobrança; "Cliente" é o comprador do lote (contrato ${c.contrato}). Abaixo estão as conversas de WhatsApp, separadas por dia (### AAAA-MM-DD). Algumas mensagens podem não ser sobre a cobrança: ignore o que não for.
 Devolva SOMENTE um JSON, sem texto antes ou depois:
 {"dias": {"AAAA-MM-DD": {"resumo": "uma frase curta e objetiva do que aconteceu nesse dia", "resultado": "um destes: Mensagem enviada, Atendeu, Sem resposta, Número errado, Solicitou valores, Pediu proposta, Prometeu pagar, Recusou, Vai procurar o escritório, Conversou"}},
  "etapa": "um destes: contato1, contato2, contato3, negociando, promessa, proposta, sem_retorno",
  "promessa": {"data": "AAAA-MM-DD ou null", "valor": número ou null},
- "situacao": "uma frase dizendo em que pé está a negociação hoje"}
+ "situacao": "uma frase dizendo em que pé está a negociação hoje, SEM citar valores em dinheiro"}
+Não invente valores: no resumo e na situação, não escreva quantias nem número de parcelas que não estejam escritos literalmente na conversa.${temProp ? `
+Já existe no sistema uma proposta de acordo feita para este cliente (${props.map(p => p.dados?.termo || '').join(', ')}): a etapa é "proposta".` : ''}
 Regras da etapa: só mensagens minhas sem resposta = contato1/contato2/contato3 conforme quantos dias eu tentei (máximo contato3); cliente respondeu e estamos conversando = negociando; cliente prometeu pagar com data = promessa; mandei proposta de acordo = proposta; tentei mais de 3 vezes sem resposta = sem_retorno.
 
 ${conversa}`;
@@ -2320,6 +2336,8 @@ ${conversa}`;
   if (J.situacao) await q(`update carteira.cobranca_casos set obs=coalesce(nullif(obs,''), $2) where id=$1`, [c.id, String(J.situacao).slice(0, 300)]);
   const novas = ['contato1', 'contato2', 'contato3', 'negociando', 'promessa', 'proposta', 'sem_retorno'];
   const [atual] = await q(`select etapa from carteira.cobranca_casos where id=$1`, [c.id]);
+  if (temProp) J.etapa = 'proposta';
+  if (J.etapa === 'sem_retorno' && regs.some(r => /Cliente:/.test(r.texto))) J.etapa = 'negociando'; /* cliente já respondeu alguma vez: não é sem retorno */
   if (novas.includes(J.etapa) && ['fila', 'contato1', 'contato2', 'contato3', 'negociando'].includes(atual.etapa) && J.etapa !== atual.etapa && !(c.etapa === 'proposta')) {
     await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,'importado do WhatsApp')`, [c.id, c.contrato, `${atual.etapa} → ${J.etapa}`]);
     await q(`update carteira.cobranca_casos set etapa=$2, atualizado_em=now() where id=$1`, [c.id, J.etapa]);
