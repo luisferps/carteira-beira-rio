@@ -639,9 +639,54 @@ const SQL_ABERTAS = `
     and not exists (select 1 from carteira.conferencia_titulo s where s.titulo_id=t.id and s.conferente='luis' and s.situacao='cancelada')
     and not exists (select 1 from carteira.eventos e join carteira.titulos t0 on t0.id=e.a_partir_titulo
                     where e.contrato=t.contrato and e.conferente='luis' and e.tipo='encerramento' and t.grupo<>'acordo' and t.vencimento >= t0.vencimento)`;
+/* valor da parcela igual ao da tela do contrato: anual herda as correções de janeiro da mensal (quando não tem correção própria),
+   anos em que o Asaas não emitiu nada entram pela tabela, e a diluição da dívida soma em cima */
+async function ajustaValores(rows) {
+  const ns = [...new Set(rows.map(r => r.contrato))];
+  if (!ns.length) return rows;
+  const [T, K, P, E, Cs] = await Promise.all([
+    q(`select id, contrato, grupo, numero, vencimento::text vencimento, valor_face from carteira.titulos where conferente is null and grupo in ('mensal','anual') and contrato = any($1)`, [ns]),
+    q(`select distinct on (contrato, grupo, a_partir) contrato, grupo, a_partir, novo_valor, data::text data, obs from carteira.correcoes where conferente='luis' and contrato = any($1) order by contrato, grupo, a_partir, id desc`, [ns]),
+    q(`select g.titulo_id, t.contrato from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where g.conferente='luis' and t.grupo in ('mensal','anual') and t.contrato = any($1)`, [ns]),
+    q(`select contrato, dados from carteira.eventos where conferente='luis' and tipo='repactuacao' and dados->>'subtipo'='diluicao' and contrato = any($1)`, [ns]),
+    q(`select numero, data_assinatura::text assin from carteira.contratos where numero = any($1)`, [ns]),
+  ]);
+  const ctx = {};
+  for (const n of ns) {
+    const ts = T.filter(t => t.contrato === n), ks = K.filter(k => k.contrato === n);
+    const mens = ts.filter(t => t.grupo === 'mensal');
+    const ms = ks.filter(k => k.grupo === 'mensal').sort((a, b) => a.a_partir - b.a_partir);
+    const faces = mens.map(t => +t.valor_face).filter(v => v > 0); let prev = faces.length ? Math.min(...faces) : 0; const fm = [];
+    for (const k of ms) { const t = mens.find(x => +x.numero === +k.a_partir); const data = t?.vencimento || k.data; const nv = +k.novo_valor; if (!/^Diluição/.test(k.obs || '') && prev > 0) fm.push({ data, f: nv / prev }); prev = nv; }
+    const m0 = mens.sort((a, b) => a.numero - b.numero)[0];
+    const y0 = +String(Cs.find(c => c.numero === n)?.assin || m0?.vencimento || '2000').slice(0, 4), com = new Set(fm.map(x => +String(x.data).slice(0, 4)));
+    for (const p of P.filter(p => p.contrato === n)) { const t = ts.find(x => String(x.id) === String(p.titulo_id)); if (t?.vencimento) com.add(+t.vencimento.slice(0, 4)); }
+    const sem = Object.keys(FATOR_ANO_S).map(Number).filter(y => y > y0 && !com.has(y));
+    const dil = {}; for (const e of E.filter(e => e.contrato === n)) for (const i of e.dados?.itens || []) dil[i.titulo_id] = (dil[i.titulo_id] || 0) + (+i.valor || 0);
+    ctx[n] = { ts, ks, fm, sem, dil };
+  }
+  for (const r of rows) {
+    const X = ctx[r.contrato]; if (!X) continue;
+    let v = +r.valor_face || 0;
+    if (r.grupo === 'anual') {
+      const cs = X.ks.filter(c => c.grupo === 'anual' && !/^Diluição/.test(c.obs || '') && +c.a_partir <= +r.numero).sort((a, b) => a.a_partir - b.a_partir); let desde = '';
+      if (cs.length) { const k = cs[cs.length - 1]; v = +k.novo_valor; const ta = X.ts.find(x => x.grupo === 'anual' && +x.numero === +k.a_partir); desde = k.data || ta?.vencimento || ''; }
+      for (const x of X.fm) if (x.data && x.data > desde && x.data <= r.vencimento && !(desde && x.data.slice(0, 4) === desde.slice(0, 4))) v *= x.f;
+      for (const y of X.sem) { const dj = `${y}-01-01`; if (dj > desde && dj <= r.vencimento && !(desde && String(y) === desde.slice(0, 4))) v *= FATOR_ANO_S[y]; }
+    } else if (r.grupo === 'mensal') {
+      const cs = X.ks.filter(c => c.grupo === 'mensal' && +c.a_partir <= +r.numero).sort((a, b) => a.a_partir - b.a_partir);
+      const k = cs[cs.length - 1]; if (k) v = +k.novo_valor;
+      const tk = k && X.ts.find(x => x.grupo === 'mensal' && +x.numero === +k.a_partir), desde = k ? (tk?.vencimento || k.data || '') : '';
+      for (const y of X.sem) { const dj = `${y}-01-01`; if (dj > desde && dj <= r.vencimento) v *= FATOR_ANO_S[y]; }
+    } else continue;
+    r.valor = R2(Math.round(v * 100) / 100 + (X.dil[r.id] || X.dil[String(r.id)] || 0));
+  }
+  return rows;
+}
+const abertas = async (suf, params) => ajustaValores(await q(SQL_ABERTAS + suf, params));
 async function previaBoletos(mes) {
   await garanteBoletos();
-  const r = await q(SQL_ABERTAS + ` and to_char(t.vencimento,'YYYY-MM')=$1 order by t.vencimento, t.contrato, t.grupo, t.numero`, [mes, ATIVOS_B]);
+  const r = await abertas(` and to_char(t.vencimento,'YYYY-MM')=$1 order by t.vencimento, t.contrato, t.grupo, t.numero`, [mes, ATIVOS_B]);
   const ult = await q(`select t.contrato, t.grupo, t.vencimento::text tv, x.valor, x.venc::text venc from (
       select g.titulo_id, case when g.valor_pago > g.valor_cobranca and g.confirmada_em <= g.vencimento_boleto + 3 then g.valor_pago else g.valor_cobranca end valor, g.vencimento_boleto venc from carteira.pagamentos g
         where g.conferente='luis' and g.fatura is not null and coalesce(g.forma,'') not in ('Pagamento à construtora','Crédito','Compensação') and coalesce(g.descricao,'') !~* 'renegocia|inclus|acordo|original venc'
@@ -668,7 +713,7 @@ async function previaBoletos(mes) {
 }
 async function emitirBoleto(tituloId, conf) {
   await garanteBoletos();
-  const [t] = await q(SQL_ABERTAS + ` and t.id=$1`, [tituloId, ATIVOS_B]);
+  const [t] = await abertas(` and t.id=$1`, [tituloId, ATIVOS_B]);
   if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto (paga, em acordo, cancelada ou contrato sem conferência fechada)' };
   if (t.boleto) return { titulo_id: tituloId, erro: 'Essa parcela já tem boleto ativo', id_asaas: t.boleto };
   let venc = t.vencimento;
@@ -756,7 +801,7 @@ async function segundaVia(tituloId, data, conf, opts = {}) {
   await garanteBoletos();
   const hoje = hojeBR(); data = data || hoje;
   if (data < hoje) return { titulo_id: tituloId, erro: 'A data de vencimento não pode ser no passado' };
-  const [t] = await q(SQL_ABERTAS + ` and t.id=$1`, [tituloId, ATIVOS_B]);
+  const [t] = await abertas(` and t.id=$1`, [tituloId, ATIVOS_B]);
   if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto (paga, em acordo, em proposta ou cancelada)' };
   if (t.vencimento >= hoje && !opts.previa) return { titulo_id: tituloId, erro: 'Essa parcela ainda não venceu — use "Gerar boleto"' };
   const ehAcordo = t.grupo === 'acordo';
@@ -789,7 +834,7 @@ async function passarParaCobranca(b, conf) {
   return r.ok ? r : { id: b.id_asaas, ...r };
 }
 async function cobrancaSemBoleto(tituloId, conf) {
-  const [t] = await q(SQL_ABERTAS + ` and t.id=$1`, [tituloId, ATIVOS_B]);
+  const [t] = await abertas(` and t.id=$1`, [tituloId, ATIVOS_B]);
   if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto' };
   if (t.boleto) return { titulo_id: tituloId, erro: 'Parcela já tem boleto ativo' };
   if (t.ac_um) return { titulo_id: tituloId, erro: 'Reemissão de uma parcela só (2ª via) não leva os 10% de cobrança de novo' };
@@ -1175,7 +1220,7 @@ async function garanteCobranca() {
 /* dívida de hoje por contrato: parcelas vencidas e não pagas (fora de acordo), com correção, multa, juros e cobrança depois de 60 dias */
 async function dividas(contratos) {
   const hoje = hojeBR();
-  const r = await q(SQL_ABERTAS + ` and t.vencimento < $1::date ${contratos ? 'and t.contrato = any($3)' : ''} order by t.contrato, t.vencimento`, contratos ? [hoje, ATIVOS_B, contratos] : [hoje, ATIVOS_B]);
+  const r = await abertas(` and t.vencimento < $1::date ${contratos ? 'and t.contrato = any($3)' : ''} order by t.contrato, t.vencimento`, contratos ? [hoje, ATIVOS_B, contratos] : [hoje, ATIVOS_B]);
   const out = {};
   for (const t of r) {
     const ac = t.grupo === 'acordo';
@@ -1443,7 +1488,7 @@ export default async (req) => {
         return json(out);
       }
       if (p[1] === 'atrasadas-sem-boleto' && m === 'GET') {
-        const r = await q(SQL_ABERTAS + ` and t.vencimento between $1::date and $3::date order by t.vencimento`, [url.searchParams.get('de'), ATIVOS_B, url.searchParams.get('ate')]);
+        const r = await abertas(` and t.vencimento between $1::date and $3::date order by t.vencimento`, [url.searchParams.get('de'), ATIVOS_B, url.searchParams.get('ate')]);
         return json(r.filter(t => !t.boleto).map(t => ({ ...t, valor: R2(+t.valor) })));
       }
       if (p[1] === 'ajusta-descricoes' && m === 'POST') {
@@ -1543,7 +1588,7 @@ export default async (req) => {
     if (p[0] === 'relatorios' && p[1] === 'em-cobranca' && m === 'GET') {
       await garanteBoletos();
       const hoje = hojeBR(), lim = somaDias(hoje, -60);
-      const r = await q(SQL_ABERTAS + ` and t.vencimento <= $1::date order by t.contrato, t.vencimento`, [lim, ATIVOS_B]);
+      const r = await abertas(` and t.vencimento <= $1::date order by t.contrato, t.vencimento`, [lim, ATIVOS_B]);
       const bs = await q(`select titulo_id, tipo, fatura, valor, vencimento::text v from carteira.boletos where status = any($1)`, [ATIVOS_B]);
       const out = r.map(t => {
         const ac = t.grupo === 'acordo';
