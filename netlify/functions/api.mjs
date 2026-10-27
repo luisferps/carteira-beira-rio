@@ -623,7 +623,9 @@ async function clienteDoContrato(n) {
 const SQL_ABERTAS = `
   with corr as (select distinct on (contrato, grupo, a_partir) contrato, grupo, a_partir, novo_valor from carteira.correcoes where conferente='luis' order by contrato, grupo, a_partir, id desc)
   select t.id, t.contrato, t.grupo, t.numero, t.total, t.rotulo, t.vencimento::text vencimento, t.valor_face, c.quadra, c.lote,
-    coalesce((select novo_valor from corr where corr.contrato=t.contrato and corr.grupo=t.grupo and corr.a_partir<=t.numero order by corr.a_partir desc limit 1), t.valor_face) valor,
+    coalesce((select novo_valor from corr where corr.contrato=t.contrato and corr.grupo=t.grupo and corr.a_partir<=t.numero order by corr.a_partir desc limit 1), t.valor_face)
+      + coalesce((select sum((i->>'valor')::numeric) from carteira.eventos e, jsonb_array_elements(case when jsonb_typeof(e.dados->'itens')='array' then e.dados->'itens' else '[]'::jsonb end) i
+                  where e.contrato=t.contrato and e.conferente='luis' and e.tipo='repactuacao' and e.dados->>'subtipo'='diluicao' and (i->>'titulo_id')=t.id::text), 0) valor,
     coalesce((select nullif(string_agg(x->>'nome', ' e ' order by o), '') from jsonb_array_elements(case when jsonb_typeof(c.compradores)='array' then c.compradores else '[]'::jsonb end) with ordinality as j(x,o)), c.nome_planilha) titular,
     (select e.dados->>'novos_titulares' from carteira.eventos e where e.contrato=t.contrato and e.conferente='luis' and e.tipo='cessao' and coalesce(e.dados->>'novos_titulares','')<>'' order by e.data desc nulls last, e.id desc limit 1) cessionario,
     (select b.id_asaas from carteira.boletos b where b.titulo_id=t.id and b.status = any($2) limit 1) boleto
