@@ -184,7 +184,8 @@ async function telaCobranca(){app.innerHTML='<div class="card">Carregando…</di
   <div><span class="mut">Para contatar hoje</span><b>${hojeN}</b></div><div class="${quebr?'neg':''}"><span class="mut">Promessas não cumpridas</span><b>${quebr}</b></div>
   <div><span class="mut">Recebido no mês (campanha)</span><b>${brl(COB.recuperado_mes)}</b></div><div class="lk" style="cursor:pointer" title="Abrir a lista de contratos para selecionar e mandar para cobrança" onclick="LSEL_GO=true;location.hash='contratos'"><span class="mut">Atraso grave fora da campanha</span><b>${COB.sugeridos.length} →</b></div></div>
   <div class="filtros" id="ctab" style="margin-top:12px">${tb('funil','Funil')}${tb('hoje','Agenda de hoje ('+hojeN+')')}${tb('seq','Mandar mensagens em sequência')}${tb('enc','Encerrados')}${tb('mod','Mensagens prontas')}</div></div>
-  <div id="cconteudo"></div>`;
+  <div id="cimp"></div><div id="cconteudo"></div>`;
+  api('cobranca/importacao').then(e=>{if(e&&!e.naoIniciada&&!e.fim)$('#cimp').innerHTML=`<div class="info">Importando as conversas do WhatsApp para o histórico dos casos: ${e.feitos} de ${e.total} casos lidos${e.resumir?', '+e.resumir+' aguardando resumo':''}. Isso roda sozinho, um caso por minuto.</div>`}).catch(()=>{});
   $('#ctab').onclick=e=>{const t=e.target.dataset?.t;if(!t)return;COBTAB=t;document.querySelectorAll('#ctab button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));desenhaCobTab()};desenhaCobTab()}
 function cardCaso(c){const h=COB.hoje,fl=[];if(c.proximo_contato&&c.proximo_contato.slice(0,10)<=h)fl.push('contatar hoje');const pr=c.promessa;if(pr&&pr.data_promessa&&pr.data_promessa.slice(0,10)<h&&!(c.pago_na_campanha&&c.pago_na_campanha.ult>=String(pr.em).slice(0,10)))fl.push('promessa não cumprida');
   const cor=fl.includes('promessa não cumprida')?'#dc2626':fl.length?'#f59e0b':'var(--ln)';
@@ -261,7 +262,8 @@ async function emiteBolProp(id){if(!confirm('Emitir no Asaas o boleto da 1ª par
 function timelineCaso(X){const cc=X.cc,ev=[],ini=somaDiasF(new Date().toISOString().slice(0,10),-540),d10=x=>String(x||'').slice(0,10);
   const rot=id=>{const t=cc?.titulos.find(t=>t.id==id);return t?t.rotulo:''};
   for(const r of X.registros){if(['pagamento','acordo'].includes(r.tipo)&&cc)continue;
-    const tit=r.tipo==='sistema'?String(r.texto||'').split('\n')[0]:r.tipo==='etapa'?'Etapa: '+String(r.texto||'').split(' → ').map(e=>ETN[e]||e).join(' → '):(TIPOS_REG[r.tipo]||r.tipo)+(r.resultado?' — '+r.resultado:'')+(r.data_promessa?` — promessa ${r.valor_promessa?brl(+r.valor_promessa)+' ':''}até ${dbr(r.data_promessa)}`:'');
+    const imp=r.por==='importado do WhatsApp'&&r.tipo==='whatsapp'&&r.texto&&!String(r.texto).startsWith('Conversa no WhatsApp');
+    const tit=imp?'WhatsApp — '+String(r.texto).split('\n')[0]+(r.resultado?' ('+r.resultado+')':''):r.tipo==='sistema'?String(r.texto||'').split('\n')[0]:r.tipo==='etapa'?'Etapa: '+String(r.texto||'').split(' → ').map(e=>ETN[e]||e).join(' → '):(TIPOS_REG[r.tipo]||r.tipo)+(r.resultado?' — '+r.resultado:'')+(r.data_promessa?` — promessa ${r.valor_promessa?brl(+r.valor_promessa)+' ':''}até ${dbr(r.data_promessa)}`:'');
     const det=r.tipo==='etapa'||r.tipo==='sistema'?'':(r.texto||'');
     ev.push({d:new Date(r.em),k:r.tipo,t:tit,det,por:r.por,acoes:['whatsapp','ligacao','email','visita','nota'].includes(r.tipo)?`<a href="#" onclick="editaReg(${r.id});return false">editar</a> · <a href="#" onclick="apagaReg(${r.id});return false">apagar</a>`:''})}
   if(cc){const dt=x=>new Date(d10(x)+'T12:00:00');

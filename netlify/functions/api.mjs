@@ -1403,6 +1403,11 @@ async function rotasCobranca(p, m, body, url, real) {
     const [c] = await q(`select id, etapa from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [p[2]]);
     return json(c || null);
   }
+  if (p[1] === 'importacao' && m === 'GET') {
+    const [st] = await q(`select valor from carteira.cobranca_cfg where chave='whats_import'`);
+    const e = st ? JSON.parse(st.valor) : null; const [n] = await q(`select count(*)::int n from carteira.cobranca_casos where encerrado_em is null`);
+    return json(e ? { feitos: e.feitos.length, total: n.n, resumir: (e.resumir || []).length, fim: e.fim || null, log: (e.log || []).slice(-40) } : { naoIniciada: true });
+  }
   if (p[1] === 'modelos') {
     if (m === 'GET') return json(await q(`select * from carteira.cobranca_modelos order by ordem, id`));
     if (m === 'POST') { const [r] = await q(`insert into carteira.cobranca_modelos(titulo, texto, ordem) values ($1,$2,(select coalesce(max(ordem),0)+1 from carteira.cobranca_modelos)) returning id`, [body.titulo, body.texto]); return json(r); }
@@ -2183,3 +2188,131 @@ export default async (req) => {
 };
 
 export const config = { path: ['/api/*'] };
+
+/* ---------- importação do histórico de conversas do WhatsApp (Evolution, instância LuisFernando) para os casos de cobrança ---------- */
+const WHATS_BACKEND = process.env.WHATS_BACKEND || 'https://agentes-de-whatsapp-production.up.railway.app';
+async function tokenSistemaWhats() {
+  await garanteUsuarios();
+  let [u] = await q(`select id from carteira.usuarios where email='sistema-whatsapp@carteira.local'`);
+  if (!u) [u] = await q(`insert into carteira.usuarios(nome, email, senha_hash, perfil, status) values ('Sistema (importação do WhatsApp)','sistema-whatsapp@carteira.local',$1,'assistente','ativo') returning id`, [hashSenha(crypto.randomBytes(24).toString('hex'))]);
+  const tok = crypto.randomBytes(32).toString('hex');
+  await q(`insert into carteira.sessoes(token, usuario_id, expira_em) values ($1,$2, now() + interval '15 minutes')`, [tok, u.id]);
+  return tok;
+}
+async function fonesDoContrato(n) {
+  const [ct] = await q('select compradores from carteira.contratos where numero=$1', [n]);
+  const comp = Array.isArray(ct?.compradores) ? ct.compradores : [];
+  const norm = v => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const dig = v => String(v || '').replace(/\D/g, '');
+  const cl = await q(`select cpf, nome, planilha, asaas, manual from carteira.clientes`);
+  const meus = cl.filter(c => comp.some(x => (c.cpf && dig(x.cpf) === c.cpf) || (norm(c.nome) && norm(x.nome) === norm(c.nome))));
+  const out = [], ja = new Set();
+  for (const c of meus) {
+    const P = c.planilha || {}, A = c.asaas || {}, M = c.manual || {};
+    for (const v of [M.telefone, A.mobilePhone, A.phone, P.fone, P.fone_com, P.fone_ref]) {
+      let d = dig(v); if (d.length < 10) continue; if (d.length > 11 && d.startsWith('55')) d = d.slice(2);
+      if (ja.has(d.slice(-8))) continue; ja.add(d.slice(-8)); out.push(d);
+    }
+  }
+  return out;
+}
+const diaBR = ts => new Date(ts * 1000 - 3 * 3600e3).toISOString().slice(0, 10);
+export async function importaWhatsPasso(limiteMs = 20000) {
+  await garanteCobranca();
+  const [st] = await q(`select valor from carteira.cobranca_cfg where chave='whats_import'`);
+  const estado = st ? JSON.parse(st.valor) : { feitos: [], log: [] };
+  if (estado.fim) return { fim: true };
+  const casos = await q(`select id, contrato, etapa from carteira.cobranca_casos where encerrado_em is null order by id`);
+  const pend = casos.filter(c => !estado.feitos.includes(c.id));
+  const salva = () => q(`insert into carteira.cobranca_cfg values ('whats_import',$1) on conflict (chave) do update set valor=$1`, [JSON.stringify(estado)]);
+  if (!pend.length && !(estado.resumir || []).length) {
+    estado.fim = new Date().toISOString(); await salva();
+    await q(`delete from carteira.sessoes where usuario_id in (select id from carteira.usuarios where email='sistema-whatsapp@carteira.local')`);
+    await q(`delete from carteira.usuarios where email='sistema-whatsapp@carteira.local'`);
+    return { fim: true };
+  }
+  if ((estado.resumir || []).length) { const id = estado.resumir.shift(); const rr = await resumeCasoWhats(id).catch(e => ({ erro: e.message })); estado.log.push(`resumo caso ${id}: ${rr.erro || 'ok'}`); await salva(); return { resumido: id, ...rr }; }
+  const tok = await tokenSistemaWhats(), t0 = Date.now(), feitos = [];
+  for (const c of pend) {
+    if (Date.now() - t0 > limiteMs) break;
+    const tent = (estado.tent ||= {})[c.id] = ((estado.tent || {})[c.id] || 0) + 1;
+    const fones = await fonesDoContrato(c.contrato);
+    if (!fones.length) { estado.feitos.push(c.id); estado.log.push(`${c.contrato}: sem telefone`); continue; }
+    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 25000);
+    const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?numeros=${fones.slice(0, 10).join(',')}&desde=2026-06-01${tent > 2 ? '&audio=0' : ''}`, { headers: { Authorization: 'CBR tok:' + tok }, signal: ctl.signal }).catch(e => ({ ok: false, status: e.message }));
+    clearTimeout(tm);
+    if (!r.ok) { estado.log.push(`${c.contrato}: falhou (${r.status}), tentativa ${tent}`); if (tent >= 5) { estado.feitos.push(c.id); estado.log.push(`${c.contrato}: desisti depois de 5 tentativas`); } break; }
+    const j = await r.json().catch(() => ({}));
+    const vistos = new Set(), msgs = [];
+    for (const [fone, lista] of Object.entries(j.conversas || {})) for (const m of lista) { const k = m.ts + '|' + m.eu + '|' + m.texto; if (vistos.has(k)) continue; vistos.add(k); msgs.push({ ...m, fone }); }
+    msgs.sort((a, b) => a.ts - b.ts);
+    const regs = await q(`select tipo, por, em from carteira.cobranca_registros where caso_id=$1`, [c.id]);
+    const diasManuais = new Set(regs.filter(x => ['whatsapp', 'ligacao', 'email', 'visita', 'nota'].includes(x.tipo) && x.por !== 'importado do WhatsApp').map(x => diaBR(new Date(x.em).getTime() / 1000)));
+    const diasImp = new Set(regs.filter(x => x.por === 'importado do WhatsApp').map(x => diaBR(new Date(x.em).getTime() / 1000)));
+    const porDia = {}; for (const m of msgs) (porDia[diaBR(m.ts)] ||= []).push(m);
+    let diasEu = 0, respondeu = false, ultimo = null;
+    for (const [dia, ms] of Object.entries(porDia).sort()) {
+      const eu = ms.some(m => m.eu), ele = ms.some(m => !m.eu);
+      if (eu) diasEu++; if (ele) respondeu = true; ultimo = dia;
+      if (diasManuais.has(dia) || diasImp.has(dia)) continue;
+      const linhas = ms.map(m => `${new Date(m.ts * 1000 - 3 * 3600e3).toISOString().slice(11, 16)} ${m.eu ? 'Eu' : 'Cliente'}: ${m.tipo === 'audio' ? '[áudio' + (m.seg ? ' ' + m.seg + 's' : '') + '] ' + (m.texto || '(sem transcrição)') : m.tipo !== 'texto' ? '[' + m.tipo + '] ' + (m.texto || '') : m.texto}`);
+      const resultado = ele ? (eu ? 'Conversou' : 'Cliente mandou mensagem') : 'Mensagem enviada';
+      await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, por, em) values ($1,$2,'whatsapp',$3,$4,'importado do WhatsApp',$5::timestamptz)`,
+        [c.id, c.contrato, resultado, `Conversa no WhatsApp (${[...new Set(ms.map(m => m.fone))].join(', ')})\n\n` + linhas.join('\n').slice(0, 20000), dia + 'T12:00:00-03:00']);
+    }
+    /* etapa pela conversa, só para quem ainda está no começo do funil */
+    if (['fila', 'contato1', 'contato2', 'contato3'].includes(c.etapa) && msgs.length) {
+      const nova = respondeu ? 'negociando' : ['fila', 'contato1', 'contato2', 'contato3'][Math.min(3, diasEu)];
+      if (nova !== c.etapa) {
+        await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,'importado do WhatsApp')`, [c.id, c.contrato, `${c.etapa} → ${nova}`]);
+        await q(`update carteira.cobranca_casos set etapa=$2, atualizado_em=now() where id=$1`, [c.id, nova]);
+      }
+    }
+    estado.feitos.push(c.id); feitos.push(c.contrato); if (msgs.length) (estado.resumir ||= []).push(c.id);
+    estado.log.push(`${c.contrato}: ${msgs.length} mensagens em ${Object.keys(porDia).length} dia(s)${respondeu ? ', cliente respondeu' : ''}${ultimo ? ', último ' + ultimo : ''}`);
+  }
+  await salva();
+  return { feitos, faltam: pend.length - feitos.length };
+}
+
+/* resume as conversas importadas de um caso com a IA: uma linha por dia, resultado e etapa do funil */
+async function resumeCasoWhats(casoId) {
+  const key = (process.env.ANTHROPIC_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  if (!key) return { erro: 'sem chave da IA' };
+  const [c] = await q(`select * from carteira.cobranca_casos where id=$1`, [casoId]);
+  if (!c) return { erro: 'caso não existe' };
+  const regs = await q(`select id, em, texto from carteira.cobranca_registros where caso_id=$1 and por='importado do WhatsApp' and tipo='whatsapp' order by em`, [casoId]);
+  if (!regs.length) return { erro: 'nada importado' };
+  const conversa = regs.map(r => `### ${diaBR(new Date(r.em).getTime() / 1000)}\n${String(r.texto).split('\n\n').slice(1).join('\n\n').slice(0, 3000)}`).join('\n\n').slice(-14000);
+  const prompt = `Você organiza o histórico de cobrança de um loteamento (Condomínio Beira Rio). "Eu" é o Luis Fernando, responsável pela cobrança; "Cliente" é o comprador do lote (contrato ${c.contrato}). Abaixo estão as conversas de WhatsApp, separadas por dia (### AAAA-MM-DD). Algumas mensagens podem não ser sobre a cobrança: ignore o que não for.
+Devolva SOMENTE um JSON, sem texto antes ou depois:
+{"dias": {"AAAA-MM-DD": {"resumo": "uma frase curta e objetiva do que aconteceu nesse dia", "resultado": "um destes: Mensagem enviada, Atendeu, Sem resposta, Número errado, Solicitou valores, Pediu proposta, Prometeu pagar, Recusou, Vai procurar o escritório, Conversou"}},
+ "etapa": "um destes: contato1, contato2, contato3, negociando, promessa, proposta, sem_retorno",
+ "promessa": {"data": "AAAA-MM-DD ou null", "valor": número ou null},
+ "situacao": "uma frase dizendo em que pé está a negociação hoje"}
+Regras da etapa: só mensagens minhas sem resposta = contato1/contato2/contato3 conforme quantos dias eu tentei (máximo contato3); cliente respondeu e estamos conversando = negociando; cliente prometeu pagar com data = promessa; mandei proposta de acordo = proposta; tentei mais de 3 vezes sem resposta = sem_retorno.
+
+${conversa}`;
+  const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL_RAPIDO || 'claude-haiku-4-5-20251001', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) return { erro: d.error?.message || 'IA respondeu ' + r.status };
+  const txt = (d.content || []).map(x => x.text || '').join(''); let J;
+  try { J = JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1)); } catch { return { erro: 'resposta da IA ilegível' }; }
+  for (const rg of regs) {
+    const dia = diaBR(new Date(rg.em).getTime() / 1000), x = J.dias?.[dia]; if (!x) continue;
+    const corpo = String(rg.texto).split('\n\n').slice(1).join('\n\n');
+    await q(`update carteira.cobranca_registros set resultado=$2, texto=$3 where id=$1`, [rg.id, String(x.resultado || 'Conversou').slice(0, 60), `${x.resumo || ''}\n\n${String(rg.texto).split('\n\n')[0]}\n${corpo}`]);
+  }
+  if (J.promessa?.data && /^\d{4}-\d{2}-\d{2}$/.test(J.promessa.data))
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, data_promessa, valor_promessa, por, em) values ($1,$2,'nota','Prometeu pagar',$3,$4,$5,'importado do WhatsApp',now())`,
+      [c.id, c.contrato, 'Promessa encontrada na conversa do WhatsApp', J.promessa.data, +J.promessa.valor || null]);
+  if (J.situacao) await q(`update carteira.cobranca_casos set obs=coalesce(nullif(obs,''), $2) where id=$1`, [c.id, String(J.situacao).slice(0, 300)]);
+  const novas = ['contato1', 'contato2', 'contato3', 'negociando', 'promessa', 'proposta', 'sem_retorno'];
+  const [atual] = await q(`select etapa from carteira.cobranca_casos where id=$1`, [c.id]);
+  if (novas.includes(J.etapa) && ['fila', 'contato1', 'contato2', 'contato3', 'negociando'].includes(atual.etapa) && J.etapa !== atual.etapa && !(c.etapa === 'proposta')) {
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,'importado do WhatsApp')`, [c.id, c.contrato, `${atual.etapa} → ${J.etapa}`]);
+    await q(`update carteira.cobranca_casos set etapa=$2, atualizado_em=now() where id=$1`, [c.id, J.etapa]);
+  }
+  return { etapa: J.etapa, situacao: J.situacao };
+}
