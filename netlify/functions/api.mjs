@@ -661,7 +661,7 @@ async function ajustaValores(rows) {
     for (const k of ms) { const t = mens.find(x => +x.numero === +k.a_partir); const data = t?.vencimento || k.data; const nv = +k.novo_valor; if (!/^Diluição/.test(k.obs || '') && prev > 0) fm.push({ data, f: nv / prev }); prev = nv; }
     const m0 = mens.sort((a, b) => a.numero - b.numero)[0];
     const y0 = +String(Cs.find(c => c.numero === n)?.assin || m0?.vencimento || '2000').slice(0, 4), com = new Set(fm.map(x => +String(x.data).slice(0, 4)));
-    for (const p of [...P, ...Bo].filter(p => p.contrato === n)) { const t = ts.find(x => String(x.id) === String(p.titulo_id)); if (t?.vencimento) com.add(+t.vencimento.slice(0, 4)); }
+    for (const p of P.filter(p => p.contrato === n)) { const t = ts.find(x => String(x.id) === String(p.titulo_id)); if (t?.vencimento) com.add(+t.vencimento.slice(0, 4)); }
     const sem = Object.keys(FATOR_ANO_S).map(Number).filter(y => y > y0 && !com.has(y));
     const dil = {}; for (const e of E.filter(e => e.contrato === n)) for (const i of e.dados?.itens || []) dil[i.titulo_id] = (dil[i.titulo_id] || 0) + (+i.valor || 0);
     const dd = String(m0?.vencimento || '2000-01-10').slice(8, 10), anosFm = new Set(fm.map(x => +String(x.data).slice(0, 4)));
