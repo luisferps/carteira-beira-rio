@@ -205,7 +205,7 @@ async function enviaCob(n,lote){const ns=lote?[...document.querySelectorAll('.sg
   const r=await api('cobranca/caso',{method:'POST',body:{contratos:ns}});if(lote)telaCobranca();else location.hash='cob/'+r[0].id}
 /* caso */
 async function telaCaso(id){app.innerHTML='<div class="card">Carregando…</div>';CASO=await api('cobranca/caso/'+id);const X=CASO,c=X.caso,d=X.divida,ct=X.contrato;
-  const [cl,cc]=await Promise.all([api('clientes?contrato='+c.contrato).catch(()=>[]),api('contrato/'+c.contrato).catch(()=>null)]);X.cc=cc;X.cli=cl.map(cliDados);const jf=new Set(),fones=X.cli.flatMap(x=>x.tel.map(t=>({...t,nome:x.nome}))).filter(t=>{const k=digs(t.v).slice(-8);if(jf.has(k))return false;jf.add(k);return true});X.fones=fones;
+  const [cl,cc]=await Promise.all([api('clientes?contrato='+c.contrato).catch(()=>[]),api('contrato/'+c.contrato).catch(()=>null)]);X.cc=cc;X.cliRaw=cl;if(cc){cc.clientes=cl;C=cc;SEL.clear();SELMODO=false}X.cli=cl.map(cliDados);const jf=new Set(),fones=X.cli.flatMap(x=>x.tel.map(t=>({...t,nome:x.nome}))).filter(t=>{const k=digs(t.v).slice(-8);if(jf.has(k))return false;jf.add(k);return true});X.fones=fones;
   const enc=!!c.encerrado_em;
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='cobranca'">← Cobrança</button><button onclick="location.hash='c/${c.contrato}'">Abrir o contrato</button></div>
   <div class="card"><div class="bt" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">Contrato ${c.contrato} — Q${ct.quadra} L${ct.lote}</h2><div style="font-size:15px">${esc(nome(d.titular||(ct.compradores||[]).map(x=>x.nome).join(' e ')))}</div>
@@ -215,15 +215,20 @@ async function telaCaso(id){app.innerHTML='<div class="card">Carregando…</div>
    ${enc?'':`<div class="f2" style="margin-top:10px"><div><label>Etapa</label><select id="cs_et" onchange="mudaCaso({etapa:this.value})">${ETAPAS.map(([k,l])=>`<option value="${k}" ${c.etapa===k?'selected':''} ${k==='sem_retorno'&&!podeSR(c.etapa)?'disabled':''}>${l}${k==='sem_retorno'&&!podeSR(c.etapa)?' (só depois do contato 3)':''}</option>`).join('')}</select></div>
    <div><label>Próximo contato</label><input type="date" id="cs_px" value="${c.proximo_contato?String(c.proximo_contato).slice(0,10):''}" onchange="mudaCaso({proximo_contato:this.value})"></div>
    <div><label>Responsável</label><input id="cs_rs" value="${esc(c.responsavel||'')}" onchange="mudaCaso({responsavel:this.value})"></div><div><label>Observação do caso</label><input id="cs_ob" value="${esc(c.obs||'')}" onchange="mudaCaso({obs:this.value})"></div></div>`}</div>
-  <div class="cgrid2"><div class="card"><h3 style="margin-top:0">Contatos</h3>${fones.length?fones.map(t=>`<div style="margin:4px 0"><a href="https://wa.me/55${digs(t.v)}" target="_blank">${esc(t.v)}</a> <span class="mut">${esc(t.nome.split(' ')[0])} · ${t.tipo||t.o}</span> <a href="tel:${digs(t.v)}">ligar</a></div>`).join(''):'<div class="mut">Nenhum telefone no cadastro. Inclua em Clientes.</div>'}
+  <div class="cgrid2"><div class="card"><h3 style="margin-top:0">Contatos</h3>${cl.length?`<div class="bt" style="margin-bottom:6px">${cl.map(x=>`<button style="padding:3px 10px;font-size:12px" onclick="editaCliente(${x.id})">Editar cadastro — ${esc(nome(x.nome||'').split(' ')[0])}</button>`).join('')}</div>`:''}${fones.length?fones.map(t=>`<div style="margin:4px 0"><a href="https://wa.me/55${digs(t.v)}" target="_blank">${esc(t.v)}</a> <span class="mut">${esc(t.nome.split(' ')[0])} · ${t.tipo||t.o}</span> <a href="tel:${digs(t.v)}">ligar</a></div>`).join(''):'<div class="mut">Nenhum telefone no cadastro. Inclua em Clientes.</div>'}
     ${X.cli.flatMap(x=>x.em).map(e=>`<div class="mut" style="font-size:13px">${esc(e.v)}</div>`).join('')}
-    <h3>O que está devendo</h3><table><tr><th>Parcela</th><th>Venceu</th><th>Dias</th><th>Valor hoje</th></tr>${d.parcelas.map(p=>`<tr><td>${esc(p.rotulo)}</td><td>${dbr(p.vencimento)}</td><td>${p.dias}</td><td title="principal ${brl(p.principal)} · multa ${brl(p.multa)} · juros ${brl(p.juros)} · cobrança ${brl(p.cobranca)}">${brl(p.total)}</td></tr>`).join('')}<tr><td colspan="3"><b>Total</b></td><td><b>${brl(d.total)}</b></td></tr></table>
+    <h3>O que está devendo</h3><table><tr>${enc?'':`<th><input type="checkbox" style="width:auto" title="Marcar todas" onchange="document.querySelectorAll('.cpk:not(:disabled)').forEach(x=>x.checked=this.checked);contaSelCaso()"></th>`}<th>Parcela</th><th>Venceu</th><th>Dias</th><th>Valor hoje</th>${enc?'':'<th></th>'}</tr>${d.parcelas.map(p=>{const np=negociacaoDe(p.id);return `<tr>${enc?'':`<td><input type="checkbox" class="cpk" value="${p.id}" style="width:auto" ${np?'disabled':''} onchange="contaSelCaso()"></td>`}<td>${esc(p.rotulo)}${np?`<div class="mut" style="font-size:11px">${esc(np)}</div>`:''}</td><td>${dbr(p.vencimento)}</td><td>${p.dias}</td><td title="principal ${brl(p.principal)} · multa ${brl(p.multa)} · juros ${brl(p.juros)} · cobrança ${brl(p.cobranca)}">${brl(p.total)}</td>${enc?'':`<td>${np?'':`<button style="padding:2px 8px;font-size:12px" onclick="modalSegundaVia(${p.id})">2ª via</button>`}</td>`}</tr>`}).join('')}<tr>${enc?'':'<td></td>'}<td colspan="3"><b>Total</b></td><td><b>${brl(d.total)}</b></td>${enc?'':'<td></td>'}</tr></table>
+    ${enc?'':`<div class="bt" style="margin-top:10px;align-items:center"><button class="pri" id="cpk_b" disabled onclick="propostaCaso()">Fazer proposta com as marcadas</button><span class="mut" style="font-size:12px">Marque as parcelas do acordo. Uma parcela só: botão "2ª via".</span></div>`}
     ${X.boletos.length?`<h3>Boletos em aberto</h3>${X.boletos.map(b=>`<div style="margin:3px 0">${esc(b.rotulo||'')} · ${brl(+b.valor)} · vence ${dbr(b.vencimento)} ${b.link?`· <a href="${b.link}" target="_blank">ver</a> · <a href="#" onclick="copia('${b.link}');return false">copiar link</a>`:''}</div>`).join('')}`:''}
     ${X.acordos.length||X.propostas.length?`<h3>Negociação</h3>${X.propostas.map(p=>`<div>Proposta ${esc(p.termo||'')} (aguardando)</div>`).join('')}${X.acordos.map(a=>`<div>Acordo de ${dbr(a.data)}: ${brl(+a.valor_acordado)} em ${a.qtd_parcelas}x</div>`).join('')}`:''}
-    <div class="bt" style="margin-top:10px"><button onclick="location.hash='c/${c.contrato}'">Fazer proposta / 2ª via no contrato</button></div></div>
+    ${(X.cc?.propostas||[]).length?`<h3>Propostas em aberto</h3>${X.cc.propostas.map(p=>{const pd=p.dados||{},ps=pd.parcelas||[];return `<div class="ficha" style="border-left-color:#f59e0b;margin:6px 0"><b>Proposta ${esc(pd.termo||'')}</b> — ${brl(pd.valor_acordado)} em ${ps.length} parcela(s): ${ps.map(x=>dbr(x.vencimento)+' '+brl(x.valor)).join(' · ')}<div class="bt" style="margin-top:6px"><button onclick="baixaTermo(pDados(${p.id}))">Baixar termo (Word)</button><button onclick="modalAcordo(null,${p.id})">Editar proposta</button><button class="pri" onclick="efetivaProposta(${p.id})">Efetivar acordo</button><button class="per" onclick="apagaProposta(${p.id})">Excluir</button></div></div>`}).join('')}`:''}
+    <div class="bt" style="margin-top:10px"><button onclick="location.hash='c/${c.contrato}'">Abrir o contrato completo</button></div></div>
    <div class="card"><h3 style="margin-top:0">Histórico</h3>${X.registros.map(r=>`<div class="reg reg-${r.tipo}"><div class="mut" style="font-size:12px">${new Date(r.em).toLocaleString('pt-BR')} · ${TIPOS_REG[r.tipo]||r.tipo}${r.resultado?' · <b>'+esc(r.resultado)+'</b>':''}${r.por&&r.por!=='sistema'?' · '+esc(r.por):''}</div>
      ${r.texto?`<div style="white-space:pre-wrap">${esc(r.texto)}</div>`:''}${r.data_promessa?`<div><b>Promessa:</b> ${r.valor_promessa?brl(+r.valor_promessa)+' ':''}até ${dbr(r.data_promessa)}</div>`:''}</div>`).join('')||'<div class="mut">Sem registros.</div>'}</div></div>`}
 async function excluiCaso(){if(!confirm('Excluir este caso e todo o histórico dele? Use só para caso lançado por engano.'))return;await api('cobranca/caso/'+CASO.caso.id,{method:'DELETE'});location.hash='cobranca'}
+function negociacaoDe(id){const cc=CASO?.cc;if(!cc)return '';const p=(cc.propostas||[]).find(p=>(p.dados?.titulos_origem||[]).map(Number).includes(+id));return p?'na proposta '+(p.dados?.termo||''):''}
+function contaSelCaso(){const n=document.querySelectorAll('.cpk:checked').length,b=$('#cpk_b');if(b){b.disabled=!n;b.textContent=n?`Fazer proposta com as marcadas (${n})`:'Fazer proposta com as marcadas'}}
+function propostaCaso(){if(!CASO.cc)return alert('Não consegui carregar o contrato.');C=CASO.cc;SEL.clear();document.querySelectorAll('.cpk:checked').forEach(x=>SEL.add(+x.value));if(!SEL.size)return;modalAcordo()}
 function relCaso(){if(!CASO.cc)return alert('Não consegui carregar o contrato.');const sv=C;C=CASO.cc;try{relatorio('atraso')}finally{C=sv}}
 function copia(t){navigator.clipboard.writeText(t);alert('Link copiado.')}
 async function mudaCaso(b){const r=await api('cobranca/caso/'+CASO.caso.id,{method:'PUT',body:b});telaCaso(CASO.caso.id)}
@@ -499,7 +504,8 @@ async function fichaCliente(id){if(!CLI.length||!CLI.find(c=>c.id==id)){app.inne
    <h4>Dados pessoais</h4><div class="cgrid mini">${dd('CPF',d.cpf)}${dd('RG / CNH',[P.rg,P.emissor].filter(Boolean).join(' '))}${dd('Nascimento',nasc)}${dd('Estado civil',P.estado_civil)}${dd('Sexo',P.sexo)}${dd('Naturalidade',[P.naturalidade,P.uf_nat].filter(Boolean).join('/'))}${dd('Nacionalidade',P.nacionalidade)}${dd('Profissão',P.profissao)}${dd('Empresa',P.empresa||A.company)}${dd('Renda',P.renda?brl(+P.renda):'')}</div>
    ${d.M.obs||A.observations?`<h4>Observações</h4>${d.M.obs?`<div>${esc(d.M.obs)}${orgT('Editado')}</div>`:''}${A.observations?`<div>${esc(A.observations)}${orgT('Asaas')}</div>`:''}`:''}
    <div class="mut" style="margin-top:12px">Contato: o que vem do Asaas tem prioridade; o da planilha aparece embaixo quando é diferente.</div></div>`}
-function editaCliente(id){const c=CLI.find(c=>c.id==id),M=c.manual||{};
+function cliPorId(id){return CLI.find(c=>c.id==id)||(CASO?.cliRaw||[]).find(c=>c.id==id)||(C?.clientes||[]).find(c=>c.id==id)}
+function editaCliente(id){const c=cliPorId(id),M=c.manual||{};
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Editar contato</h3><button onclick="fechaModal()">Fechar</button></div>
   <div class="info">O que você colocar aqui fica como principal, acima do Asaas e da planilha. Deixe em branco para não mudar.</div>
   <label>Telefone principal</label><input id="ce_t" value="${esc(M.telefone||'')}">
@@ -508,7 +514,7 @@ function editaCliente(id){const c=CLI.find(c=>c.id==id),M=c.manual||{};
   <label>Observação</label><input id="ce_o" value="${esc(M.obs||'')}">
   <div class="bt"><button class="pri" onclick="salvaCliente(${id})">Salvar</button></div>`)}
 async function salvaCliente(id){const manual={telefone:$('#ce_t').value.trim(),email:$('#ce_e').value.trim(),endereco:$('#ce_d').value.trim(),obs:$('#ce_o').value.trim()};
-  await api('cliente/'+id,{method:'PUT',body:{manual}});const c=CLI.find(c=>c.id==id);c.manual=manual;$('#modal').innerHTML='';fichaCliente(id)}
+  await api('cliente/'+id,{method:'PUT',body:{manual}});const c=cliPorId(id);if(c)c.manual=manual;fechaModal();if(location.hash.startsWith('#cob/')&&CASO)telaCaso(CASO.caso.id);else if(location.hash.startsWith('#c/'))abrirContrato(C.contrato.numero);else fichaCliente(id)}
 
 /* ---------- LISTA ---------- */
 let FILTRO=new Set(),NOMEU='';
@@ -829,7 +835,7 @@ function clicaTitulo(id){
     if(!SEL.has(id)&&!podeAcordo(t)){alert(porqueNao(t));return}SEL.has(id)?SEL.delete(id):SEL.add(id);SELULT=id;desenhaContrato();return}
   modalTitulo(id);
 }
-async function recarrega(){const cl=C.clientes;C=await api('contrato/'+C.contrato.numero);C.clientes=cl;desenhaContrato()}
+async function recarrega(){if(location.hash.startsWith('#cob/')&&CASO){await telaCaso(CASO.caso.id);return}const cl=C.clientes;C=await api('contrato/'+C.contrato.numero);C.clientes=cl;desenhaContrato()}
 async function apagar(tipo,id){if(!confirm('Apagar?'))return;await api(tipo+'/'+id,{method:'DELETE'});fechaModal();recarrega()}
 async function fechar(){
   const pend=C.titulos.filter(t=>estado(t)==='vencida');
