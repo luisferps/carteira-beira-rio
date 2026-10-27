@@ -70,7 +70,7 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .pc.ces{box-shadow:0 0 0 3px #fff,0 0 0 6px #ea580c}
 .pc.corr.ces{outline:3px solid #7c3aed;box-shadow:0 0 0 6px #ea580c}
 .pc:has(.orig){height:auto;min-height:50px}.orig{display:block;text-align:center;max-width:100%;white-space:normal;overflow-wrap:break-word;line-height:1.15;font-size:10px}
-.kanban{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(165px,1fr);overflow-x:auto;gap:10px;padding-bottom:8px}.kcol{background:#f1f5f9;border-radius:10px;padding:8px;min-height:120px}.kh{font-weight:700;margin-bottom:8px}.kc{background:#fff;border:1px solid var(--ln);border-radius:8px;padding:8px;margin-bottom:6px;cursor:pointer}.kc:hover{border-color:#1d4ed8}.cgrid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}.reg{border-left:3px solid #cbd5e1;padding:4px 10px;margin:8px 0}.reg-whatsapp{border-color:#25d366}.reg-ligacao{border-color:#2563eb}.reg-pagamento{border-color:#16a34a;background:#f0fdf4}.reg-acordo{border-color:#f59e0b}.reg-etapa,.reg-sistema{opacity:.75}
+.kanban{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(150px,1fr);overflow-x:auto;gap:10px;padding-bottom:8px}.kcol{background:#f1f5f9;border-radius:10px;padding:8px;min-height:120px}.kh{font-weight:700;margin-bottom:8px}.kc{background:#fff;border:1px solid var(--ln);border-radius:7px;padding:5px 7px;margin-bottom:5px;cursor:pointer}body.largo main{max-width:none}.kc:hover{border-color:#1d4ed8}.cgrid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}.reg{border-left:3px solid #cbd5e1;padding:4px 10px;margin:8px 0}.reg-whatsapp{border-color:#25d366}.reg-ligacao{border-color:#2563eb}.reg-pagamento{border-color:#16a34a;background:#f0fdf4}.reg-acordo{border-color:#f59e0b}.reg-etapa,.reg-sistema{opacity:.75}
 .mods{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;max-width:900px;margin:30px auto}
 .mod{text-align:left;background:var(--card);border:1px solid var(--ln);border-left:6px solid #1d4ed8;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:8px;cursor:pointer;min-height:150px}
 .mod:hover{box-shadow:0 4px 16px rgba(0,0,0,.08)}.mod b{font-size:20px}.mod span{color:#666}
@@ -141,7 +141,7 @@ async function iniciar(){
   route();
 }
 window.onhashchange=()=>route();
-function route(){const h=location.hash.slice(1);COMO='';
+function route(){const h=location.hash.slice(1);COMO='';document.body.classList.toggle('largo',h==='cobranca');
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
@@ -163,7 +163,8 @@ function telaModulos(){
 
 
 /* ---------- COBRANÇA ---------- */
-const ETAPAS=[['fila','Na fila'],['contato','Contato feito'],['negociando','Negociando'],['promessa','Promessa de pagamento'],['acordo','Acordo feito'],['sem_retorno','Sem retorno'],['notificacao','Notificação / jurídico']];
+const ETAPAS=[['fila','Na fila'],['contato1','Contato 1'],['contato2','Contato 2'],['contato3','Contato 3'],['negociando','Negociando'],['promessa','Promessa de pagamento'],['proposta','Proposta de pagamento'],['acordo','Acordo feito (pagou)'],['sem_retorno','Sem retorno'],['notificacao','Notificação / jurídico']];
+const podeSR=e=>!['fila','contato1','contato2'].includes(e);
 const ETN=Object.fromEntries(ETAPAS);
 const TIPOS_REG={whatsapp:'WhatsApp',ligacao:'Ligação',email:'E-mail',visita:'Visita / presencial',nota:'Anotação',etapa:'Mudou de etapa',sistema:'Sistema',pagamento:'Pagamento',acordo:'Acordo'};
 const RESULTADOS=['Atendeu','Não atendeu','Sem resposta','Número errado','Pediu proposta','Prometeu pagar','Recusou','Vai procurar o escritório'];
@@ -184,9 +185,9 @@ async function telaCobranca(){app.innerHTML='<div class="card">Carregando…</di
   <div class="filtros" id="ctab" style="margin-top:12px">${tb('funil','Funil')}${tb('hoje','Agenda de hoje ('+hojeN+')')}${tb('enc','Encerrados')}${tb('mod','Mensagens prontas')}</div></div>
   <div id="cconteudo"></div>`;
   $('#ctab').onclick=e=>{const t=e.target.dataset?.t;if(!t)return;COBTAB=t;document.querySelectorAll('#ctab button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));desenhaCobTab()};desenhaCobTab()}
-function cardCaso(c){return `<div class="kc" onclick="location.hash='cob/${c.id}'"><div style="display:flex;justify-content:space-between"><b>${c.contrato}</b><span class="mut">Q${c.divida.quadra||''} L${c.divida.lote||''}</span></div>
-  <div style="font-size:13px">${esc(nome(c.divida.titular||''))}</div><div style="margin:4px 0"><b style="color:var(--at)">${brl(+c.divida.total)}</b> <span class="mut" style="font-size:12px">${c.divida.parcelas.length} parc. · ${c.divida.dias} dias</span></div>
-  <div class="mut" style="font-size:12px">${c.ultimo_contato?'último contato '+dbr(c.ultimo_contato):'sem contato ainda'}${c.proximo_contato?' · próximo '+dbr(c.proximo_contato):''}</div><div style="margin-top:4px">${flagsCaso(c,COB.hoje)}</div></div>`}
+function cardCaso(c){const h=COB.hoje,fl=[];if(c.proximo_contato&&c.proximo_contato.slice(0,10)<=h)fl.push('contatar hoje');const pr=c.promessa;if(pr&&pr.data_promessa&&pr.data_promessa.slice(0,10)<h&&!(c.pago_na_campanha&&c.pago_na_campanha.ult>=String(pr.em).slice(0,10)))fl.push('promessa não cumprida');
+  const cor=fl.includes('promessa não cumprida')?'#dc2626':fl.length?'#f59e0b':'var(--ln)';
+  return `<div class="kc" style="border-left:4px solid ${cor}" title="${brl(+c.divida.total)} · ${c.divida.parcelas.length} parcela(s) · ${c.divida.dias} dias${c.ultimo_contato?' · último contato '+dbr(c.ultimo_contato):' · sem contato ainda'}${c.proximo_contato?' · próximo '+dbr(c.proximo_contato):''}${fl.length?' · '+fl.join(', '):''}" onclick="location.hash='cob/${c.id}'"><div style="display:flex;justify-content:space-between;gap:4px"><b>${c.contrato}</b><span class="mut" style="font-size:12px">Q${c.divida.quadra||''} L${c.divida.lote||''}</span></div><div style="font-size:12px;line-height:1.25">${esc(nome(c.divida.titular||''))}</div></div>`}
 async function desenhaCobTab(){const el=$('#cconteudo'),K=COB.casos,hoje=COB.hoje;
   if(COBTAB==='funil'){el.innerHTML=`<div class="kanban">${ETAPAS.map(([k,l])=>{const cs=K.filter(c=>c.etapa===k);return `<div class="kcol"><div class="kh">${l} <span class="mut">(${cs.length})</span><div class="mut" style="font-size:12px">${brl(cs.reduce((s,c)=>s+(+c.divida.total||0),0))}</div></div>${cs.map(cardCaso).join('')||'<div class="mut" style="font-size:12px;padding:6px">—</div>'}</div>`}).join('')}</div>`}
   else if(COBTAB==='hoje'){const L=K.filter(c=>c.proximo_contato&&c.proximo_contato.slice(0,10)<=hoje).sort((a,b)=>String(a.proximo_contato).localeCompare(String(b.proximo_contato))||(+b.divida.total-+a.divida.total));
@@ -210,7 +211,7 @@ async function telaCaso(id){app.innerHTML='<div class="card">Carregando…</div>
    <div class="mut">Na campanha desde ${dbr(c.criado_em)}${c.criado_por?' · por '+esc(c.criado_por):''}${enc?' · <b>ENCERRADO em '+dbr(c.encerrado_em)+'</b> ('+esc(c.motivo_encerramento||'')+')':''}</div></div>
    ${enc?'':`<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="pri" onclick="modalMsg()">Mandar WhatsApp</button><button onclick="modalReg()">Registrar contato</button><button class="per" onclick="encerraCaso()">Encerrar caso</button></div>`}${EU==='luis'?`<button class="per" style="margin-left:6px" onclick="excluiCaso()">Excluir (lançado por engano)</button>`:''}</div>
    <div class="tot" style="margin-top:10px"><div class="neg"><span class="mut">Dívida hoje</span><b>${brl(d.total)}</b></div><div><span class="mut">Parcelas em atraso</span><b>${d.parcelas.length}</b></div><div><span class="mut">Maior atraso</span><b>${d.dias} dias</b></div><div><span class="mut">Recebido desde que entrou</span><b>${brl(X.pagamentos.reduce((s,p)=>s+(+p.valor_pago),0))}</b></div></div>
-   ${enc?'':`<div class="f2" style="margin-top:10px"><div><label>Etapa</label><select id="cs_et" onchange="mudaCaso({etapa:this.value})">${ETAPAS.map(([k,l])=>`<option value="${k}" ${c.etapa===k?'selected':''}>${l}</option>`).join('')}</select></div>
+   ${enc?'':`<div class="f2" style="margin-top:10px"><div><label>Etapa</label><select id="cs_et" onchange="mudaCaso({etapa:this.value})">${ETAPAS.map(([k,l])=>`<option value="${k}" ${c.etapa===k?'selected':''} ${k==='sem_retorno'&&!podeSR(c.etapa)?'disabled':''}>${l}${k==='sem_retorno'&&!podeSR(c.etapa)?' (só depois do contato 3)':''}</option>`).join('')}</select></div>
    <div><label>Próximo contato</label><input type="date" id="cs_px" value="${c.proximo_contato?String(c.proximo_contato).slice(0,10):''}" onchange="mudaCaso({proximo_contato:this.value})"></div>
    <div><label>Responsável</label><input id="cs_rs" value="${esc(c.responsavel||'')}" onchange="mudaCaso({responsavel:this.value})"></div><div><label>Observação do caso</label><input id="cs_ob" value="${esc(c.obs||'')}" onchange="mudaCaso({obs:this.value})"></div></div>`}</div>
   <div class="cgrid2"><div class="card"><h3 style="margin-top:0">Contatos</h3>${fones.length?fones.map(t=>`<div style="margin:4px 0"><a href="https://wa.me/55${digs(t.v)}" target="_blank">${esc(t.v)}</a> <span class="mut">${esc(t.nome.split(' ')[0])} · ${t.tipo||t.o}</span> <a href="tel:${digs(t.v)}">ligar</a></div>`).join(''):'<div class="mut">Nenhum telefone no cadastro. Inclua em Clientes.</div>'}
@@ -223,7 +224,7 @@ async function telaCaso(id){app.innerHTML='<div class="card">Carregando…</div>
      ${r.texto?`<div style="white-space:pre-wrap">${esc(r.texto)}</div>`:''}${r.data_promessa?`<div><b>Promessa:</b> ${r.valor_promessa?brl(+r.valor_promessa)+' ':''}até ${dbr(r.data_promessa)}</div>`:''}</div>`).join('')||'<div class="mut">Sem registros.</div>'}</div></div>`}
 async function excluiCaso(){if(!confirm('Excluir este caso e todo o histórico dele? Use só para caso lançado por engano.'))return;await api('cobranca/caso/'+CASO.caso.id,{method:'DELETE'});location.hash='cobranca'}
 function copia(t){navigator.clipboard.writeText(t);alert('Link copiado.')}
-async function mudaCaso(b){await api('cobranca/caso/'+CASO.caso.id,{method:'PUT',body:b});telaCaso(CASO.caso.id)}
+async function mudaCaso(b){const r=await api('cobranca/caso/'+CASO.caso.id,{method:'PUT',body:b});telaCaso(CASO.caso.id)}
 async function encerraCaso(){const m=prompt('Motivo do encerramento (ex.: Regularizado, Acordo cumprido, Retomada, Distrato):',+CASO.divida.total?'':'Regularizado');if(!m)return;await api('cobranca/caso/'+CASO.caso.id+'/encerrar',{method:'POST',body:{motivo:m}});location.hash='cobranca'}
 function modalReg(pre){const hoje=new Date().toISOString().slice(0,10);
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Registrar contato</h3><button onclick="fechaModal()">Fechar</button></div>
@@ -231,7 +232,7 @@ function modalReg(pre){const hoje=new Date().toISOString().slice(0,10);
   <div><label>Resultado</label><select id="rg_r"><option value="">—</option>${RESULTADOS.map(r=>`<option>${r}</option>`).join('')}</select></div></div>
   <label>O que foi conversado</label><textarea id="rg_x">${esc(pre?.texto||'')}</textarea>
   <div class="f2"><div><label>Prometeu pagar até (opcional)</label><input type="date" id="rg_dp"></div><div><label>Valor prometido</label><input id="rg_vp" inputmode="decimal"></div>
-  <div><label>Próximo contato</label><input type="date" id="rg_px" value="${somaDiasF(hoje,3)}"></div><div><label>Mudar etapa para</label><select id="rg_et"><option value="">(manter / automático)</option>${ETAPAS.map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div></div>
+  <div><label>Próximo contato</label><input type="date" id="rg_px" value="${somaDiasF(hoje,3)}"></div><div><label>Mudar etapa para</label><select id="rg_et"><option value="">(automático: próximo contato)</option>${ETAPAS.map(([k,l])=>`<option value="${k}" ${k==='sem_retorno'&&!podeSR(CASO.caso.etapa)?'disabled':''}>${l}</option>`).join('')}</select></div></div>
   <div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaReg()">Salvar</button></div>`);
   $('#rg_dp').onchange=()=>{if($('#rg_dp').value)$('#rg_px').value=somaDiasF($('#rg_dp').value,1)}}
 async function salvaReg(){const b={tipo:$('#rg_t').value,resultado:$('#rg_r').value,texto:$('#rg_x').value,data_promessa:$('#rg_dp').value||null,valor_promessa:numBR($('#rg_vp').value)||null,proximo_contato:$('#rg_px').value||null,etapa:$('#rg_et').value||null};
