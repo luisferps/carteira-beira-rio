@@ -644,12 +644,13 @@ const SQL_ABERTAS = `
 async function ajustaValores(rows) {
   const ns = [...new Set(rows.map(r => r.contrato))];
   if (!ns.length) return rows;
-  const [T, K, P, E, Cs] = await Promise.all([
+  const [T, K, P, E, Cs, Bo] = await Promise.all([
     q(`select id, contrato, grupo, numero, vencimento::text vencimento, valor_face from carteira.titulos where conferente is null and grupo in ('mensal','anual') and contrato = any($1)`, [ns]),
     q(`select distinct on (contrato, grupo, a_partir) contrato, grupo, a_partir, novo_valor, data::text data, obs from carteira.correcoes where conferente='luis' and contrato = any($1) order by contrato, grupo, a_partir, id desc`, [ns]),
     q(`select g.titulo_id, t.contrato from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where g.conferente='luis' and t.grupo in ('mensal','anual') and t.contrato = any($1)`, [ns]),
     q(`select contrato, dados from carteira.eventos where conferente='luis' and tipo='repactuacao' and dados->>'subtipo'='diluicao' and contrato = any($1)`, [ns]),
     q(`select numero, data_assinatura::text assin from carteira.contratos where numero = any($1)`, [ns]),
+    q(`select b.titulo_id, t.contrato from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id where t.grupo in ('mensal','anual') and t.contrato = any($1)`, [ns]),
   ]);
   const ctx = {};
   for (const n of ns) {
@@ -660,7 +661,7 @@ async function ajustaValores(rows) {
     for (const k of ms) { const t = mens.find(x => +x.numero === +k.a_partir); const data = t?.vencimento || k.data; const nv = +k.novo_valor; if (!/^Diluição/.test(k.obs || '') && prev > 0) fm.push({ data, f: nv / prev }); prev = nv; }
     const m0 = mens.sort((a, b) => a.numero - b.numero)[0];
     const y0 = +String(Cs.find(c => c.numero === n)?.assin || m0?.vencimento || '2000').slice(0, 4), com = new Set(fm.map(x => +String(x.data).slice(0, 4)));
-    for (const p of P.filter(p => p.contrato === n)) { const t = ts.find(x => String(x.id) === String(p.titulo_id)); if (t?.vencimento) com.add(+t.vencimento.slice(0, 4)); }
+    for (const p of [...P, ...Bo].filter(p => p.contrato === n)) { const t = ts.find(x => String(x.id) === String(p.titulo_id)); if (t?.vencimento) com.add(+t.vencimento.slice(0, 4)); }
     const sem = Object.keys(FATOR_ANO_S).map(Number).filter(y => y > y0 && !com.has(y));
     const dil = {}; for (const e of E.filter(e => e.contrato === n)) for (const i of e.dados?.itens || []) dil[i.titulo_id] = (dil[i.titulo_id] || 0) + (+i.valor || 0);
     const dd = String(m0?.vencimento || '2000-01-10').slice(8, 10), anosFm = new Set(fm.map(x => +String(x.data).slice(0, 4)));

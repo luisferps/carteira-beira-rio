@@ -613,6 +613,8 @@ function valorAno0(t){
 function anosSemAsaas(){const fm=fatoresMensais(),m0=C.titulos.find(x=>x.grupo==='mensal'&&!x.conferente);
   const y0=+String(C.contrato.data_assinatura||m0?.vencimento||'2000').slice(0,4),com=new Set(fm.map(x=>+String(x.data).slice(0,4)));
   for(const p of C.pagamentos){const t=C.titulos.find(x=>x.id==p.titulo_id);if(t&&(t.grupo==='mensal'||t.grupo==='anual')&&t.vencimento)com.add(+t.vencimento.slice(0,4))}
+  /* ano em que o Asaas cobrou a parcela (boleto emitido), mesmo sem pagamento: vale o valor cobrado até a próxima correção de janeiro */
+  for(const b of C.boletos||[]){const t=C.titulos.find(x=>x.id==b.titulo_id);if(t&&(t.grupo==='mensal'||t.grupo==='anual')&&t.vencimento)com.add(+String(t.vencimento).slice(0,4))}
   return Object.keys(FATOR_ANO).map(Number).filter(y=>y>y0&&!com.has(y))}
 function pascoa(y){const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),mes=Math.floor((h+l-7*m+114)/31),dia=((h+l-7*m+114)%31)+1;return new Date(Date.UTC(y,mes-1,dia))}
 const FERIADOS={};function feriados(y){if(FERIADOS[y])return FERIADOS[y];const f=new Set(['01-01','04-21','05-01','09-07','10-12','11-02','11-15','11-20','12-25'].map(x=>y+'-'+x));const p=pascoa(y);for(const d of [-48,-47,-2,60]){const x=new Date(p);x.setUTCDate(x.getUTCDate()+d);f.add(x.toISOString().slice(0,10))}return FERIADOS[y]=f}
