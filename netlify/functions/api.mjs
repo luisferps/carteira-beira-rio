@@ -638,13 +638,22 @@ const SQL_ABERTAS = `
 async function previaBoletos(mes) {
   await garanteBoletos();
   const r = await q(SQL_ABERTAS + ` and to_char(t.vencimento,'YYYY-MM')=$1 order by t.vencimento, t.contrato, t.grupo, t.numero`, [mes, ATIVOS_B]);
-  const ult = await q(`select distinct on (t.contrato, t.grupo) t.contrato, t.grupo, x.valor, x.venc::text venc from (
+  const ult = await q(`select t.contrato, t.grupo, t.vencimento::text tv, x.valor, x.venc::text venc from (
       select g.titulo_id, g.valor_cobranca valor, g.vencimento_boleto venc from carteira.pagamentos g
-        where g.conferente='luis' and g.fatura is not null and coalesce(g.forma,'') not in ('Pagamento à construtora','Crédito','Compensação') and coalesce(g.descricao,'') !~* 'renegocia|inclus|acordo'
-      union all select b.titulo_id, b.valor, b.vencimento from carteira.boletos b where b.tipo='parcela' and coalesce(b.descricao,'') !~* 'renegocia|inclus|acordo') x
-    join carteira.titulos t on t.id=x.titulo_id where t.grupo in ('mensal','anual') and x.venc::date < (to_date($1,'YYYY-MM'))
-    order by t.contrato, t.grupo, x.venc desc`, [mes]);
-  const U = {}; for (const u of ult) U[u.contrato + '|' + u.grupo] = u;
+        where g.conferente='luis' and g.fatura is not null and coalesce(g.forma,'') not in ('Pagamento à construtora','Crédito','Compensação') and coalesce(g.descricao,'') !~* 'renegocia|inclus|acordo|original venc'
+      union all select b.titulo_id, b.valor, b.vencimento from carteira.boletos b where b.tipo='parcela' and coalesce(b.descricao,'') !~* 'renegocia|inclus|acordo|original venc'
+        and b.status in ('PENDING','OVERDUE','AWAITING_RISK_ANALYSIS','RECEIVED','CONFIRMED','RECEIVED_IN_CASH')) x
+    join carteira.titulos t on t.id=x.titulo_id where t.grupo in ('mensal','anual') and t.vencimento < (to_date($1,'YYYY-MM')) and coalesce(x.valor,0) > 0
+    order by t.contrato, t.grupo, t.vencimento desc, x.venc desc`, [mes]);
+  /* base cobrada: últimas parcelas do mesmo ano da mais recente; por parcela fica o menor valor (multa e juros de atraso só aumentam) */
+  const G = {}; for (const u of ult) (G[u.contrato + '|' + u.grupo] ||= []).push(u);
+  const U = {};
+  for (const [k, L] of Object.entries(G)) {
+    const ano = L[0].tv.slice(0, 4), por = {};
+    for (const u of L) { if (u.tv.slice(0, 4) !== ano) break; if (!por[u.tv]) { if (Object.keys(por).length >= 4) break; por[u.tv] = u; } else if (+u.valor < +por[u.tv].valor) por[u.tv] = u; }
+    const ps = Object.values(por); const m = ps.reduce((a, b) => (+b.valor < +a.valor ? b : a));
+    U[k] = { valor: m.valor, venc: L[0].tv };
+  }
   return r.map(t => {
     const u = U[t.contrato + '|' + t.grupo], v = R2(+t.valor);
     const dif = u && +u.valor && Math.abs(+u.valor - v) > 0.05 && !(t.vencimento.slice(5, 7) === '01' && u.venc.slice(0, 4) < t.vencimento.slice(0, 4));
