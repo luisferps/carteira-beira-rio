@@ -474,12 +474,69 @@ function escolherTitulo(g, D) {
   }
   return { erro: 'Não achei a parcela certa pela descrição nem pelo vencimento' };
 }
+async function criaAcordo(b, conf) {
+      /* "acordo" de 1 parcela só, sem pagamento (2ª via vencida antiga) não bloqueia: é desfeito e a parcela entra no acordo novo */
+      const sv = await q(`select a.id from carteira.acordos a where a.contrato=$1 and a.conferente=$2 and a.titulos_origem && $3::bigint[] and array_length(a.titulos_origem,1)=1 and a.qtd_parcelas=1
+                          and not exists (select 1 from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.acordo_id=a.id)`, [b.contrato, conf, (b.titulos_origem || []).map(Number)]);
+      for (const x of sv) {
+        const ts = await q('select id from carteira.titulos where acordo_id=$1', [x.id]);
+        for (const bo of await q(`select id_asaas from carteira.boletos where titulo_id = any($1) and status = any($2)`, [ts.map(t => t.id), ATIVOS_B]).catch(() => [])) await excluirBoleto(bo.id_asaas, conf, 'Parcela entrou em acordo novo').catch(() => {});
+        await q('delete from carteira.titulos where acordo_id=$1', [x.id]); await q('delete from carteira.acordos where id=$1', [x.id]);
+        await log(conf, 'segunda_via_desfeita_para_acordo', { acordo: x.id });
+      }
+      const ja = await q(`select a.data_acordo::text d, t.rotulo from carteira.acordos a join carteira.titulos t on t.id = any(a.titulos_origem)
+                          where a.contrato=$1 and a.conferente=$2 and t.id = any($3)`, [b.contrato, conf, (b.titulos_origem || []).map(Number)]);
+      if (ja.length) return ({ erro: 'Já existe negociação para: ' + ja.map(x => x.rotulo + ' (acordo de ' + x.d.split('-').reverse().join('/') + ')').join(', ') + '. Não é possível negociar a mesma parcela duas vezes.' });
+      for (const id of b.titulos_origem || []) { const [tt] = await q('select * from carteira.titulos where id=$1', [id]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return { erro: b0 }; }
+      const [a] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios,
+                           valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo, termo)
+                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) returning id`,
+        [b.contrato, conf, b.data_acordo, b.titulos_origem, b.principal, b.multa, b.juros, b.honorarios, b.valor_calculado,
+          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), b.tipo === 'repactuacao' ? 'repactuacao' : 'acordo', limpa(b.termo)]);
+      let i = 0;
+      for (const par of b.parcelas) {
+        i++;
+        await q(`insert into carteira.titulos(contrato, grupo, numero, total, rotulo, vencimento, valor_face, conferente, acordo_id)
+                 values ($1,'acordo',$2,$3,$4,$5,$6,$7,$8)`,
+          [b.contrato, i, b.parcelas.length, `${b.tipo === 'repactuacao' ? 'Repactuação' : 'Acordo'} ${b.data_acordo.split('-').reverse().join('/')} — ${i}/${b.parcelas.length}`, par.vencimento, par.valor, conf, a.id]);
+      }
+      await log(conf, 'acordo_novo', { id: a.id, ...b });
+      await anotaCobranca(b.contrato, 'acordo', `Acordo feito em ${String(b.data_acordo).split('-').reverse().join('/')}: R$ ${(+b.valor_acordado).toFixed(2).replace('.', ',')} em ${(b.parcelas || []).length} parcela(s)`, 'acordo');
+      if (conf === 'luis') {
+        const ab = await q(`select id_asaas from carteira.boletos where titulo_id = any($1) and status = any($2)`, [(b.titulos_origem || []).map(Number), ATIVOS_B]).catch(() => []);
+        a.boletos_excluidos = [];
+        for (const x of ab) { try { await excluirBoleto(x.id_asaas, conf, 'Parcela entrou no acordo de ' + b.data_acordo); a.boletos_excluidos.push(x.id_asaas); } catch (e) { a.erro_boleto = e.message; } }
+      }
+      return { a };
+}
+/* proposta paga = acordo efetivado: o boleto da 1ª parcela da proposta foi pago no Asaas */
+async function efetivaPropostaPaga(pid, g) {
+  const [bo] = await q('select titulo_id, contrato from carteira.boletos where id_asaas=$1', [g.id]);
+  if (bo?.titulo_id) return { titulo_id: bo.titulo_id, contrato: bo.contrato };
+  const [pr] = await q(`select * from carteira.propostas where id=$1 and conferente='luis'`, [pid]);
+  if (!pr) return null;
+  const d = pr.dados || {};
+  const r = await criaAcordo({ ...d, contrato: pr.contrato, tipo: 'acordo', obs: [d.obs, `Efetivado automaticamente: 1ª parcela paga no Asaas em ${String(g.paymentDate || g.clientPaymentDate || g.confirmedDate || '').split('-').reverse().join('/')}`].filter(Boolean).join(' | ') }, 'luis');
+  if (r.erro) { await log('asaas', 'proposta_nao_efetivada', { proposta: pid, erro: r.erro }); return null; }
+  await q('delete from carteira.propostas where id=$1', [pid]);
+  const [t1] = await q('select id from carteira.titulos where acordo_id=$1 and numero=1', [r.a.id]);
+  await gravaBoleto(g, { contrato: pr.contrato, titulo_id: t1.id, tipo: 'acordo', origem: 'sistema' });
+  await q(`update carteira.boletos set titulo_id=$2, tipo='acordo', atualizado_em=now() where id_asaas=$1`, [g.id, t1.id]);
+  const [t0] = await q(`select id from carteira.titulos where contrato=$1 and (conferente is null or conferente='luis') and grupo<>'acordo' order by vencimento limit 1`, [pr.contrato]);
+  await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','pendencia',null,$2,current_date,'{}',$3)`,
+    [pr.contrato, t0?.id || null, `Falta o termo de acordo ${d.termo || ''} assinado (acordo efetivado automaticamente pelo pagamento da 1ª parcela).`]);
+  await anotaCobranca(pr.contrato, 'acordo', `Proposta ${d.termo || ''} efetivada: o cliente pagou a 1ª parcela (R$ ${(+g.value).toFixed(2).replace('.', ',')}).`, 'acordo');
+  await log('asaas', 'proposta_efetivada_auto', { proposta: pid, acordo: r.a.id, contrato: pr.contrato, pagamento: g.id });
+  return { titulo_id: t1.id, contrato: pr.contrato };
+}
 async function processaPagamentoAsaas(g, X, opc = {}) {
   if (!g || g.deleted || !PAGO_A.includes(g.status)) return { resultado: 'ignorado' };
   const [ja] = await q(`select resultado from carteira.asaas_auto where id_asaas=$1`, [g.id]);
   if (ja && !opc.forcar && ja.resultado !== 'erro') return { resultado: 'ja_visto' };
   const lan = await jaLancado(g);
   if (lan) return registraAuto(g, { resultado: 'ja_existia', contrato: lan.contrato, pagamento_id: lan.id });
+  { const pm = String(g.externalReference || '').match(/^cbr-proposta-(\d+)$/);
+    if (pm && !opc.titulo_id) { const r = await efetivaPropostaPaga(+pm[1], g).catch(e => { console.error('proposta', e.message); return null; }); if (r) { if (X?.cache) delete X.cache[r.contrato]; opc = { ...opc, titulo_id: r.titulo_id, contrato: r.contrato }; } } }
   const pagoEm = g.paymentDate || g.clientPaymentDate || g.confirmedDate;
   await garanteBoletos();
   const [bol] = await q('select contrato, titulo_id, tipo, composicao from carteira.boletos where id_asaas=$1', [g.id]);
@@ -900,6 +957,7 @@ async function vinculaBoletoAsaas(g, X) {
   const [ja] = await q('select titulo_id from carteira.boletos where id_asaas=$1', [g.id]);
   if (ja && (ja.titulo_id || g.deleted || !ATIVOS_B.includes(g.status))) { await gravaBoleto(g, {}); return 'atualizado'; }
   if (g.deleted || !ATIVOS_B.includes(g.status)) return 'ignorado';
+  if (/^cbr-proposta-\d+$/.test(String(g.externalReference || ''))) { const [pp] = await q('select contrato from carteira.propostas where id=$1', [String(g.externalReference).split('-')[2]]); await gravaBoleto(g, { contrato: pp?.contrato || null, tipo: 'proposta', origem: 'sistema' }); return 'vinculado'; }
   const ref = String(g.externalReference || '').match(/^cbr-(titulo|cobranca)-(\d+)$/);
   if (ref) { const [t] = await q('select contrato from carteira.titulos where id=$1', [ref[2]]); await gravaBoleto(g, { contrato: t?.contrato, titulo_id: +ref[2], tipo: ref[1] === 'cobranca' ? 'cobranca' : null, origem: 'sistema' }); return 'vinculado'; }
   const k = acharContrato(g, X);
@@ -1952,6 +2010,28 @@ export default async (req) => {
       await anotaCobranca(body.contrato, 'acordo', `Proposta de pagamento feita${body.dados?.valor_acordado ? ': R$ ' + (+body.dados.valor_acordado).toFixed(2).replace('.', ',') + ' em ' + (body.dados.parcelas || []).length + ' parcela(s)' : ''}`, 'proposta');
       return json(r);
     }
+    if (p[0] === 'proposta' && p[1] && p[2] === 'boleto' && m === 'POST') {
+      await garanteBoletos();
+      const [pr] = await q(`select * from carteira.propostas where id=$1 and conferente='luis'`, [p[1]]);
+      if (!pr) return json({ erro: 'Proposta não encontrada' }, 404);
+      const d = pr.dados || {}, ps = d.parcelas || [];
+      if (!ps.length) return json({ erro: 'A proposta não tem parcelas' }, 400);
+      const [ja] = await q(`select id_asaas, link from carteira.boletos where dados->>'externalReference'=$1 and status = any($2)`, ['cbr-proposta-' + pr.id, ATIVOS_B]);
+      if (ja) return json({ erro: 'O boleto desta proposta já foi emitido', link: ja.link }, 409);
+      const cliente = await clienteDoContrato(pr.contrato);
+      if (!cliente) return json({ erro: 'Não achei o cliente deste contrato no Asaas' }, 400);
+      const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [pr.contrato]);
+      const venc = ps[0].vencimento < hojeBR() ? (body.vencimento || hojeBR()) : (body.vencimento || ps[0].vencimento);
+      const os = await q('select grupo, numero, total from carteira.titulos where id = any($1) order by grupo, numero', [(d.titulos_origem || []).map(Number)]);
+      const partes = ['entrada', 'mensal', 'anual', 'acordo'].map(gr => { const xs = os.filter(o => o.grupo === gr); return xs.length ? `${gr} ${xs.map(o => o.numero).join(', ')}/${xs[0].total}` : null; }).filter(Boolean);
+      const linha = `Renegociação 01 de ${String(ps.length).padStart(2, '0')}${partes.length ? ' (' + partes.join(' e ') + ')' : ''}`;
+      const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: R2(+ps[0].valor), dueDate: venc,
+        description: descricaoBoleto(ct, linha), externalReference: 'cbr-proposta-' + pr.id, fine: { value: 2, type: 'PERCENTAGE' }, interest: { value: 1 } });
+      await gravaBoleto(g, { contrato: pr.contrato, tipo: 'proposta', origem: 'sistema' });
+      await q(`update carteira.propostas set dados = dados || $2::jsonb where id=$1`, [pr.id, JSON.stringify({ boleto: { id_asaas: g.id, link: g.bankSlipUrl || g.invoiceUrl, valor: g.value, vencimento: g.dueDate } })]);
+      await log(conf, 'proposta_boleto', { proposta: pr.id, id: g.id, valor: g.value });
+      return json({ ok: true, link: g.bankSlipUrl || g.invoiceUrl, valor: g.value, vencimento: g.dueDate });
+    }
     if (p[0] === 'proposta' && p[1] && m === 'PUT') {
       const [pr] = await q('select * from carteira.propostas where id=$1 and conferente=$2', [p[1], conf]);
       if (!pr) return json({ erro: 'Proposta não encontrada' }, 404);
@@ -1970,40 +2050,8 @@ export default async (req) => {
     }
 
     if (p[0] === 'acordo' && m === 'POST') {
-      const b = body;
-      /* "acordo" de 1 parcela só, sem pagamento (2ª via vencida antiga) não bloqueia: é desfeito e a parcela entra no acordo novo */
-      const sv = await q(`select a.id from carteira.acordos a where a.contrato=$1 and a.conferente=$2 and a.titulos_origem && $3::bigint[] and array_length(a.titulos_origem,1)=1 and a.qtd_parcelas=1
-                          and not exists (select 1 from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.acordo_id=a.id)`, [b.contrato, conf, (b.titulos_origem || []).map(Number)]);
-      for (const x of sv) {
-        const ts = await q('select id from carteira.titulos where acordo_id=$1', [x.id]);
-        for (const bo of await q(`select id_asaas from carteira.boletos where titulo_id = any($1) and status = any($2)`, [ts.map(t => t.id), ATIVOS_B]).catch(() => [])) await excluirBoleto(bo.id_asaas, conf, 'Parcela entrou em acordo novo').catch(() => {});
-        await q('delete from carteira.titulos where acordo_id=$1', [x.id]); await q('delete from carteira.acordos where id=$1', [x.id]);
-        await log(conf, 'segunda_via_desfeita_para_acordo', { acordo: x.id });
-      }
-      const ja = await q(`select a.data_acordo::text d, t.rotulo from carteira.acordos a join carteira.titulos t on t.id = any(a.titulos_origem)
-                          where a.contrato=$1 and a.conferente=$2 and t.id = any($3)`, [b.contrato, conf, (b.titulos_origem || []).map(Number)]);
-      if (ja.length) return json({ erro: 'Já existe negociação para: ' + ja.map(x => x.rotulo + ' (acordo de ' + x.d.split('-').reverse().join('/') + ')').join(', ') + '. Não é possível negociar a mesma parcela duas vezes.' }, 409);
-      for (const id of b.titulos_origem || []) { const [tt] = await q('select * from carteira.titulos where id=$1', [id]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return json({ erro: b0 }, 409); }
-      const [a] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios,
-                           valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo, termo)
-                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) returning id`,
-        [b.contrato, conf, b.data_acordo, b.titulos_origem, b.principal, b.multa, b.juros, b.honorarios, b.valor_calculado,
-          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), b.tipo === 'repactuacao' ? 'repactuacao' : 'acordo', limpa(b.termo)]);
-      let i = 0;
-      for (const par of b.parcelas) {
-        i++;
-        await q(`insert into carteira.titulos(contrato, grupo, numero, total, rotulo, vencimento, valor_face, conferente, acordo_id)
-                 values ($1,'acordo',$2,$3,$4,$5,$6,$7,$8)`,
-          [b.contrato, i, b.parcelas.length, `${b.tipo === 'repactuacao' ? 'Repactuação' : 'Acordo'} ${b.data_acordo.split('-').reverse().join('/')} — ${i}/${b.parcelas.length}`, par.vencimento, par.valor, conf, a.id]);
-      }
-      await log(conf, 'acordo_novo', { id: a.id, ...b });
-      await anotaCobranca(b.contrato, 'acordo', `Acordo feito em ${String(b.data_acordo).split('-').reverse().join('/')}: R$ ${(+b.valor_acordado).toFixed(2).replace('.', ',')} em ${(b.parcelas || []).length} parcela(s)`, 'acordo');
-      if (conf === 'luis') {
-        const ab = await q(`select id_asaas from carteira.boletos where titulo_id = any($1) and status = any($2)`, [(b.titulos_origem || []).map(Number), ATIVOS_B]).catch(() => []);
-        a.boletos_excluidos = [];
-        for (const x of ab) { try { await excluirBoleto(x.id_asaas, conf, 'Parcela entrou no acordo de ' + b.data_acordo); a.boletos_excluidos.push(x.id_asaas); } catch (e) { a.erro_boleto = e.message; } }
-      }
-      return json(a);
+      const r = await criaAcordo(body, conf);
+      return r.erro ? json({ erro: r.erro }, 409) : json(r.a);
     }
 
     if (p[0] === 'acordo' && p[1] && m === 'PUT') {
