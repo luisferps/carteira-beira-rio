@@ -2190,6 +2190,7 @@ export default async (req) => {
 export const config = { path: ['/api/*'] };
 
 /* ---------- importação do histórico de conversas do WhatsApp (Evolution, instância LuisFernando) para os casos de cobrança ---------- */
+const WHATS_DESDE = '2026-10-01'; /* a campanha de cobrança começou em outubro/2026: conversa anterior não entra */
 const WHATS_BACKEND = process.env.WHATS_BACKEND || 'https://agentes-de-whatsapp-production.up.railway.app';
 async function tokenSistemaWhats() {
   await garanteUsuarios();
@@ -2220,7 +2221,16 @@ const diaBR = ts => new Date(ts * 1000 - 3 * 3600e3).toISOString().slice(0, 10);
 export async function importaWhatsPasso(limiteMs = 20000) {
   await garanteCobranca();
   const [st] = await q(`select valor from carteira.cobranca_cfg where chave='whats_import'`);
-  const estado = st ? JSON.parse(st.valor) : { feitos: [], log: [] };
+  let estado = st ? JSON.parse(st.valor) : { feitos: [], log: [] };
+  if (estado.desde !== WHATS_DESDE) {
+    /* recomeça do zero com a data certa: desfaz o que já tinha sido importado */
+    const ets = await q(`select caso_id, texto from carteira.cobranca_registros where por='importado do WhatsApp' and tipo='etapa' order by em, id`);
+    const volta = {}; for (const e of ets) if (!(e.caso_id in volta)) volta[e.caso_id] = String(e.texto).split(' → ')[0];
+    for (const [id, et] of Object.entries(volta)) await q(`update carteira.cobranca_casos set etapa=$2 where id=$1`, [id, et]);
+    await q(`delete from carteira.cobranca_registros where por='importado do WhatsApp'`);
+    estado = { feitos: [], log: ['recomeçado com conversas a partir de ' + WHATS_DESDE], desde: WHATS_DESDE };
+    await q(`insert into carteira.cobranca_cfg values ('whats_import',$1) on conflict (chave) do update set valor=$1`, [JSON.stringify(estado)]);
+  }
   if (estado.fim) return { fim: true };
   const casos = await q(`select id, contrato, etapa from carteira.cobranca_casos where encerrado_em is null order by id`);
   const pend = casos.filter(c => !estado.feitos.includes(c.id));
@@ -2239,7 +2249,7 @@ export async function importaWhatsPasso(limiteMs = 20000) {
     const fones = await fonesDoContrato(c.contrato);
     if (!fones.length) { estado.feitos.push(c.id); estado.log.push(`${c.contrato}: sem telefone`); continue; }
     const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 25000);
-    const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?numeros=${fones.slice(0, 10).join(',')}&desde=2026-06-01${tent > 2 ? '&audio=0' : ''}`, { headers: { Authorization: 'CBR tok:' + tok }, signal: ctl.signal }).catch(e => ({ ok: false, status: e.message }));
+    const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?numeros=${fones.slice(0, 10).join(',')}&desde=${WHATS_DESDE}${tent > 2 ? '&audio=0' : ''}`, { headers: { Authorization: 'CBR tok:' + tok }, signal: ctl.signal }).catch(e => ({ ok: false, status: e.message }));
     clearTimeout(tm);
     if (!r.ok) { estado.log.push(`${c.contrato}: falhou (${r.status}), tentativa ${tent}`); if (tent >= 5) { estado.feitos.push(c.id); estado.log.push(`${c.contrato}: desisti depois de 5 tentativas`); } break; }
     const j = await r.json().catch(() => ({}));
