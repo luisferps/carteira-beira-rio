@@ -677,12 +677,12 @@ async function ajustaValores(rows) {
       const cs = X.ks.filter(c => c.grupo === 'anual' && !/^Diluição/.test(c.obs || '') && +c.a_partir <= +r.numero).sort((a, b) => a.a_partir - b.a_partir); let desde = '';
       if (cs.length) { const k = cs[cs.length - 1]; v = +k.novo_valor; const ta = X.ts.find(x => x.grupo === 'anual' && +x.numero === +k.a_partir); desde = k.data || ta?.vencimento || ''; }
       for (const x of X.fm) if (x.data && x.data > desde && x.data <= r.vencimento && !(desde && x.data.slice(0, 4) === desde.slice(0, 4))) v *= x.f;
-      for (const y of X.sem) { const dj = `${y}-01-01`; if (dj > desde && dj <= r.vencimento && !(desde && String(y) === desde.slice(0, 4))) v *= FATOR_ANO_S[y]; }
+      if (X.sem.includes(+r.vencimento.slice(0, 4))) for (const y of X.sem) { const dj = `${y}-01-01`; if (dj > desde && dj <= r.vencimento && !(desde && String(y) === desde.slice(0, 4))) v *= FATOR_ANO_S[y]; }
     } else if (r.grupo === 'mensal') {
       const cs = X.ks.filter(c => c.grupo === 'mensal' && +c.a_partir <= +r.numero).sort((a, b) => a.a_partir - b.a_partir);
       const k = cs[cs.length - 1]; if (k) v = +k.novo_valor;
       const tk = k && X.ts.find(x => x.grupo === 'mensal' && +x.numero === +k.a_partir), desde = k ? (tk?.vencimento || k.data || '') : '';
-      for (const y of X.sem) { const dj = `${y}-01-01`; if (dj > desde && dj <= r.vencimento) v *= FATOR_ANO_S[y]; }
+      if (X.sem.includes(+r.vencimento.slice(0, 4))) for (const y of X.sem) { const dj = `${y}-01-01`; if (dj > desde && dj <= r.vencimento) v *= FATOR_ANO_S[y]; }
     } else continue;
     r.valor = R2(Math.round(v * 100) / 100 + (X.dil[r.id] || X.dil[String(r.id)] || 0));
   }
