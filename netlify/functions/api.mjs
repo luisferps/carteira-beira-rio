@@ -663,10 +663,14 @@ async function ajustaValores(rows) {
     for (const p of P.filter(p => p.contrato === n)) { const t = ts.find(x => String(x.id) === String(p.titulo_id)); if (t?.vencimento) com.add(+t.vencimento.slice(0, 4)); }
     const sem = Object.keys(FATOR_ANO_S).map(Number).filter(y => y > y0 && !com.has(y));
     const dil = {}; for (const e of E.filter(e => e.contrato === n)) for (const i of e.dados?.itens || []) dil[i.titulo_id] = (dil[i.titulo_id] || 0) + (+i.valor || 0);
-    ctx[n] = { ts, ks, fm, sem, dil };
+    const dd = String(m0?.vencimento || '2000-01-10').slice(8, 10), anosFm = new Set(fm.map(x => +String(x.data).slice(0, 4)));
+    const ca = [...fm.filter(x => x.data)]; for (const y in FATOR_ANO_S) if (+y > y0 && !anosFm.has(+y)) ca.push({ data: `${y}-01-${dd}`, f: FATOR_ANO_S[y] });
+    const fa = {}; for (const x of ca.sort((a, b) => String(a.data).localeCompare(String(b.data)))) { const y = +String(x.data).slice(0, 4); if (!(y in fa)) fa[y] = x.f; }
+    ctx[n] = { ts, ks, fm, sem, dil, fa };
   }
   for (const r of rows) {
     const X = ctx[r.contrato]; if (!X) continue;
+    r._fa = X.fa;
     let v = +r.valor_face || 0;
     if (r.grupo === 'anual') {
       const cs = X.ks.filter(c => c.grupo === 'anual' && !/^Diluição/.test(c.obs || '') && +c.a_partir <= +r.numero).sort((a, b) => a.a_partir - b.a_partir); let desde = '';
@@ -767,11 +771,11 @@ async function editarBoleto(id, b, conf) {
   return { ok: true, valor: g.value, vencimento: g.dueDate };
 }
 /* atraso no servidor (mesma régua da tela): multa 2%, juros 1% a.m. dia a dia, correção de janeiro sobre tudo */
-function compoAtraso(v, venc, ate, corr = true) {
+function compoAtraso(v, venc, ate, corr = true, fa = null) {
   const dias = Math.max(0, Math.round((new Date(ate) - new Date(venc)) / 864e5));
   const mu = dias ? v * .02 : 0; let pr = v, ju = 0, co = 0, cur = venc;
   const cresce = d2 => { const d = Math.max(0, Math.round((new Date(d2) - new Date(cur)) / 864e5)); ju += pr * (Math.pow(1.01, d / 30) - 1); cur = d2; };
-  if (dias && corr) for (let y = +venc.slice(0, 4) + 1; y <= +ate.slice(0, 4); y++) { const dj = `${y}-01-01`; if (dj > ate) break; const f = FATOR_ANO_S[y] || 1; cresce(dj); co += (v + co + mu + ju) * (f - 1); pr *= f; }
+  if (dias && corr) for (let y = +venc.slice(0, 4) + 1; y <= +ate.slice(0, 4); y++) { const dj = `${y}-01-01`; if (dj > ate) break; const f = (fa && fa[y]) || FATOR_ANO_S[y] || 1; cresce(dj); co += (v + co + mu + ju) * (f - 1); pr *= f; }
   if (dias) cresce(ate);
   return { principal: R2(v), correcao: R2(co), multa: R2(mu), juros: R2(ju), dias };
 }
@@ -805,7 +809,7 @@ async function segundaVia(tituloId, data, conf, opts = {}) {
   if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto (paga, em acordo, em proposta ou cancelada)' };
   if (t.vencimento >= hoje && !opts.previa) return { titulo_id: tituloId, erro: 'Essa parcela ainda não venceu — use "Gerar boleto"' };
   const ehAcordo = t.grupo === 'acordo';
-  const c = compoAtraso(R2(+t.valor), t.vencimento, data, !ehAcordo && t.grupo !== 'entrada');
+  const c = compoAtraso(R2(+t.valor), t.vencimento, data, !ehAcordo && t.grupo !== 'entrada', t._fa);
   c.cobranca = !t.ac_um && !opts.semCobranca && c.dias > 60 ? R2((c.principal + c.correcao + c.multa + c.juros) * .10) : 0;
   c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca);
   c.data = data; c.emitido_em = hoje; c.vencimento_original = t.vencimento;
@@ -1224,7 +1228,7 @@ async function dividas(contratos) {
   const out = {};
   for (const t of r) {
     const ac = t.grupo === 'acordo';
-    const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada');
+    const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada', t._fa);
     const cob = !t.ac_um && c.dias > 60 ? R2((c.principal + c.correcao + c.multa + c.juros) * .10) : 0;
     const tot = R2(c.principal + c.correcao + c.multa + c.juros + cob);
     const d = out[t.contrato] || (out[t.contrato] = { contrato: t.contrato, quadra: t.quadra, lote: t.lote, titular: t.cessionario || t.titular, parcelas: [], total: 0, principal: 0, dias: 0 });
@@ -1592,7 +1596,7 @@ export default async (req) => {
       const bs = await q(`select titulo_id, tipo, fatura, valor, vencimento::text v from carteira.boletos where status = any($1)`, [ATIVOS_B]);
       const out = r.map(t => {
         const ac = t.grupo === 'acordo';
-        const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada');
+        const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada', t._fa);
         const cob = t.ac_um ? 0 : R2((c.principal + c.correcao + c.multa + c.juros) * .10);
         const b = bs.find(x => String(x.titulo_id) === String(t.id));
         return { contrato: t.contrato, quadra: t.quadra, lote: t.lote, titular: t.cessionario || t.titular, parcela: t.rotulo, vencimento: t.vencimento, dias: c.dias,
