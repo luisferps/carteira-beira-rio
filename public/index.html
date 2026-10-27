@@ -167,7 +167,7 @@ const ETAPAS=[['fila','Na fila'],['contato1','Contato 1'],['contato2','Contato 2
 const podeSR=e=>!['fila','contato1','contato2'].includes(e);
 const ETN=Object.fromEntries(ETAPAS);
 const TIPOS_REG={whatsapp:'WhatsApp',ligacao:'Ligação',email:'E-mail',visita:'Visita / presencial',nota:'Anotação',etapa:'Mudou de etapa',sistema:'Sistema',pagamento:'Pagamento',acordo:'Acordo'};
-const RESULTADOS=['Atendeu','Não atendeu','Sem resposta','Número errado','Pediu proposta','Prometeu pagar','Recusou','Vai procurar o escritório'];
+const RESULTADOS=['Atendeu','Não atendeu','Sem resposta','Número errado','Solicitou valores','Pediu proposta','Prometeu pagar','Recusou','Vai procurar o escritório'];
 let COB=null,COBTAB='funil',CASO=null,MODELOS=null;
 const somaDiasF=(d,n)=>{const x=new Date(d+'T12:00:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)};
 function flagsCaso(c,hoje){const f=[];if(c.proximo_contato&&c.proximo_contato.slice(0,10)<=hoje)f.push('<span class="tag al">contatar hoje</span>');
