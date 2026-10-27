@@ -526,7 +526,12 @@ async function efetivaPropostaPaga(pid, g) {
   await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','pendencia',null,$2,current_date,'{}',$3)`,
     [pr.contrato, t0?.id || null, `Falta o termo de acordo ${d.termo || ''} assinado (acordo efetivado automaticamente pelo pagamento da 1ª parcela).`]);
   await anotaCobranca(pr.contrato, 'acordo', `Proposta ${d.termo || ''} efetivada: o cliente pagou a 1ª parcela (R$ ${(+g.value).toFixed(2).replace('.', ',')}).`, 'acordo');
-  await log('asaas', 'proposta_efetivada_auto', { proposta: pid, acordo: r.a.id, contrato: pr.contrato, pagamento: g.id });
+  /* acordo efetivado: já gera os boletos das demais parcelas */
+  const outras = await q('select id from carteira.titulos where acordo_id=$1 and numero>1 order by numero', [r.a.id]);
+  const gerados = [], erros = [];
+  for (const t of outras) { try { const e = await emitirBoleto(t.id, 'luis'); if (e.ok) gerados.push(e.id_asaas); else if (e.erro) erros.push(e.erro); } catch (e) { erros.push(e.message); } }
+  if (outras.length) await anotaCobranca(pr.contrato, 'sistema', `Boletos das demais parcelas do acordo gerados no Asaas: ${gerados.length} de ${outras.length}${erros.length ? ' (avisos: ' + erros.join('; ') + ')' : ''}.`);
+  await log('asaas', 'proposta_efetivada_auto', { proposta: pid, acordo: r.a.id, contrato: pr.contrato, pagamento: g.id, boletos: gerados, erros });
   return { titulo_id: t1.id, contrato: pr.contrato };
 }
 async function processaPagamentoAsaas(g, X, opc = {}) {
