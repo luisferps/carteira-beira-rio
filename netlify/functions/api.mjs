@@ -972,7 +972,21 @@ async function aplicarCorrecao(itens, conf, ano) {
     if (ja) { out.push({ ...it, erro: 'já tinha correção' }); continue; }
     const [r] = await q(`insert into carteira.correcoes(contrato, conferente, grupo, a_partir, data, igpm_pct, juros_pct, novo_valor, obs) values ($1,'luis',$2,$3,$4,$5,$6,$7,$8) returning id`,
       [it.contrato, it.grupo, it.a_partir, it.data, it.igpm_pct, it.juros_pct, it.novo_valor, `Correção anual ${ano}: IGP-M ${it.igpm_pct}%${it.juros_pct ? ' + 2% (houve atraso no ano)' : ''}${it.acerto ? ` · inclui acerto de correções anteriores (${it.acerto > 0 ? '+' : ''}${String(it.acerto).replace('.', ',')} na parcela; valor certo antes desta correção: ${String(it.esperado).replace('.', ',')})` : ''}`]);
-    out.push({ ...it, id: r.id });
+    /* a diluição da dívida somada nas parcelas também é corrigida, a partir da mesma parcela */
+    const fat = 1 + ((+it.igpm_pct || 0) + (+it.juros_pct || 0)) / 100;
+    let dil = 0;
+    if (fat !== 1) {
+      const evs = await q(`select id, dados from carteira.eventos where contrato=$1 and conferente='luis' and tipo='repactuacao' and dados->>'subtipo'='diluicao'`, [it.contrato]);
+      for (const e of evs) {
+        const ids = (e.dados.itens || []).map(i => +i.titulo_id);
+        const ts = ids.length ? await q(`select id, numero from carteira.titulos where id = any($1) and grupo=$2`, [ids, it.grupo]) : [];
+        const num = Object.fromEntries(ts.map(t => [+t.id, +t.numero]));
+        let mudou = false;
+        const itens = (e.dados.itens || []).map(i => { if (num[+i.titulo_id] >= +it.a_partir) { mudou = true; dil++; return { ...i, valor: R2(+i.valor * fat) }; } return i; });
+        if (mudou) await q(`update carteira.eventos set dados=$2 where id=$1`, [e.id, { ...e.dados, itens, total: R2(itens.reduce((a, i) => a + (+i.valor || 0), 0)) }]);
+      }
+    }
+    out.push({ ...it, id: r.id, diluicao_corrigida: dil });
   }
   await log(conf, 'correcao_anual', { ano, qtd: out.filter(x => x.id).length });
   return out;
