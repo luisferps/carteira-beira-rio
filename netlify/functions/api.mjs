@@ -1234,12 +1234,26 @@ async function rotasCobranca(p, m, body, url, real) {
     const props = await q(`select id, dados->>'termo' termo, criado_em from carteira.propostas where contrato=$1 and conferente='luis'`, [c.contrato]);
     return json({ caso: c, registros: regs, divida: d, boletos: bol, pagamentos: pags, contrato: ct, acordos: acs, propostas: props });
   }
+  if (p[1] === 'caso' && p[2] && p[3] === 'registro' && p[4] && (m === 'PUT' || m === 'DELETE')) {
+    const [r] = await q(`select * from carteira.cobranca_registros where id=$1 and caso_id=$2`, [p[4], p[2]]);
+    if (!r) return json({ erro: 'Registro não encontrado' }, 404);
+    if (['etapa', 'sistema', 'pagamento', 'acordo'].includes(r.tipo)) return json({ erro: 'Esse registro é automático e não pode ser mudado' }, 400);
+    if (real !== 'luis' && r.por !== quem) return json({ erro: 'Só quem registrou ou o administrador pode mudar' }, 403);
+    if (m === 'DELETE') await q(`delete from carteira.cobranca_registros where id=$1`, [r.id]);
+    else {
+      const b = body, emData = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') ? b.data + 'T12:00:00-03:00' : null;
+      await q(`update carteira.cobranca_registros set em=coalesce($2::timestamptz, em), tipo=coalesce($3, tipo), resultado=$4, texto=$5 where id=$1`, [r.id, emData, b.tipo || null, b.resultado || null, b.texto ?? r.texto]);
+    }
+    await log(real, 'cobranca_registro_' + (m === 'DELETE' ? 'apagado' : 'alterado'), { caso: p[2], registro: r.id });
+    return json({ ok: true });
+  }
   if (p[1] === 'caso' && p[2] && p[3] === 'registro' && m === 'POST') {
     const [c] = await q(`select * from carteira.cobranca_casos where id=$1 and encerrado_em is null`, [p[2]]);
     if (!c) return json({ erro: 'Caso não encontrado ou encerrado' }, 404);
     const b = body;
-    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, data_promessa, valor_promessa, por) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [c.id, c.contrato, b.tipo || 'nota', b.resultado || null, b.texto || null, b.data_promessa || null, b.valor_promessa || null, quem]);
+    const emData = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') && b.data < hojeBR() ? b.data + 'T12:00:00-03:00' : null;
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, data_promessa, valor_promessa, por, em) values ($1,$2,$3,$4,$5,$6,$7,$8,coalesce($9::timestamptz, now()))`,
+      [c.id, c.contrato, b.tipo || 'nota', b.resultado || null, b.texto || null, b.data_promessa || null, b.valor_promessa || null, quem, emData]);
     if (b.etapa === 'sem_retorno' && !podeSemRetorno(c.etapa)) return json({ erro: 'Sem retorno só depois do contato 3.' }, 400);
     const novaEtapa = b.etapa || (b.data_promessa ? 'promessa' : (['whatsapp', 'ligacao', 'email', 'visita'].includes(b.tipo) ? PROX_CONTATO[c.etapa] || null : null));
     if (novaEtapa && novaEtapa !== c.etapa) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,$4)`, [c.id, c.contrato, `${c.etapa} → ${novaEtapa}`, quem]);
