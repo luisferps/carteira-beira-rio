@@ -243,7 +243,7 @@ function preencheMsg(t,extra={},ctx){const X=ctx||CASO,d=X.divida,ct=X.contrato,
   const v={nome:nm,primeiro_nome:nm.split(' ')[0],contrato:ct.numero,quadra:ct.quadra,lote:ct.lote,qtd_parcelas:d.parcelas.length,valor_total:brl(d.total),parcelas:d.parcelas.map(p=>`• ${p.rotulo} (venc. ${dbr(p.vencimento)}): ${brl(p.total)}`).join('\n'),data_hoje:dbr(hoje),data_limite:dbr(somaDiasF(hoje,5)),valor_promessa:extra.valor_promessa||'',data_promessa:extra.data_promessa||''};
   return t.replace(/\{(\w+)\}/g,(m,k)=>k in v?v[k]:m)}
 /* mensagem sugerida pela etapa do caso */
-const MSG_ETAPA={fila:'Contato 1',contato1:'Contato 2',contato2:'Contato 3',contato3:'Contato 3',negociando:'Relatório',proposta:'Proposta enviada',promessa:'Lembrete de promessa',sem_retorno:'Notificação',notificacao:'Notificação',acordo:'Agradecimento'};
+const MSG_ETAPA={fila:'Contato 1',contato1:'Contato 2',contato2:'Contato 3',contato3:'Contato 3',negociando:'Negociando',proposta:'Proposta enviada',promessa:'Lembrete de promessa',sem_retorno:'Notificação',notificacao:'Notificação',acordo:'Agradecimento'};
 const modeloEtapa=e=>{const p=MSG_ETAPA[e]||'Contato 1';const i=MODELOS.findIndex(m=>m.titulo.startsWith(p));return i<0?0:i};
 /* abre a conversa da pessoa já com o texto; o envio é sempre confirmado por você no WhatsApp */
 const WAMODO=()=>{try{return localStorage.cbr_wa||'web'}catch(e){return 'web'}};
@@ -257,7 +257,7 @@ async function modalMsg(){MODELOS=MODELOS||await api('cobranca/modelos');const F
   <div class="f2"><div><label>Para</label><select id="mg_f">${F.map((t,i)=>`<option value="${i}">${esc(t.v)} — ${esc(t.nome.split(' ')[0])} (${t.tipo||t.o})</option>`).join('')}</select></div>
   <div><label>Mensagem pronta</label><select id="mg_m">${MODELOS.map((m,i)=>`<option value="${i}">${esc(m.titulo)}</option>`).join('')}</select></div></div>
   <label>Texto (pode editar antes de mandar)</label><textarea id="mg_x" style="min-height:220px"></textarea>
-  <div class="info" style="margin-top:8px">O relatório vai só depois que a pessoa confirmar quem é: <button onclick="relCaso()">Abrir relatório de atraso</button> — tire o print, mande na conversa e depois a mensagem "Relatório".</div>
+  <div class="info" style="margin-top:8px">Quando a pessoa responder: <button onclick="relCaso()">Abrir relatório de atraso</button> — tire o print, mande na conversa e depois a mensagem "Relatório".</div>
   <div class="bt" style="margin-top:8px;align-items:center"><button class="pri" onclick="mandaMsg()">Abrir a conversa no WhatsApp</button>${seletorWA()}<span class="mut" style="font-size:12px">Abre a conversa da pessoa com o texto pronto; você confere e aperta enviar.</span></div>`);
   $('#mg_m').value=modeloEtapa(CASO.caso.etapa);const pega=()=>$('#mg_x').value=preencheMsg(MODELOS[+$('#mg_m').value].texto,ex);$('#mg_m').onchange=pega;pega()}
 async function mandaMsg(){const t=CASO.fones[+$('#mg_f').value],x=$('#mg_x').value,md=MODELOS[+$('#mg_m').value];abreWA(t.v,x);
@@ -266,7 +266,7 @@ async function mandaMsg(){const t=CASO.fones[+$('#mg_f').value],x=$('#mg_x').val
 let SEQ=null;
 async function desenhaSeq(el){MODELOS=MODELOS||await api('cobranca/modelos');const K=COB.casos;
   const ets=ETAPAS.filter(([k])=>K.some(c=>c.etapa===k));
-  el.innerHTML=`<div class="card"><div class="info">Escolha quem vai receber. O sistema abre a conversa de um por um no WhatsApp, já com a mensagem da etapa de cada caso preenchida (nos contatos 1, 2 e 3 a mensagem só confirma se é a pessoa, sem falar de valores; o relatório vai depois que ela responder). Você confere, aperta enviar no WhatsApp e volta aqui para o próximo. Cada conversa aberta fica registrada no caso e o caso anda para o próximo contato.</div>
+  el.innerHTML=`<div class="card"><div class="info">Escolha quem vai receber. O sistema abre a conversa de um por um no WhatsApp, já com a mensagem da etapa de cada caso preenchida (o relatório vai em print, depois que a pessoa responder). Você confere, aperta enviar no WhatsApp e volta aqui para o próximo. Cada conversa aberta fica registrada no caso e o caso anda para o próximo contato.</div>
   <div class="bt" style="align-items:flex-end;margin:8px 0"><div><label>Quem</label><select id="sq_e" style="width:auto"><option value="hoje">Contatar hoje (${K.filter(c=>c.proximo_contato&&c.proximo_contato.slice(0,10)<=COB.hoje).length})</option>${ets.map(([k,l])=>`<option value="${k}">${l} (${K.filter(c=>c.etapa===k).length})</option>`).join('')}<option value="todos">Todos (${K.length})</option></select></div>
   <div><label>Mensagem</label><select id="sq_m" style="width:auto"><option value="auto">A da etapa de cada caso</option>${MODELOS.map((m,i)=>`<option value="${i}">${esc(m.titulo)}</option>`).join('')}</select></div>${seletorWA()}</div>
   <div id="sq_l"></div></div><div id="sq_p"></div>`;

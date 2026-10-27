@@ -866,6 +866,14 @@ async function vinculaBoletoAsaas(g, X) {
   }
   let tid = e.t?.id;
   if (tipo === 'cobranca') { const m = (g.description || '').match(/(\d{1,3})\s*\/\s*(\d{1,3})/); const t = m && D.titulos.find(x => x.grupo !== 'acordo' && x.numero == +m[1] && x.total == +m[2]); tid = t?.id; }
+  /* boleto de parcela de acordo ("Renegociação 02 de 05"): a parcela é a do número escrito, não a de vencimento mais próximo */
+  { const mm = String(g.description || '').replace(/\s+/g, ' ').match(/Renegocia\S*\s+(\d+)\s+de\s+(\d+)/i);
+    if (mm) {
+      const dref = (String(g.description || '').match(/(?:renegocia\S*|original)\s+venc\S*\s+em\s+(\d{2})\/(\d{2})\/(\d{4})/i) || []).slice(1);
+      let cs = D.titulos.filter(x => x.grupo === 'acordo' && +x.numero === +mm[1] && +x.total === +mm[2] && !D.pagamentos.some(p => p.titulo_id == x.id));
+      if (dref.length && cs.length > 1) cs = cs.filter(x => dstr(x.vencimento) === `${dref[2]}-${dref[1]}-${dref[0]}`);
+      if (cs.length === 1) tid = cs[0].id;
+    } }
   const [ativo] = tid ? await q(`select id_asaas from carteira.boletos where titulo_id=$1 and status = any($2) and id_asaas<>$3`, [tid, ATIVOS_B, g.id]) : [];
   await gravaBoleto(g, { contrato: k.n, titulo_id: tid || null, tipo: tipo || (e.t?.grupo === 'acordo' ? 'acordo' : null), origem: 'asaas', motivo: ativo ? 'ATENÇÃO: a parcela já tinha outro boleto ativo (' + ativo.id_asaas + ')' : null });
   return tid ? 'vinculado' : 'sem_vinculo';
@@ -1134,19 +1142,20 @@ async function rotasUsuarios(p, m, body, real) {
 const ETAPAS_COB = ['fila', 'contato1', 'contato2', 'contato3', 'negociando', 'promessa', 'proposta', 'acordo', 'sem_retorno', 'notificacao'];
 const PROX_CONTATO = { fila: 'contato1', contato1: 'contato2', contato2: 'contato3' };
 const podeSemRetorno = e => !['fila', 'contato1', 'contato2'].includes(e);
+const MODELOS_VERSAO = 3;
 const MODELOS_PADRAO = [
-  ['Contato 1 (confirmar se é a pessoa)', `Olá, tudo bem? Meu nome é Luis Fernando, sou responsável pela cobrança do Condomínio Beira Rio.\n\nFalo com {primeiro_nome}? Preciso tratar de um assunto referente ao seu contrato do lote no Beira Rio.`],
-  ['Contato 2 (sem resposta)', `Olá, tudo bem? Aqui é o Luis Fernando, responsável pela cobrança do Condomínio Beira Rio.\n\nTe mandei uma mensagem há alguns dias e ainda não tive retorno. Falo com {primeiro_nome}? Preciso tratar de um assunto referente ao seu contrato do lote no Beira Rio.`],
-  ['Contato 3 (última tentativa)', `Olá, tudo bem? Aqui é o Luis Fernando, responsável pela cobrança do Condomínio Beira Rio.\n\nEssa é a nossa terceira tentativa de contato. Preciso falar com {primeiro_nome} sobre o contrato do lote no Beira Rio. É um assunto importante. Se este número não for mais dele(a), por favor me avise.`],
-  ['Relatório (depois que a pessoa confirmar)', `Consta em nosso sistema um valor em aberto no seu contrato. Te enviei acima o relatório com as parcelas e os valores atualizados.\n\nNeste momento estamos com condições bem facilitadas para quem quiser regularizar. Podemos conversar a respeito?`],
-  ['Parcelas em aberto (em texto, sem o print)', `Consta em nosso sistema um valor em aberto no seu contrato {contrato} (Quadra {quadra}, Lote {lote}). Seguem as parcelas com os valores atualizados até hoje:\n{parcelas}\n\nTotal: {valor_total}.\n\nNeste momento estamos com condições bem facilitadas para quem quiser regularizar. Podemos conversar a respeito?`],
-  ['Negociando (pedir proposta do cliente)', `{primeiro_nome}, para eu montar a melhor condição para você regularizar o contrato {contrato}: quanto você consegue dar de entrada e em quantas vezes fica bom parcelar o restante?\n\nO total atualizado hoje é de {valor_total}. Com a sua resposta eu já te mando a proposta.`],
-  ['Proposta enviada', `{primeiro_nome}, conforme conversamos, segue a proposta para regularizar o contrato {contrato} (Quadra {quadra}, Lote {lote}). Dá uma olhada e me confirma se está de acordo, que eu já te envio o termo e o boleto da entrada.`],
+  ['Contato 1 (primeira mensagem)', `Olá, tudo bem? Meu nome é Luis Fernando, sou responsável pela cobrança do Condomínio Beira Rio.\n\nConsta em nosso sistema um valor em aberto no seu contrato.\n\nNeste momento estamos com condições bem facilitadas para quem quiser regularizar. Podemos conversar a respeito?`],
+  ['Relatório (mandar junto com o print)', `Te enviei acima o relatório com as parcelas e os valores atualizados.\n\nNeste momento estamos com condições bem facilitadas para quem quiser regularizar. O mais importante é a gente chegar num acordo, porque sem acordo o lote pode entrar na fila de retomada. A última instância dessa decisão sou eu, e eu prefiro resolver conversando com você.\n\nPodemos conversar a respeito?`],
+  ['Contato 2 (sem resposta)', `Olá, tudo bem? Aqui é o Luis Fernando, responsável pela cobrança do Condomínio Beira Rio.\n\nTe mandei uma mensagem há alguns dias sobre o valor em aberto no seu contrato e ainda não tive retorno.\n\n__R__\n\nAinda temos condições bem facilitadas para regularizar. Podemos conversar a respeito?`],
+  ['Contato 3 (última tentativa)', `Olá, tudo bem? Aqui é o Luis Fernando, responsável pela cobrança do Condomínio Beira Rio.\n\nEssa é a nossa terceira tentativa de contato sobre o valor em aberto no seu contrato.\n\nSem um acordo, o contrato segue para a fila de retomada do lote. Antes disso, a decisão final passa por mim, e eu ainda quero resolver isso com você de forma amigável, com uma condição que caiba no seu orçamento.\n\nMe responde aqui para a gente conversar? Se este número não for mais seu, por favor me avise.`],
+  ['Parcelas em aberto (em texto, sem o print)', `Seguem as parcelas em aberto no seu contrato {contrato} (Quadra {quadra}, Lote {lote}), com os valores atualizados até hoje:\n{parcelas}\n\nTotal: {valor_total}.\n\n__R__\n\nNeste momento estamos com condições bem facilitadas para quem quiser regularizar. Podemos conversar a respeito?`],
+  ['Negociando (pedir proposta do cliente)', `{primeiro_nome}, para eu montar a melhor condição para você regularizar o contrato {contrato}: quanto você consegue dar de entrada e em quantas vezes fica bom parcelar o restante?\n\nO total atualizado hoje é de {valor_total}. Fechando o acordo, o seu lote sai do risco de entrar na fila de retomada. Com a sua resposta eu já te mando a proposta.`],
+  ['Proposta enviada', `{primeiro_nome}, conforme conversamos, segue a proposta para regularizar o contrato {contrato} (Quadra {quadra}, Lote {lote}).\n\nDá uma olhada e me confirma se está de acordo, que eu já te envio o termo e o boleto da entrada. Com o acordo fechado e a entrada paga, o seu lote deixa de correr o risco de ir para a fila de retomada.`],
   ['Confirmação de promessa', `Combinado, {primeiro_nome}! Fica registrado o pagamento de {valor_promessa} até {data_promessa}, referente ao contrato {contrato}. Qualquer coisa, estou à disposição.`],
-  ['Lembrete de promessa vencida', `Olá, {primeiro_nome}, tudo bem? Aqui é o Luis Fernando, da cobrança do Condomínio Beira Rio.\n\nTínhamos combinado o pagamento de {valor_promessa} até {data_promessa}, referente ao contrato {contrato}, e ainda não identificamos o pagamento. Aconteceu alguma coisa? Me fala aqui para a gente ajustar.`],
-  ['Notificação antes de medidas', `Prezado(a) {nome},\n\nAqui é o Luis Fernando, responsável pela cobrança do Condomínio Beira Rio. Apesar das nossas tentativas de contato, o contrato {contrato} (Quadra {quadra}, Lote {lote}) segue com débito de {valor_total}.\n\nConforme as cláusulas do contrato, a falta de regularização pode levar à inclusão nos órgãos de proteção ao crédito, protesto e às medidas previstas para rescisão.\n\nAinda queremos resolver de forma amigável. Pedimos que entre em contato até {data_limite}.`],
+  ['Lembrete de promessa vencida', `Olá, {primeiro_nome}, tudo bem? Aqui é o Luis Fernando, da cobrança do Condomínio Beira Rio.\n\nTínhamos combinado o pagamento de {valor_promessa} até {data_promessa}, referente ao contrato {contrato}, e ainda não identificamos o pagamento.\n\nAconteceu alguma coisa? Me fala aqui para a gente ajustar. Quero evitar que o seu lote entre na fila de retomada, e essa decisão passa por mim.`],
+  ['Notificação antes de medidas', `Prezado(a) {nome},\n\nAqui é o Luis Fernando, responsável pela cobrança do Condomínio Beira Rio. Apesar das nossas tentativas de contato, o contrato {contrato} (Quadra {quadra}, Lote {lote}) segue com débito de {valor_total}.\n\nConforme as cláusulas do contrato, a falta de regularização leva o lote para a fila de retomada, além da inclusão nos órgãos de proteção ao crédito e do protesto.\n\nA última instância dessa decisão sou eu, e ainda quero resolver de forma amigável. Peço que entre em contato até {data_limite}.`],
   ['Agradecimento (pagou)', `{primeiro_nome}, recebemos o seu pagamento. Muito obrigado por regularizar o contrato {contrato}! Conte com a gente.`],
-];
+].map(([t, x]) => [t, x.replace('__R__', `Te procuro porque o mais importante agora é a gente chegar num acordo: sem acordo, o seu lote pode entrar na fila de retomada. A última instância dessa decisão sou eu, e eu prefiro resolver conversando com você.`)]);
 async function garanteCobranca() {
   await q(`create table if not exists carteira.cobranca_casos(id serial primary key, contrato text not null, etapa text not null default 'fila', responsavel text,
            proximo_contato date, prioridade int default 0, obs text, criado_em timestamptz default now(), criado_por text, atualizado_em timestamptz default now(),
@@ -1157,8 +1166,9 @@ async function garanteCobranca() {
   await q(`create index if not exists cobranca_reg_caso on carteira.cobranca_registros(caso_id)`);
   await q(`create table if not exists carteira.cobranca_modelos(id serial primary key, titulo text not null, texto text not null, ordem int default 0)`);
   await q(`update carteira.cobranca_casos set etapa='contato1' where etapa='contato'`);
-  const [v2] = await q(`select count(*)::int n from carteira.cobranca_modelos where titulo='Relatório (depois que a pessoa confirmar)'`);
-  if (!v2.n) await q(`delete from carteira.cobranca_modelos`);
+  await q(`create table if not exists carteira.cobranca_cfg(chave text primary key, valor text)`);
+  const [ver] = await q(`select valor from carteira.cobranca_cfg where chave='modelos_versao'`);
+  if (+(ver?.valor || 0) < MODELOS_VERSAO) { await q(`delete from carteira.cobranca_modelos`); await q(`insert into carteira.cobranca_cfg values ('modelos_versao',$1) on conflict (chave) do update set valor=$1`, [String(MODELOS_VERSAO)]); }
   const [n] = await q(`select count(*)::int n from carteira.cobranca_modelos`);
   if (!n.n) for (let i = 0; i < MODELOS_PADRAO.length; i++) await q(`insert into carteira.cobranca_modelos(titulo, texto, ordem) values ($1,$2,$3)`, [MODELOS_PADRAO[i][0], MODELOS_PADRAO[i][1], i]);
 }
