@@ -641,7 +641,7 @@ async function previaBoletos(mes) {
   await garanteBoletos();
   const r = await q(SQL_ABERTAS + ` and to_char(t.vencimento,'YYYY-MM')=$1 order by t.vencimento, t.contrato, t.grupo, t.numero`, [mes, ATIVOS_B]);
   const ult = await q(`select t.contrato, t.grupo, t.vencimento::text tv, x.valor, x.venc::text venc from (
-      select g.titulo_id, g.valor_cobranca valor, g.vencimento_boleto venc from carteira.pagamentos g
+      select g.titulo_id, case when g.valor_pago > g.valor_cobranca and g.confirmada_em <= g.vencimento_boleto + 3 then g.valor_pago else g.valor_cobranca end valor, g.vencimento_boleto venc from carteira.pagamentos g
         where g.conferente='luis' and g.fatura is not null and coalesce(g.forma,'') not in ('Pagamento à construtora','Crédito','Compensação') and coalesce(g.descricao,'') !~* 'renegocia|inclus|acordo|original venc'
       union all select b.titulo_id, b.valor, b.vencimento from carteira.boletos b where b.tipo='parcela' and coalesce(b.descricao,'') !~* 'renegocia|inclus|acordo|original venc'
         and b.status in ('PENDING','OVERDUE','AWAITING_RISK_ANALYSIS','RECEIVED','CONFIRMED','RECEIVED_IN_CASH')) x
@@ -656,9 +656,11 @@ async function previaBoletos(mes) {
     const ps = Object.values(por); const m = ps.reduce((a, b) => (+b.valor < +a.valor ? b : a));
     U[k] = { valor: m.valor, venc: L[0].tv };
   }
+  const CR = await q(`select contrato, grupo, a_partir, data::text data from carteira.correcoes where conferente='luis'`);
   return r.map(t => {
     const u = U[t.contrato + '|' + t.grupo], v = R2(+t.valor);
-    const dif = u && +u.valor && Math.abs(+u.valor - v) > 0.05 && !(t.vencimento.slice(5, 7) === '01' && u.venc.slice(0, 4) < t.vencimento.slice(0, 4));
+    const corrDepois = u && CR.some(k => k.contrato === t.contrato && k.grupo === t.grupo && +k.a_partir <= +t.numero && k.data && k.data > u.venc && k.data <= t.vencimento);
+    const dif = u && +u.valor && !corrDepois && Math.abs(+u.valor - v) > 0.05 && !(t.vencimento.slice(5, 7) === '01' && u.venc.slice(0, 4) < t.vencimento.slice(0, 4));
     return { ...t, valor: v, titular: t.cessionario || t.titular, linha: rotuloBoleto(t), ultimo_valor: u ? +u.valor : null, ultimo_venc: u?.venc || null, diverge: !!dif };
   });
 }
