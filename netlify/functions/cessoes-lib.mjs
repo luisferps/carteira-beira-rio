@@ -15,14 +15,14 @@ async function igpmMeses(desde) {
   return (Array.isArray(L) ? L : []).map(x => ({ mes: x.data.split('/').reverse().join('-').slice(0, 7), pct: +String(x.valor).replace(',', '.') }));
 }
 export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garanteBoletos }) {
-  /* taxa de cessão = 2% do valor total do contrato, corrigido pelo IGP-M desde a assinatura (cláusula 10.1 dos contratos FCA) */
+  /* taxa de cessão = 2% do valor total do contrato, corrigido pelo IGP-M desde o mês da assinatura (cláusula 10.1 dos contratos FCA) */
   async function calculaTaxa(contrato) {
     const [ct] = await q(`select numero, valor_imovel, data_assinatura::text data_assinatura from carteira.contratos where numero=$1`, [contrato]);
     if (!ct || !+ct.valor_imovel) throw new Error('Contrato sem valor do imóvel cadastrado');
     if (!ct.data_assinatura) throw new Error('Contrato sem data de assinatura cadastrada');
     const base = R2(+ct.valor_imovel * 0.02);
-    const ini = new Date(ct.data_assinatura.slice(0, 7) + '-01T12:00:00Z'); ini.setUTCMonth(ini.getUTCMonth() + 1);
-    const meses = await igpmMeses(ini.toISOString().slice(0, 10));
+    /* conta desde o IGP-M do mês da assinatura: ele só é divulgado no fim do mês, depois que o contrato já foi assinado */
+    const meses = await igpmMeses(ct.data_assinatura.slice(0, 7) + '-01');
     const fator = meses.reduce((a, x) => a * (1 + x.pct / 100), 1);
     return { contrato, valor_contrato: +ct.valor_imovel, data_assinatura: ct.data_assinatura, base, meses: meses.length,
       desde: meses[0]?.mes || null, ate: meses[meses.length - 1]?.mes || null, igpm_pct: R2((fator - 1) * 100), taxa: R2(base * fator) };
