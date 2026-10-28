@@ -147,7 +147,7 @@ function route(){const h=location.hash.slice(1);COMO='';document.body.classList.
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
-  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
+  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='destrinchar'&&EU==='luis')telaDestrinchar();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function novaPend(){const t=prompt('Descreva a pendência deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
 async function novaObs(){const t=prompt('Observação deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'observacao',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
@@ -1620,6 +1620,21 @@ async function planilhaAc(){
   wb.views=[{activeTab:0}];
   const buf=await wb.xlsx.writeBuffer();const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));a.download=`Acerto mês ${A.mes.slice(5)}-${A.mes.slice(0,4)}.xlsx`;a.click()}
 
+
+/* ===== Destrinchar pagamentos de acordo / 2ª via ===== */
+async function telaDestrinchar(){app.innerHTML='<div class="card">Carregando…</div>';const d=await api('boletos/ressepara',{method:'POST',body:{}});const L=d.itens;
+  const por={};for(const x of L)(por[x.contrato]=por[x.contrato]||[]).push(x);const cs=Object.keys(por).sort();
+  const tot=k=>L.reduce((s,x)=>s+x.depois[k]-(x.antes[k]||0),0);
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
+  <div class="card"><h3 style="margin-top:0">Destrinchar pagamentos de acordo e 2ª via</h3>
+  <div class="mut" style="font-size:13px">Pagamentos que estão lançados com o valor inteiro na parcela, sem separar parcela, multa, juros e custo de cobrança. A separação sai da composição gravada no próprio acordo / 2ª via. O valor pago não muda.</div>
+  <div class="tot" style="margin-top:10px"><div><span class="mut">Pagamentos</span><b>${L.length}</b></div><div><span class="mut">Contratos</span><b>${cs.length}</b></div><div><span class="mut">Custo de cobrança que passa a aparecer</span><b>${brl(tot('custo'))}</b></div></div>
+  ${L.length?`<div class="bt" style="margin-top:10px"><button class="pri" onclick="aplicaDestrinchar(${L.length})">Aplicar nos ${L.length} pagamentos</button></div>`:'<div class="info">Nada para destrinchar.</div>'}</div>
+  ${cs.map(c=>`<details class="card" style="padding:10px 14px"><summary><a href="#c/${c}" onclick="event.stopPropagation()">${c}</a> — ${por[c].length} pagamento(s) · custo de cobrança ${brl(por[c].reduce((s,x)=>s+x.depois.custo-x.antes.custo,0))}</summary>
+   <table style="margin-top:8px"><tr><th>Pago em</th><th>Parcela</th><th>Acordo / 2ª via</th><th class="r">Pago</th><th class="r">Parcela</th><th class="r">Multa</th><th class="r">Juros</th><th class="r">Custo de cobrança</th></tr>
+   ${por[c].sort((a,b)=>String(a.pago_em).localeCompare(String(b.pago_em))).map(x=>`<tr><td>${dbr(x.pago_em)}</td><td>${esc(x.origem||'')}</td><td class="mut">${esc(x.parcela)}</td><td class="r">${n2b(x.pago)}</td>
+    ${['cobranca','multa','juros','custo'].map(k=>`<td class="r">${n2b(x.depois[k])}<div class="mut">antes ${n2b(x.antes[k])}</div></td>`).join('')}</tr>`).join('')}</table></details>`).join('')}`}
+async function aplicaDestrinchar(n){if(!confirm(`Gravar a separação em ${n} pagamentos? Fica registrado no histórico.`))return;const r=await api('boletos/ressepara',{method:'POST',body:{aplicar:true}});alert(r.mudam+' pagamento(s) destrinchados.');telaDestrinchar()}
 </script>
 </body>
 </html>

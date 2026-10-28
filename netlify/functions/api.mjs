@@ -1630,7 +1630,8 @@ export default async (req) => {
         if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
         /* pagamento em parcela de acordo (ou em parcela com 2ª via de 1 parcela) que ainda está com o valor inteiro, sem destrinchar */
         const L = await q(`select g.id, g.valor_pago, g.valor_cobranca, g.multa_paga, g.juros_pago, g.honorarios_pago, g.desconto_dado, t.contrato, t.rotulo, t.grupo, t.valor_face,
-                             a.id a_id, a.principal, a.multa, a.juros, a.honorarios, a.valor_acordado
+                             a.id a_id, a.principal, a.multa, a.juros, a.honorarios, a.valor_acordado, g.confirmada_em::text pago_em, g.fatura,
+                             (select string_agg(o.rotulo, ', ' order by o.vencimento) from carteira.titulos o where o.id = any(a.titulos_origem)) origem
                            from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
                            join carteira.acordos a on (t.grupo='acordo' and a.id=t.acordo_id)
                              or (t.grupo<>'acordo' and a.conferente='luis' and array_length(a.titulos_origem,1)=1 and a.titulos_origem[1]=t.id
@@ -1642,7 +1643,7 @@ export default async (req) => {
           const face = g.grupo === 'acordo' ? +g.valor_face : +g.valor_acordado;
           if (Math.abs((+g.valor_cobranca || 0) - face) > 0.01) { if ((+g.valor_cobranca || 0) > +g.principal + 0.01) conferir.push({ contrato: g.contrato, parcela: g.rotulo, valor_cobranca: +g.valor_cobranca, parcela_acordo: face }); continue; }
           const d = destrinchaAcordo(g, { valor_cobranca: face, multa_paga: +g.multa_paga || 0, juros_pago: +g.juros_pago || 0, honorarios_pago: +g.honorarios_pago || 0, desconto_dado: +g.desconto_dado || 0 });
-          muda.push({ id: g.id, contrato: g.contrato, parcela: g.rotulo, pago: +g.valor_pago,
+          muda.push({ id: g.id, contrato: g.contrato, parcela: g.rotulo, origem: g.grupo === 'acordo' ? g.origem : g.rotulo, pago_em: g.pago_em, fatura: g.fatura, pago: +g.valor_pago,
             antes: { cobranca: +g.valor_cobranca, multa: +g.multa_paga || 0, juros: +g.juros_pago || 0, custo: +g.honorarios_pago || 0 },
             depois: { cobranca: d.valor_cobranca, multa: d.multa_paga, juros: d.juros_pago, custo: d.honorarios_pago } });
         }
