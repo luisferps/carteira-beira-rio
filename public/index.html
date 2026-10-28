@@ -1981,7 +1981,7 @@ function tabelaEmBlocos(t){if(t.dataset.manter!=null||t.classList.contains('act'
     const b=document.createElement('div');b.className='cb blk';if(r.getAttribute('onclick'))b.setAttribute('onclick',r.getAttribute('onclick'));if(r.title)b.title=r.title;
     const tot=/^\s*(<b>)?\s*total/i.test(cs[0].innerHTML)||r.parentElement?.tagName==='TFOOT';if(tot)b.classList.add('bltot');
     let i0=0,chk='';if(cs[0].querySelector('input[type=checkbox]')&&cs[0].textContent.trim()===''){chk=cs[0].innerHTML;i0=1}
-    const c1=cs[i0],c2=cs[i0+1];const h=(i)=>H[i]||'';const curto=c1&&c1.textContent.trim().length<=16;
+    const c1=cs[i0],c2=cs[i0+1];const h=(i)=>H[i]||'';const t1=c1?c1.textContent.trim():'',curto=!!c1&&t1.length<=16&&(/\d/.test(t1)||!/\s/.test(t1));
     let html,ini;
     if(curto){const sp=c2&&cs.length>i0+3&&c2.textContent.length<=14&&!c2.querySelector('button,select,input');html=`<div class="cbt"><b>${chk}${c1.innerHTML}</b><span>${sp?c2.innerHTML:''}</span></div>`;ini=sp?i0+2:i0+1}
     else{html=`${chk?`<div>${chk}</div>`:''}<div class="cbn" style="font-weight:700;font-size:14px">${c1?c1.innerHTML:''}</div>`;ini=i0+1}
