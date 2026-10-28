@@ -2007,8 +2007,9 @@ function numExt(n,fem){n=Math.round(n);const u=fem?['zero','uma','duas','três',
   return p.length>1&&(r<100||r%100===0)?p.slice(0,-1).join(' ')+' e '+p.at(-1):p.join(' ')}
 function reaisExt(v){v=Math.round(v*100)/100;const r=Math.floor(v),c=Math.round((v-r)*100);const s=[];if(r)s.push(numExt(r)+(r===1?' real':(r%1e6===0?' de reais':' reais')));if(c)s.push(numExt(c)+(c===1?' centavo':' centavos'));return s.join(' e ')||'zero reais'}
 const nE=(n,fem)=>String(n).padStart(2,'0')+' ('+numExt(n,fem)+')';
-function qualifPessoa(p){const g=/a$/i.test(String(p.nacionalidade||'').trim())?'a':'o';
-  return [p.profissao&&p.profissao.toLowerCase(),String(p.nacionalidade||'brasileira').toLowerCase(),p.estado_civil&&p.estado_civil.toLowerCase(),p.cpf?`inscrit${g} no CPF sob o nº ${p.cpf}`:'',p.rg?`portador${g==='a'?'a':''} da Carteira de Identificação nº ${p.rg}`:'',p.endereco?`residente e domiciliad${g} na ${p.endereco}`:''].filter(Boolean).join(', ')}
+function qualifPessoa(p){const pn=norm(String(p.nome||'').split(/\s+/)[0]),fem=/a$/.test(pn)&&!/^(luca|joshua|nicola|josua)$/.test(pn),g=fem?'a':'o';
+  const ag=t=>String(t||'').toLowerCase().replace(/\b(brasileir|solteir|casad|divorciad|separad|viúv|viuv|amasiad)[oa]\b/g,'$1'+g);
+  return [p.profissao&&p.profissao.toLowerCase(),ag(p.nacionalidade||'brasileira'),ag(p.estado_civil),p.cpf?`inscrit${g} no CPF sob o nº ${p.cpf}`:'',p.rg?`portador${fem?'a':''} da Carteira de Identificação nº ${p.rg}`:'',p.endereco?`residente e domiciliad${g} na ${p.endereco}`:''].filter(Boolean).join(', ')}
 let CDEV=null;
 function modalContratoDev(){const D=window._DEV;if(!D||!D.dev)return alert('Calcule primeiro o valor a devolver.');const c=C.contrato,n=c.numero;
   const cls=(C.clientes||[]).filter(x=>(x.contratos||[]).some(k=>k.numero===n&&(k.atual||k.encerrado)));const ps=[];for(const p of (cls.length?cls:(C.clientes||[])).map(pessoaDoCliente)){const j=ps.findIndex(x=>norm(x.nome)===norm(p.nome));if(j<0)ps.push(p);else if(Object.values(p).filter(Boolean).length>Object.values(ps[j]).filter(Boolean).length)ps[j]=p}
