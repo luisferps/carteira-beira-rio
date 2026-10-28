@@ -2,12 +2,12 @@
 const R2 = x => Math.round((+x || 0) * 100) / 100;
 const nm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 
-export const CAT_E = { entrada: 'Parcelas de Entrada', mensal: 'Parcelas Mensais', anual: 'Parcelas Intermediárias', cobranca: 'Parcelas de Cobrança', contrato: 'Contratos', revisar: 'A classificar' };
+export const CAT_E = { entrada: 'Parcelas de Entrada', mensal: 'Parcelas Mensais', anual: 'Parcelas Intermediárias', cobranca: 'Parcelas de Cobrança', contrato: 'Contratos', revisar: 'Não identificado' };
 /* [rótulo, sai do montante da Inerente?] na ordem do relatório */
 export const CAT_S = {
   andre: ['André Darlan · FCA', 0], luis: ['Luis Fernando · Inerente', 1], lucikelly: ['Lucikelly · salário', 1], imposto: ['Impostos da folha · Lucikelly', 1],
   devolucao: ['Devoluções de terreno', 0], saneago: ['Saneago', 1], equatorial: ['Equatorial', 1], telefone: ['Telefone', 1], outro_inerente: ['Outra despesa da Inerente', 1],
-  indenizacao: ['Indenização · Banco do Brasil', 0], conta_fca: ['Contas a pedido do André · FCA', 0], taxas: ['Custos da Conta', 0], revisar: ['A classificar', 0],
+  indenizacao: ['Indenização · Banco do Brasil', 0], conta_fca: ['Contas a pedido do André · FCA', 0], taxas: ['Custos da Conta', 0], revisar: ['Não identificados', 0],
 };
 const ROT_ACERTO = { luis: 'Repasse Luis Fernando · Inerente', lucikelly: 'Pagamento Lucikelly', imposto: 'Impostos da folha · Lucikelly', telefone: 'Telefone', equatorial: 'Equatorial', saneago: 'Saneago', outro_inerente: 'Outra despesa da Inerente' };
 const REGRAS_FIXAS = [[/andre darlan/, 'andre'], [/lucikelly/, 'lucikelly'], [/inerente gestao|luis fernando pimentel/, 'luis'], [/saneamento de goias|saneago/, 'saneago'],
@@ -320,7 +320,7 @@ export function criaAcerto({ q, asaas, json, log }) {
       if (p[2] === 'texto' && m === 'POST') return json(await geraTexto(mes));
       if (p[2] === 'fechar' && m === 'POST') {
         const A = await calcula(mes);
-        if (A.pendentes) return json({ erro: `Ainda há ${A.pendentes} lançamento(s) a classificar.` }, 400);
+        if (A.pendentes) return json({ erro: `Ainda há ${A.pendentes} lançamento(s) não identificados. Diga o que são antes de fechar.` }, 400);
         if (A.entradas.some(x => x.provisorio)) return json({ erro: 'Há cobrança paga que ainda não foi lançada na parcela. Lance o pagamento no contrato (ou espere o lançamento automático) e atualize.' }, 400);
         if (A.entradas.some(x => x.sem_boleto)) return json({ erro: 'Há recebimentos sem o boleto identificado. Clique em "Atualizar do Asaas".' }, 400);
         if (mes >= new Date().toISOString().slice(0, 7)) return json({ erro: 'O mês ainda não terminou.' }, 400);

@@ -1453,8 +1453,8 @@ let AC=null,ACTAB='resumo';
 const MESES_AC=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 const nomeMesAc=m=>MESES_AC[+m.slice(5)-1]+'/'+m.slice(0,4);
 const n2b=v=>(+v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-const CAT_E_AC={entrada:'Entrada',mensal:'Mensal',anual:'Intermediária',cobranca:'Cobrança',contrato:'Contrato (cessão)',revisar:'A classificar'};
-const CAT_S_AC={andre:'André Darlan · FCA',luis:'Luis Fernando · Inerente',lucikelly:'Lucikelly · salário',imposto:'Impostos da folha · Lucikelly',devolucao:'Devoluções de terreno',saneago:'Saneago',equatorial:'Equatorial',telefone:'Telefone',outro_inerente:'Outra despesa da Inerente',indenizacao:'Indenização · Banco do Brasil',conta_fca:'Contas a pedido do André · FCA',taxas:'Custos da Conta',revisar:'A classificar'};
+const CAT_E_AC={entrada:'Entrada',mensal:'Mensal',anual:'Intermediária',cobranca:'Cobrança',contrato:'Contrato (cessão)',revisar:'Não identificado'};
+const CAT_S_AC={andre:'André Darlan · FCA',luis:'Luis Fernando · Inerente',lucikelly:'Lucikelly · salário',imposto:'Impostos da folha · Lucikelly',devolucao:'Devoluções de terreno',saneago:'Saneago',equatorial:'Equatorial',telefone:'Telefone',outro_inerente:'Outra despesa da Inerente',indenizacao:'Indenização · Banco do Brasil',conta_fca:'Contas a pedido do André · FCA',taxas:'Custos da Conta',revisar:'Não identificado'};
 function mesPadraoAc(){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-1);return d.toISOString().slice(0,7)}
 async function telaAcerto(mes){
   mes=mes||mesPadraoAc();app.innerHTML='<div class="card">Carregando…</div>';
@@ -1474,13 +1474,13 @@ function resultadoAc(){const A=AC;return A.resultado<0?['INERENTE ADIANTOU (A CO
 function desenhaAc(){const A=AC,E=A.E,S=A.S;
   const ord=['andre','luis','lucikelly','imposto','devolucao','saneago','equatorial','telefone','outro_inerente','indenizacao','conta_fca','taxas','revisar'];
   const [rr,rv]=resultadoAc();
-  const tabs=[['resumo','Resumo'],['classificar',`A classificar${A.pendentes?' ('+A.pendentes+')':''}`],['entrada','Entradas'],['mensal','Mensais'],['anual','Intermediárias'],['cobranca','Cobrança'],['contrato','Contratos'],['saidas','Saídas'],['conf','Conferências'],['ajustes','Ajustes e texto']];
+  const tabs=[['resumo','Resumo'],['classificar',`Não identificados${A.pendentes?' ('+A.pendentes+')':''}`],['entrada','Entradas'],['mensal','Mensais'],['anual','Intermediárias'],['cobranca','Cobrança'],['contrato','Contratos'],['saidas','Saídas'],['conf','Conferências'],['ajustes','Ajustes e texto']];
   app.innerHTML=`<div class="bt" style="margin-bottom:10px;align-items:center"><button onclick="location.hash=''">← Início</button>
    <select style="width:auto" onchange="location.hash='acerto/'+this.value">${opcoesMesAc(A.mes)}</select>
    ${A.fechado?`<span class="tag ok">Fechado em ${dbr(A.fechado_em)}</span><button onclick="reabreAc()">Reabrir</button>`:`<button onclick="carregaAc('${A.mes}',true)">Atualizar do Asaas</button><button class="pri" onclick="fechaAc()">Fechar o mês</button>`}
    <span style="flex:1"></span><button onclick="planilhaAc()">Baixar planilha (Excel)</button><button onclick="pdfAc()">Relatório (PDF)</button></div>
    ${A.fechado_fora?`<div class="info">${esc(A.fechado_fora)}</div>`:''}
-   ${!A.fechado&&A.pendentes?`<div class="aviso">${A.pendentes} lançamento(s) precisam da sua classificação antes de fechar. <a href="#" onclick="ACTAB='classificar';desenhaAc();return false">Classificar agora</a></div>`:''}
+   ${!A.fechado&&A.pendentes?`<div class="aviso">${A.pendentes} lançamento(s) não identificados. O relatório só fecha e só sai depois que você disser o que são. <a href="#" onclick="ACTAB='classificar';desenhaAc();return false">Ver os não identificados</a></div>`:''}
    <div class="card"><div class="tot">
     <div><span class="mut">Recebido (${A.entradas.length} boletos)</span><b>${brl(A.totE)}</b></div>
     <div><span class="mut">Saídas</span><b>${brl(A.totS)}</b></div>
@@ -1493,7 +1493,7 @@ function desenhaAc(){const A=AC,E=A.E,S=A.S;
   const el=$('#ac_c');
   if(ACTAB==='resumo'){
     el.innerHTML=`<div class="card"><div class="ac2"><div>
-     ${blocoAc('ENTRADAS',['entrada','mensal','anual','cobranca','contrato'].map(k=>({r:E[k].rotulo,v:E[k].total,lk:k})).concat(E.revisar.qtd?[{r:'A classificar',v:E.revisar.total,lk:'classificar'}]:[]),A.totE)}
+     ${blocoAc('ENTRADAS',['entrada','mensal','anual','cobranca','contrato'].map(k=>({r:E[k].rotulo,v:E[k].total,lk:k})).concat(E.revisar.qtd?[{r:'Não identificados',v:E.revisar.total,lk:'classificar'}]:[]),A.totE)}
      ${blocoAc('SAÍDAS',ord.filter(k=>S[k].total).map(k=>({r:S[k].rotulo,v:S[k].total,lk:k==='revisar'?'classificar':'saidas'})),A.totS)}
      ${blocoAc('SERVIÇOS INERENTE',A.servicos.map(s=>({r:s.rotulo,v:s.valor})),A.totServ)}
      ${blocoAc('ACERTO',A.acerto.map((a,i)=>({r:a.rotulo,v:a.valor,cls:i?'mu':''})),rv,rr)}
@@ -1504,7 +1504,7 @@ function desenhaAc(){const A=AC,E=A.E,S=A.S;
     </div></div><div class="mut">Saldo anterior: ${brl(A.saldo_anterior)} (${esc(A.origem_saldo)}) — dá para mudar em "Ajustes e texto".</div></div>`;
   }else if(ACTAB==='classificar'){
     const L=A.entradas.filter(x=>x.cat==='revisar'),S2=A.saidas.filter(x=>x.cat==='revisar');
-    el.innerHTML=`<div class="card"><h3 style="margin-top:0">Lançamentos a classificar</h3>${!L.length&&!S2.length?'<div class="mut">Nada a classificar. Tudo certo.</div>':''}
+    el.innerHTML=`<div class="card"><h3 style="margin-top:0">Não identificados</h3>${!L.length&&!S2.length?'<div class="mut">Nenhum. Tudo identificado.</div>':''}
      ${S2.length?`<table><tr><th>Data</th><th>Saída</th><th class="r">Valor</th><th>Por quê</th><th>Classificar como</th></tr>${S2.map(x=>`<tr><td>${dbr(x.data)}</td><td>${esc(x.descricao)}</td><td class="r">${n2b(-x.valor)}</td><td class="mut">${esc(x.como)}</td><td>${selSaiAc(x)}</td></tr>`).join('')}</table>`:''}
      ${L.length?`<table style="margin-top:10px"><tr><th>Data</th><th>Entrada</th><th class="r">Valor</th><th>Classificar como</th></tr>${L.map(x=>`<tr><td>${dbr(x.data)}</td><td>${esc(x.descricao)}<div class="mut">${esc(x.linha||'(sem boleto do Asaas)')}</div></td><td class="r">${n2b(x.valor)}</td><td>${selEntAc(x)}</td></tr>`).join('')}</table>`:''}
      <div class="mut" style="margin-top:8px">Imposto da folha da Lucikelly é da Inerente; conta paga a pedido do André é da FCA — o que decide é quem pediu, não o nome de quem recebeu.</div></div>`;
@@ -1538,7 +1538,7 @@ async function clsAc(id,cat,lembrar){await api('acerto/'+AC.mes+'/cls',{method:'
 async function salvaAjAc(){const aj=[...document.querySelectorAll('#aj_l tr.ajl')].map(tr=>{const s=tr.querySelectorAll('select,input');return {bloco:s[0].value,descricao:s[1].value.trim(),valor:s[2].value}}).filter(a=>a.descricao&&a.valor!=='');
   await api('acerto/'+AC.mes+'/ajustes',{method:'POST',body:{ajustes:aj,saldo_anterior:$('#aj_sa').value,texto:$('#aj_tx').value}});AC=await api('acerto/'+AC.mes);desenhaAc();alert('Ajustes salvos.')}
 async function textoAc(){const b=event.target;b.disabled=true;b.textContent='Escrevendo…';try{const r=await api('acerto/'+AC.mes+'/texto',{method:'POST'});$('#aj_tx').value=r.texto;AC.texto=r.texto}finally{b.disabled=false;b.textContent='Escrever o texto com IA'}}
-async function fechaAc(){if(AC.pendentes)return alert('Classifique os '+AC.pendentes+' lançamento(s) pendentes antes de fechar.');
+async function fechaAc(){if(AC.pendentes)return alert('Há '+AC.pendentes+' lançamento(s) não identificados. Diga o que são antes de fechar.');
   if(!AC.texto&&!confirm('O texto do "Resumo do mês" para o André ainda está vazio. Fechar assim mesmo?'))return;
   const [rr,rv]=resultadoAc();if(!confirm(`Fechar ${nomeMesAc(AC.mes)}?\n\nRecebido: ${brl(AC.totE)}\nServiços da Inerente: ${brl(AC.totServ)}\n${rr}: ${brl(rv)}\n\nEsse resultado vira o saldo anterior do mês seguinte.`))return;
   await api('acerto/'+AC.mes+'/fechar',{method:'POST'});telaAcerto(AC.mes)}
@@ -1550,7 +1550,7 @@ function cardResumoAc(){const c=AC.comparativo,a=c.atual,p=c.anterior,ma=p?nomeM
    ${lin('Recebido',a.recebido,p?+p.recebido:null)}${lin('Boletos',a.boletos,p&&p.boletos!=null?+p.boletos:null,1)}${lin('Mensais',a.mensais,p&&p.mensais!=null?+p.mensais:null)}${lin('Anuais',a.anuais,p&&p.anuais!=null?+p.anuais:null)}${lin('Cobranças',a.cobrancas,p&&p.cobrancas!=null?+p.cobrancas:null)}</table>
    ${(AC.texto||'').split(/\n\s*\n/).filter(Boolean).map(t=>`<p>${esc(t)}</p>`).join('')||'<p class="mut">Texto ainda não escrito — veja "Ajustes e texto".</p>'}</div>`}
 /* ---- PDF ---- */
-function pdfAc(){const h=htmlPdfAc();const w=window.open('','_blank');if(!w)return alert('O navegador bloqueou a janela. Libere pop-ups para este site.');w.document.write(h);w.document.close()}
+function pdfAc(){if(AC.pendentes)return alert('Há '+AC.pendentes+' lançamento(s) não identificados. O relatório só sai depois que você disser o que são.');const h=htmlPdfAc();const w=window.open('','_blank');if(!w)return alert('O navegador bloqueou a janela. Libere pop-ups para este site.');w.document.write(h);w.document.close()}
 function htmlPdfAc(semPrint){const A=AC,E=A.E,S=A.S,[rr,rv]=resultadoAc(),o=location.origin;
   const ord=['andre','luis','lucikelly','imposto','devolucao','saneago','equatorial','telefone','outro_inerente','indenizacao','conta_fca','taxas'];
   const bl=(t,L,tot,rt,id)=>`<div class="bk"><div class="h">${t}</div><table>${L.map(l=>`<tr class="${l.c||''}"><td>${l.a?`<a href="#${l.a}">${esc(l.r)}</a>`:esc(l.r)}</td><td class="r">${n2b(l.v)}</td></tr>`).join('')}${tot!=null?`<tr class="tt"><td>${rt||'Total'}</td><td class="r">${n2b(tot)}</td></tr>`:''}</table></div>`;
@@ -1581,6 +1581,7 @@ function htmlPdfAc(semPrint){const A=AC,E=A.E,S=A.S,[rr,rv]=resultadoAc(),o=loca
   ${semPrint?'':'<script>window.onload=()=>setTimeout(()=>print(),400)<\/script>'}</body></html>`;return h}
 /* ---- Excel ---- */
 async function planilhaAc(){
+  if(AC.pendentes)return alert('Há '+AC.pendentes+' lançamento(s) não identificados. A planilha só sai depois que você disser o que são.');
   if(!window.ExcelJS){await new Promise((ok,er)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';s.onload=ok;s.onerror=er;document.head.appendChild(s)})}
   const A=AC,E=A.E,S=A.S,wb=new ExcelJS.Workbook(),per=`Período ${dbr(A.periodo[0])} a ${dbr(A.periodo[1])}`;
   const AZ='FF29B6E8',F={name:'Arial',size:10},FB={name:'Arial',size:10,bold:true},NF='#,##0.00';
