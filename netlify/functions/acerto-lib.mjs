@@ -36,6 +36,7 @@ function linhaBoleto(desc) {
   return (u.length > 2 ? u.slice(2) : u).join(' ');
 }
 function catDaLinha(l) {
+  if (/gerada automaticamente a partir de pix/i.test(l)) return 'revisar';
   if (/cess/i.test(l)) return 'contrato';
   if (/entrada|sinal/i.test(l)) return 'entrada';
   if (/renegocia|cobran|acordo|parcelament|confiss|t[ií]tulo/i.test(l)) return 'cobranca';
@@ -122,6 +123,35 @@ export function criaAcerto({ q, asaas, json, log }) {
     return (await faltaPag(mes)).length;
   }
 
+
+  /* Acordo que inclui parcelas de acordo antigo (que já tinham os 10%) ou 2ª via com 10% sobre parcela de acordo:
+     a Inerente fica com os 10% novos E com os 10% que já estavam dentro da parcela do acordo. */
+  async function honorarioDuplo(L) {
+    if (!L.length) return;
+    const ids = L.map(x => x.payment);
+    const rs = await q(`select x.pid, x.prio, x.composicao, t.grupo, t.acordo_id, t.valor_face from (
+        select id_asaas pid, titulo_id, composicao, 1 prio from carteira.boletos where id_asaas = any($1)
+        union all select id_asaas, titulo_id, null, 2 from carteira.pagamentos where id_asaas = any($1)) x
+      join carteira.titulos t on t.id=x.titulo_id order by x.prio`, [ids]).catch(() => []);
+    const tit = {}; for (const r of rs) if (!tit[r.pid]) tit[r.pid] = r;
+    const acIds = [...new Set(rs.map(r => r.acordo_id).filter(Boolean))];
+    if (!acIds.length) return;
+    const acs = {}; for (const a of await q(`select id, honorarios, valor_acordado, titulos_origem, data_acordo::text d from carteira.acordos where id = any($1)`, [acIds])) acs[a.id] = a;
+    const orig = [...new Set(Object.values(acs).flatMap(a => (a.titulos_origem || []).map(Number)))];
+    const ot = orig.length ? await q(`select t.id, t.grupo, t.valor_face, t.rotulo, a.honorarios, a.valor_acordado from carteira.titulos t left join carteira.acordos a on a.id=t.acordo_id where t.id = any($1)`, [orig]) : [];
+    const embutido = a => R2((a.titulos_origem || []).map(Number).map(i => ot.find(t => +t.id === i)).filter(t => t && t.grupo === 'acordo' && +t.honorarios > 0 && +t.valor_acordado > 0)
+      .reduce((s, t) => s + +t.valor_face * +t.honorarios / +t.valor_acordado, 0));
+    for (const x of L) {
+      const t = tit[x.payment]; if (!t || !t.acordo_id || !acs[t.acordo_id]) continue;
+      const a = acs[t.acordo_id];
+      let extra = 0, porque = '';
+      const novo10 = t.composicao && +t.composicao.cobranca > 0;
+      if (novo10 && +a.honorarios > 0 && +a.valor_acordado > 0) { extra = R2(x.fca * +a.honorarios / +a.valor_acordado); porque = 'parcela de acordo cobrada de novo com 10%: inclui também os 10% do acordo'; }
+      else { const e = embutido(a); if (e > 0 && +a.valor_acordado > 0) { extra = R2(e * x.valor / +a.valor_acordado); porque = `acordo que inclui parcelas de acordo anterior: inclui também os 10% que já estavam nelas (${br(e)} no acordo inteiro)`; } }
+      if (extra > 0) { x.fca = R2(x.fca - extra); x.hon = R2(x.valor - x.fca); x.obs = (x.obs ? x.obs + ' · ' : '') + `Honorário em dobro: ${porque} (+${br(extra)})`; x.duplo = extra; }
+    }
+  }
+
   async function calcula(mes) {
     const [M] = await q(`select * from carteira.acerto_meses where mes=$1`, [mes]);
     if (M?.fechado_em && M.dados) return { ...M.dados, fechado: true, fechado_em: M.fechado_em, por: M.por };
@@ -159,6 +189,7 @@ export function criaAcerto({ q, asaas, json, log }) {
         sai.push({ id: e.id, data: e.data, descricao: e.descricao, beneficiario: ben, valor: R2(v), cat, auto, como, duvida: DUVIDA.test(n), tipo: e.tipo });
       }
     }
+    await honorarioDuplo(ent.filter(x => x.cat === 'cobranca' && x.payment));
     const soma = (L, f = x => x.valor) => R2(L.reduce((s, x) => s + f(x), 0));
     const E = {}; for (const k of Object.keys(CAT_E)) { const L = ent.filter(x => x.cat === k); E[k] = { rotulo: CAT_E[k], qtd: L.length, total: soma(L) }; }
     const cob = ent.filter(x => x.cat === 'cobranca'); E.cobranca.fca = soma(cob, x => x.fca); E.cobranca.hon = R2(E.cobranca.total - E.cobranca.fca);
@@ -195,7 +226,9 @@ export function criaAcerto({ q, asaas, json, log }) {
       const ia = new Set((P.dados.saidas || []).map(x => x.id)), rs = sai.filter(x => ia.has(x.id));
       conf.push({ ok: !rep.length && !rs.length, t: 'Emenda com o mês anterior', d: rep.length || rs.length ? `Repetidos do mês anterior: ${rep.map(x => x.fatura).concat(rs.map(x => x.descricao)).join(', ')}` : 'Nenhuma fatura nem saída repetida com o mês anterior.' });
     }
-    const r42 = ent.filter(x => x.obs);
+    const dupl = ent.filter(x => x.duplo);
+    conf.push({ ok: true, t: 'Cobranças com honorário em dobro (acordo sobre acordo)', d: dupl.length ? dupl.map(x => `${x.contrato || ''} ${x.linha.slice(0, 60)}: +${br(x.duplo)} para a Inerente`).join(' · ') : 'Nenhuma.' });
+    const r42 = ent.filter(x => x.obs && /dias de atraso/.test(x.obs));
     conf.push({ ok: true, t: 'Pagas com mais de 60 dias de atraso (vão para Cobrança)', d: r42.length ? r42.map(x => `${x.contrato || ''} ${x.linha} — ${x.dias} dias`).join(' · ') : 'Nenhuma.' });
     const fora = ent.filter(x => x.cat === 'mensal' && !/^\d+\s*\/\s*\d+$/.test(x.linha.trim()));
     conf.push({ ok: true, t: 'Mensais com descrição fora do padrão', d: fora.length ? fora.map(x => `${x.contrato || ''}: ${x.linha}`).join(' · ') : 'Nenhuma.' });
