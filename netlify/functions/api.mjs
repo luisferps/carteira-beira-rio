@@ -549,8 +549,21 @@ async function efetivaPropostaPaga(pid, g) {
   await log('asaas', 'proposta_efetivada_auto', { proposta: pid, acordo: r.a.id, contrato: pr.contrato, pagamento: g.id, boletos: gerados, erros });
   return { titulo_id: t1.id, contrato: pr.contrato };
 }
+/* boleto da taxa de cessão pago: dá baixa sozinho na cessão (e no evento de cessão, se já concluída) */
+async function taxaCessaoPaga(id, g) {
+  await garanteBoletos(); await gravaBoleto(g, {});
+  const pago = g.paymentDate || g.clientPaymentDate || g.confirmedDate || null;
+  const info = { pago_em: pago, valor_pago: +g.value, fatura: g.invoiceNumber ? String(g.invoiceNumber) : null, forma: FORMA_A[g.billingType] || g.billingType };
+  const [c] = await q('select id, contrato, numero, evento_id from carteira.cessoes where id=$1', [id]).catch(() => []);
+  if (!c) return registraAuto(g, { resultado: 'pendente', motivo: 'Boleto de taxa de cessão, mas a cessão não está no sistema' });
+  await q(`update carteira.cessoes set dados = dados || $2::jsonb where id=$1`, [c.id, JSON.stringify({ taxa_paga: info })]);
+  if (c.evento_id) await q(`update carteira.eventos set dados = coalesce(dados,'{}'::jsonb) || $2::jsonb where id=$1`, [c.evento_id, JSON.stringify(info)]);
+  await log('asaas', 'taxa_cessao_paga', { cessao: c.numero, contrato: c.contrato, valor: g.value });
+  return registraAuto(g, { resultado: 'lancado', contrato: c.contrato, motivo: 'Taxa de cessão nº ' + String(c.numero).padStart(4, '0') });
+}
 async function processaPagamentoAsaas(g, X, opc = {}) {
   if (!g || g.deleted || !PAGO_A.includes(g.status)) return { resultado: 'ignorado' };
+  { const cm = String(g.externalReference || '').match(/^cbr-cessao-(\d+)$/); if (cm) return taxaCessaoPaga(+cm[1], g); }
   const [ja] = await q(`select resultado from carteira.asaas_auto where id_asaas=$1`, [g.id]);
   if (ja && !opc.forcar && ja.resultado !== 'erro') return { resultado: 'ja_visto' };
   const lan = await jaLancado(g);
@@ -1540,7 +1553,7 @@ async function garanteEsquema() {
 
 const rotasDocumentos = criaDocumentos({ q, json, log: (...a) => log(...a) });
 const rotasPainel = criaPainel({ q, json, log: (...a) => log(...a) });
-const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a) });
+const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a), asaas, asaasReq, gravaBoleto, garanteBoletos });
 const DEV = criaDevolucoes({ q, asaas, json, log: (...a) => log(...a) });
 const rotasAcerto = criaAcerto({ q, asaas, json, log: (...a) => log(...a), dev: DEV });
 export default async (req) => {

@@ -1,7 +1,59 @@
 /* Cessão de direitos: documento numerado, andamento (enviada, voltou assinada, firma reconhecida) e conclusão (troca de titulares no contrato). */
 const PASSOS = ['emitida', 'enviada', 'assinada', 'reconhecida', 'concluida'];
 const dig = v => String(v || '').replace(/\D/g, '');
-export function criaCessoes({ q, json, log }) {
+const R2 = x => Math.round(x * 100) / 100;
+const hojeBR = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+const somaDias = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+const pad4 = n => String(n).padStart(4, '0');
+const FCA_RODAPE = 'á Serviço de: FCA CONSTRUTORA E INCORPORADORA LTDA (46.228.347/0001-97)';
+/* IGP-M mensal (FGV) pela série 189 do Banco Central */
+async function igpmMeses(desde) {
+  const br = d => d.split('-').reverse().join('/');
+  const r = await fetch(`https://api.bcb.gov.br/dados/serie/bcdata.sgs.189/dados?formato=json&dataInicial=${br(desde)}&dataFinal=${br(hojeBR())}`, { headers: { accept: 'application/json' } });
+  if (!r.ok) throw new Error('Não consegui buscar o IGP-M no Banco Central (erro ' + r.status + ')');
+  const L = await r.json();
+  return (Array.isArray(L) ? L : []).map(x => ({ mes: x.data.split('/').reverse().join('-').slice(0, 7), pct: +String(x.valor).replace(',', '.') }));
+}
+export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garanteBoletos }) {
+  /* taxa de cessão = 2% do valor total do contrato, corrigido pelo IGP-M desde a assinatura (cláusula 10.1 dos contratos FCA) */
+  async function calculaTaxa(contrato) {
+    const [ct] = await q(`select numero, valor_imovel, data_assinatura::text data_assinatura from carteira.contratos where numero=$1`, [contrato]);
+    if (!ct || !+ct.valor_imovel) throw new Error('Contrato sem valor do imóvel cadastrado');
+    if (!ct.data_assinatura) throw new Error('Contrato sem data de assinatura cadastrada');
+    const base = R2(+ct.valor_imovel * 0.02);
+    const ini = new Date(ct.data_assinatura.slice(0, 7) + '-01T12:00:00Z'); ini.setUTCMonth(ini.getUTCMonth() + 1);
+    const meses = await igpmMeses(ini.toISOString().slice(0, 10));
+    const fator = meses.reduce((a, x) => a * (1 + x.pct / 100), 1);
+    return { contrato, valor_contrato: +ct.valor_imovel, data_assinatura: ct.data_assinatura, base, meses: meses.length,
+      desde: meses[0]?.mes || null, ate: meses[meses.length - 1]?.mes || null, igpm_pct: R2((fator - 1) * 100), taxa: R2(base * fator) };
+  }
+  /* boleto da taxa sai sempre no nome do 1º cessionário */
+  async function clienteAsaas(p) {
+    const cpf = dig(p.cpf); if (cpf.length < 11) throw new Error('O 1º cessionário está sem CPF — preciso dele para gerar o boleto da taxa');
+    const r = await asaas('/customers?cpfCnpj=' + cpf).catch(() => null);
+    const c = (r?.data || []).find(x => !x.deleted); if (c) return c.id;
+    const fone = dig(p.fone);
+    const n = await asaasReq('POST', '/customers', { name: p.nome, cpfCnpj: cpf, ...(fone.length >= 10 ? { mobilePhone: fone } : {}), ...(p.email ? { email: p.email } : {}) });
+    return n.id;
+  }
+  async function emiteBoletoTaxa(c) {
+    const d = c.dados || {};
+    if (d.boleto?.id) { const g = await asaas('/payments/' + d.boleto.id).catch(() => null); if (g && !g.deleted) return d.boleto; }
+    const taxa = R2(+d.taxa || 0); if (!(taxa > 0)) throw new Error('Taxa de cessão sem valor');
+    const p1 = (d.cessionarios || [])[0]; if (!p1?.nome) throw new Error('Cessão sem cessionário');
+    const cliente = await clienteAsaas(p1);
+    const venc = d.venc_taxa && d.venc_taxa >= hojeBR() ? d.venc_taxa : somaDias(hojeBR(), 3);
+    const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [c.contrato]);
+    const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: taxa, dueDate: venc,
+      description: [`Condomínio Beira Rio - ${c.contrato}`, `Q${ct?.quadra || ''} L${ct?.lote || ''}`, `Taxa de cessão de direitos - Documento nº ${pad4(c.numero)}`, '', FCA_RODAPE].join('\r\n'),
+      externalReference: 'cbr-cessao-' + c.id });
+    await garanteBoletos();
+    await gravaBoleto(g, { contrato: c.contrato, tipo: 'cessao', origem: 'sistema', motivo: 'Taxa de cessão nº ' + pad4(c.numero) });
+    const boleto = { id: g.id, fatura: g.invoiceNumber ? String(g.invoiceNumber) : null, link: g.bankSlipUrl || g.invoiceUrl || null, valor: g.value, vencimento: g.dueDate, cliente: p1.nome };
+    await q(`update carteira.cessoes set dados = dados || $2::jsonb where id=$1`, [c.id, JSON.stringify({ boleto })]);
+    await log('luis', 'boleto_taxa_cessao', { numero: c.numero, contrato: c.contrato, id: g.id, valor: g.value });
+    return boleto;
+  }
   let ok = false;
   async function garante() {
     if (ok) return;
@@ -13,6 +65,7 @@ export function criaCessoes({ q, json, log }) {
     if (p[0] !== 'cessoes') return null;
     await garante();
     try {
+      if (p[1] === 'taxa' && p[2] && m === 'GET') return json(await calculaTaxa(String(p[2]).padStart(4, '0')));
       if (!p[1] && m === 'GET') {
         const L = await q(`select c.*, ct.quadra, ct.lote from carteira.cessoes c left join carteira.contratos ct on ct.numero=c.contrato order by c.numero desc`);
         const [mx] = await q(`select greatest(coalesce(max(numero),0), 42) n from carteira.cessoes`);
@@ -25,10 +78,20 @@ export function criaCessoes({ q, json, log }) {
         const [r] = await q(`insert into carteira.cessoes(numero, contrato, dados, status, datas, por) values ($1,$2,$3,'emitida',$4,$5) returning *`,
           [numero, b.contrato, b.dados, { emitida: new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10) }, real]);
         await log(real, 'cessao_emitida', { numero, contrato: b.contrato });
+        if (b.dados.gerar_boleto !== false && +b.dados.taxa > 0) {
+          try { r.boleto = await emiteBoletoTaxa(r); } catch (e) { r.boleto_erro = e.message; }
+        }
         return json(r);
       }
       const [c] = p[1] ? await q(`select * from carteira.cessoes where id=$1`, [p[1]]) : [];
       if (!c) return json({ erro: 'Cessão não encontrada' }, 404);
+      if (p[2] === 'boleto' && m === 'POST') {
+        if (body.taxa != null || body.venc_taxa) {
+          const extra = { ...(body.taxa != null ? { taxa: +body.taxa } : {}), ...(body.venc_taxa ? { venc_taxa: body.venc_taxa } : {}) };
+          await q(`update carteira.cessoes set dados = dados || $2::jsonb where id=$1`, [c.id, JSON.stringify(extra)]); c.dados = { ...c.dados, ...extra };
+        }
+        return json({ ok: true, boleto: await emiteBoletoTaxa(c) });
+      }
       if (!p[2] && m === 'PUT') {
         if (c.status === 'concluida' && body.dados) return json({ erro: 'Cessão já concluída' }, 400);
         const datas = { ...c.datas, ...(body.datas || {}) };
@@ -51,7 +114,8 @@ export function criaCessoes({ q, json, log }) {
                                and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id) order by t.vencimento limit 1`, [c.contrato]);
         const nomes = (d.cessionarios || []).map(x => x.nome).filter(Boolean);
         const [ev] = await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','cessao',null,$2,$3,$4,$5) returning id`,
-          [c.contrato, t0?.id || null, data, { novos_titulares: nomes.join(' e '), antes: (d.cedentes || []).map(x => x.nome).join(' e '), taxa_cessao: d.taxa ?? null, documento: String(c.numero).padStart(4, '0') },
+          [c.contrato, t0?.id || null, data, { novos_titulares: nomes.join(' e '), antes: (d.cedentes || []).map(x => x.nome).join(' e '), taxa_cessao: d.taxa ?? null, documento: String(c.numero).padStart(4, '0'),
+            fatura: d.boleto?.fatura || null, vencimento: d.boleto?.vencimento || null, forma: 'Boleto Bancário', pago_em: d.taxa_paga?.pago_em || null, valor_pago: d.taxa_paga?.valor_pago ?? null },
             `Cessão de direitos nº ${String(c.numero).padStart(4, '0')}`]);
         /* cessionários entram no cadastro de clientes */
         for (const x of d.cessionarios || []) {
