@@ -1615,6 +1615,28 @@ export default async (req) => {
         return json({ ligados, pago });
       }
       if (p[1] === 'cobranca-volta-parcela' && m === 'POST') return json(await cobrancaVoltaParaParcela(real));
+      if (p[1] === 'ressepara' && m === 'POST') {
+        if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+        const L = await q(`select g.id, g.id_asaas, g.fatura, g.valor_pago, g.valor_cobranca, g.multa_paga, g.juros_pago, g.honorarios_pago, g.desconto_dado, g.titulo_id,
+                             t.contrato, t.rotulo, b.titulo_id b_tit, b.composicao, bt.rotulo b_rot
+                           from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id join carteira.boletos b on b.id_asaas=g.id_asaas
+                           left join carteira.titulos bt on bt.id=b.titulo_id
+                           where g.conferente='luis' and b.composicao is not null and (b.composicao->>'total') is not null and g.valor_pago > 0`);
+        const muda = [];
+        for (const g of L) {
+          const s = separaPagamento(g.composicao, +g.valor_pago);
+          const dif = ['valor_cobranca', 'multa_paga', 'juros_pago', 'honorarios_pago', 'desconto_dado'].some(k => Math.abs((+g[k] || 0) - (+s[k] || 0)) > 0.009);
+          if (dif) muda.push({ id: g.id, contrato: g.contrato, parcela: g.rotulo, boleto_parcela: g.b_rot, fatura: g.fatura, pago: +g.valor_pago,
+            antes: { cobranca: +g.valor_cobranca, multa: +g.multa_paga || 0, juros: +g.juros_pago || 0, custo: +g.honorarios_pago || 0, desconto: +g.desconto_dado || 0 },
+            depois: { cobranca: s.valor_cobranca, multa: s.multa_paga, juros: s.juros_pago, custo: s.honorarios_pago, desconto: s.desconto_dado } });
+        }
+        if (body.aplicar) {
+          for (const x of muda) await q(`update carteira.pagamentos set valor_cobranca=$2, multa_paga=$3, juros_pago=$4, honorarios_pago=$5, desconto_dado=$6 where id=$1`,
+            [x.id, x.depois.cobranca, x.depois.multa, x.depois.juros, x.depois.custo, x.depois.desconto]);
+          await log(real, 'pagamentos_resseparados_pela_2a_via', { itens: muda });
+        }
+        return json({ total_com_2a_via: L.length, mudam: muda.length, aplicado: !!body.aplicar, itens: muda });
+      }
       if (p[1] === 'segunda-via' && m === 'POST') return json(await segundaVia(body.titulo_id, body.vencimento, real, { previa: !!body.previa }));
       if (p[1] === 'desfaz-cobranca' && m === 'POST') return json(await desfazCobranca(body.id_asaas, real));
       if (p[1] === 'cobranca-sem-boleto' && m === 'POST') {
