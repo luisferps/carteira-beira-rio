@@ -560,7 +560,10 @@ async function taxaCessaoPaga(id, g) {
   await q(`update carteira.cessoes set dados = dados || $2::jsonb where id=$1`, [c.id, JSON.stringify({ taxa_paga: info })]);
   if (c.evento_id) await q(`update carteira.eventos set dados = coalesce(dados,'{}'::jsonb) || $2::jsonb where id=$1`, [c.evento_id, JSON.stringify(info)]);
   await log('asaas', 'taxa_cessao_paga', { cessao: c.numero, contrato: c.contrato, valor: g.value });
-  return registraAuto(g, { resultado: 'lancado', contrato: c.contrato, motivo: 'Taxa de cessão nº ' + String(c.numero).padStart(4, '0') });
+  /* taxa paga = cessão reconhecida: troca os titulares do contrato (os próximos boletos saem no nome do cessionário) */
+  let nota = '';
+  try { const r = await rotasCessoes.concluirPorPagamento(c.id); if (r?.ok) nota = ' — titulares trocados'; } catch (e) { nota = ' — não consegui trocar os titulares: ' + e.message; }
+  return registraAuto(g, { resultado: 'lancado', contrato: c.contrato, motivo: 'Taxa de cessão nº ' + String(c.numero).padStart(4, '0') + nota });
 }
 async function processaPagamentoAsaas(g, X, opc = {}) {
   if (!g || g.deleted || !PAGO_A.includes(g.status)) return { resultado: 'ignorado' };
