@@ -1657,7 +1657,9 @@ export default async (req) => {
           try {
             const g0 = await asaas('/payments/' + b.id_asaas);
             const venc = g0.dueDate < hojeBR() ? hojeBR() : g0.dueDate;
-            const g = await asaasReq('POST', '/payments', { customer: b.novo_cliente, billingType: g0.billingType || 'BOLETO', value: g0.value, dueDate: venc, description: g0.description,
+            const ja = ((await asaas(`/payments?customer=${b.novo_cliente}&dueDate[ge]=${g0.dueDate}&dueDate[le]=${venc}&limit=50`).catch(() => null))?.data || [])
+              .find(x => !x.deleted && ATIVOS_B.includes(x.status) && Math.abs(x.value - g0.value) < 0.01 && contratoDaDescricao(x.description).numero === b.contrato);
+            const g = ja || await asaasReq('POST', '/payments', { customer: b.novo_cliente, billingType: g0.billingType || 'BOLETO', value: g0.value, dueDate: venc, description: g0.description,
               externalReference: g0.externalReference || undefined, fine: g0.fine?.value ? { value: g0.fine.value, type: g0.fine.type || 'PERCENTAGE' } : { value: 2, type: 'PERCENTAGE' }, interest: { value: g0.interest?.value ?? 1 } });
             await asaasReq('DELETE', '/payments/' + b.id_asaas);
             await q(`update carteira.boletos set status='DELETED', motivo='Refeito no nome do novo titular (cessão)', atualizado_em=now() where id_asaas=$1`, [b.id_asaas]);
