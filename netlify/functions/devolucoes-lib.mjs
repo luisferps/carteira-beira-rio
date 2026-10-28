@@ -31,7 +31,10 @@ export function criaDevolucoes({ q, asaas, json, log }) {
       const pagos = X.pagos.map(e => ({ id: e.id, data: e.data, valor: R2(e.dados?.valor), forma: e.dados?.forma, documento: e.dados?.documento, destino: e.dados?.destino, obs: e.obs }));
       const devolvido = R2(pagos.reduce((s, p) => s + p.valor, 0));
       const saldo = R2(credito - devolvido);
-      const nP0 = +d.prazo || 0, vp = +d.valor_parcela || (nP0 ? R2(credito / nP0) : 0), prim = d.primeira || null;
+      const nP0 = +d.prazo || 0, vp = +d.valor_parcela || (nP0 ? R2(credito / nP0) : 0);
+      /* o cronograma começa no 1º pagamento de fato (se ele veio depois da data prevista); sem nenhum pagamento, fica aguardando */
+      const p1 = pagos.map(p => p.data).sort()[0] || null;
+      let prim = d.primeira || null; if (p1 && prim && p1.slice(0, 7) > prim.slice(0, 7)) prim = p1.slice(0, 8) + String(prim).slice(8, 10);
       const fecha = !nP0 || !vp || Math.abs(vp * nP0 - credito) <= Math.max(1, nP0 * 0.02);
       const nP = fecha ? nP0 : Math.ceil(credito / vp - 0.001);
       const crono = [];
@@ -40,18 +43,18 @@ export function criaDevolucoes({ q, asaas, json, log }) {
         for (let i = 0; i < nP; i++) {
           const v = i < nP - 1 ? vp : R2(credito - vp * (nP - 1));
           const pago = R2(Math.min(Math.max(resto, 0), v)); resto = R2(resto - pago);
-          crono.push({ n: i + 1, venc: addMes(prim, i), valor: v, pago, situacao: pago >= v - 0.01 ? 'paga' : addMes(prim, i) < hoje ? 'atrasada' : 'a vencer' });
+          crono.push({ n: i + 1, venc: addMes(prim, i), valor: v, pago, situacao: pago >= v - 0.01 ? 'paga' : pagos.length && addMes(prim, i) < hoje ? 'atrasada' : 'a vencer' });
         }
       }
       const esperado = R2(crono.filter(p => p.venc <= hoje).reduce((s, p) => s + p.valor, 0));
-      const atraso = R2(Math.max(0, esperado - devolvido));
+      const atraso = pagos.length ? R2(Math.max(0, esperado - devolvido)) : 0;
       const prox = crono.find(p => p.situacao !== 'paga');
       const c = ct[n] || {};
       const nomes = new Set([...(Array.isArray(c.compradores) ? c.compradores.map(x => x.nome) : []), ...(d.clientes || []).map(k => porCod[String(+k)]).filter(Boolean), ...(d.favorecidos || [])].filter(Boolean));
       out.push({ contrato: n, quadra: c.quadra, lote: c.lote, nomes: [...nomes], credito, devolvido, saldo, prazo: nP, aviso_prazo: fecha ? null : `O prazo anotado (${nP0} parcelas de ${vp.toFixed(2).replace('.', ',')}) não fecha com o crédito; o cronograma segue o valor da parcela (${nP} parcelas)`, valor_parcela: vp, primeira: prim,
         parcelas_pagas: crono.filter(p => p.situacao === 'paga').length, atraso, atrasadas: crono.filter(p => p.situacao === 'atrasada').length,
         proxima: prox ? { n: prox.n, venc: prox.venc, falta: R2(prox.valor - prox.pago) } : null,
-        situacao: saldo <= 0.01 ? 'quitada' : atraso > 0.01 ? 'atrasada' : 'em dia',
+        situacao: saldo <= 0.01 ? 'quitada' : !pagos.length ? 'aguardando' : atraso > 0.01 ? 'atrasada' : 'em dia',
         dados: d, cronograma: crono, pagos, credito_ids: X.creditos.map(e => e.id) });
     }
     return out.sort((a, b) => (a.situacao === 'quitada') - (b.situacao === 'quitada') || a.contrato.localeCompare(b.contrato));
@@ -121,6 +124,29 @@ export function criaDevolucoes({ q, asaas, json, log }) {
         }
         const ja = new Set((await q(`select dados->>'documento' d from carteira.eventos where tipo='devolucao'`)).map(x => x.d));
         return json({ achados: achados.map(a => ({ ...a, ja_lancado: ja.has(a.id) })), proximo: ini <= ate ? ini : null });
+      }
+      if (p[1] === 'conciliar-acertos' && m === 'POST') {
+        /* devoluções que estão nos acertos mensais (aba Devoluções) e não estão lançadas no contrato (pagas fora do Asaas ou não achadas) */
+        const L = await carrega(); const usados = {}; const novos = [], semContrato = [];
+        const rows = (body.linhas || []).slice().sort((a, b) => a.data.localeCompare(b.data));
+        const dev = {}; for (const x of L) dev[x.contrato] = x.devolvido;
+        for (const r of rows) {
+          const cs = L.filter(x => x.nomes.some(n => mesmoNome(n, r.nome)));
+          if (cs.length !== 1) { semContrato.push(r.nome); continue; }
+          const c = cs[0];
+          const idx = c.pagos.findIndex((p, i) => !(usados[c.contrato] || new Set()).has(i) && p.data.slice(0, 7) === r.data.slice(0, 7) && Math.abs(p.valor - r.valor) < 0.03);
+          if (idx >= 0) { (usados[c.contrato] = usados[c.contrato] || new Set()).add(idx); continue; }
+          if (dev[c.contrato] + r.valor > c.credito + 0.05) continue;
+          dev[c.contrato] = R2(dev[c.contrato] + r.valor);
+          novos.push({ contrato: c.contrato, data: r.data, valor: r.valor, favorecido: r.nome, acerto: r.acerto });
+        }
+        if (!body.previa) for (const n of novos) {
+          const [t0] = await q(`select a_partir_titulo from carteira.eventos where contrato=$1 and tipo='encerramento' and conferente='luis' limit 1`, [n.contrato]);
+          await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','devolucao','Pix',$2,$3,$4,$5)`,
+            [n.contrato, t0?.a_partir_titulo || null, n.data, { valor: n.valor, forma: 'Pix', documento: 'acerto ' + n.acerto, favorecido: n.favorecido }, 'Lançado do acerto mensal (aba Devoluções) — não encontrado no extrato do Asaas']);
+        }
+        if (!body.previa && novos.length) await log(real, 'devolucoes_dos_acertos', { novos });
+        return json({ previa: !!body.previa, novos, sem_contrato: [...new Set(semContrato)] });
       }
       if (p[1] === 'importar' && m === 'POST') {
         /* linhas da planilha "Devoluções" (Contratos.xlsx): cria o crédito a devolver de quem ainda não tem */

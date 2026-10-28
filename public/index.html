@@ -1657,7 +1657,7 @@ function desenhaDev(){const L=DEVL.lista,h=DEVL.hoje,mes=h.slice(0,7);
   const doMes=ab.map(x=>({x,ps:x.cronograma.filter(p=>p.situacao!=='paga'&&p.venc.slice(0,7)<=mes)})).filter(o=>o.ps.length);
   const vMes=doMes.reduce((s,o)=>s+o.ps.reduce((a,p)=>a+p.valor-p.pago,0),0);
   const F={abertas:ab,atrasadas:atr,quitadas:L.filter(x=>x.situacao==='quitada'),todas:L}[DEVF]||ab;
-  const sit=x=>x.situacao==='quitada'?'<span class="tag ok">Quitada</span>':x.situacao==='atrasada'?`<span class="tag al">Atrasada ${brl(x.atraso)}</span>`:x.cronograma.length?'<span class="tag">Em dia</span>':'<span class="tag al">Sem cronograma</span>';
+  const sit=x=>x.situacao==='aguardando'?'<span class="tag">Aguardando o 1º pagamento</span>':x.situacao==='quitada'?'<span class="tag ok">Quitada</span>':x.situacao==='atrasada'?`<span class="tag al">Atrasada ${brl(x.atraso)}</span>`:x.cronograma.length?'<span class="tag">Em dia</span>':'<span class="tag al">Sem cronograma</span>';
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button><span style="flex:1"></span><button onclick="buscaDevAsaas()">Buscar Pix de devolução no Asaas</button><button class="pri" onclick="listaDia15()">Lista para pagar (dia 15)</button></div>
   <div class="card"><h3 style="margin-top:0">Devoluções</h3><div class="tot">
    <div><span class="mut">Saldo a devolver (${ab.length} contratos)</span><b>${brl(sal)}</b></div>
@@ -1665,7 +1665,7 @@ function desenhaDev(){const L=DEVL.lista,h=DEVL.hoje,mes=h.slice(0,7);
    <div class="${atr.length?'neg':''}"><span class="mut">Atrasadas</span><b>${atr.length} · ${brl(atr.reduce((s,x)=>s+x.atraso,0))}</b></div>
    <div><span class="mut">Já devolvido</span><b>${brl(L.reduce((s,x)=>s+x.devolvido,0))}</b></div></div>
    <div class="filtros" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">${[['abertas','A devolver'],['atrasadas','Atrasadas'],['quitadas','Quitadas'],['todas','Todas']].map(([k,t])=>`<button class="${DEVF===k?'on':''}" onclick="DEVF='${k}';desenhaDev()">${t}</button>`).join('')}</div></div>
-  <div class="cgrid">${F.map(x=>blk({cor:x.situacao==='quitada'?VERDE:x.situacao==='atrasada'?VERM:'#0d9488',num:x.contrato,ql:`Q${x.quadra||''} L${x.lote||''}`,nome:esc(nome(x.nomes[0]||'')),valor:'Saldo '+brl(x.saldo),
+  <div class="cgrid">${F.map(x=>blk({cor:x.situacao==='quitada'?VERDE:x.situacao==='atrasada'?VERM:x.situacao==='aguardando'?CINZA:'#0d9488',num:x.contrato,ql:`Q${x.quadra||''} L${x.lote||''}`,nome:esc(nome(x.nomes[0]||'')),valor:'Saldo '+brl(x.saldo),
    linhas:[`Devolvido ${brl(x.devolvido)} de ${brl(x.credito)}`,x.prazo?`${x.parcelas_pagas}/${x.prazo} parcelas de ${n2b(x.valor_parcela)}`:'Sem cronograma',x.proxima?`Próxima: ${dbr(x.proxima.venc)} · ${n2b(x.proxima.falta)}`:''],tag:sit(x),on:`detDev('${x.contrato}')`})).join('')||'<div class="mut">Nenhuma.</div>'}</div>`}
 
 function detDev(n){const x=DEVL.lista.find(z=>z.contrato===n),d=x.dados||{};
