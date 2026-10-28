@@ -34,7 +34,11 @@ export function criaDevolucoes({ q, asaas, json, log }) {
       const nP0 = +d.prazo || 0, vp = +d.valor_parcela || (nP0 ? R2(credito / nP0) : 0);
       /* o cronograma começa no 1º pagamento de fato (se ele veio depois da data prevista); sem nenhum pagamento, fica aguardando */
       const p1 = pagos.map(p => p.data).sort()[0] || null;
-      let prim = d.primeira || null; if (p1 && prim && p1.slice(0, 7) > prim.slice(0, 7)) prim = p1.slice(0, 8) + String(prim).slice(8, 10);
+      const ass = d.assinado_em ? String(d.assinado_em).slice(0, 10) : null;
+      let prim = d.primeira || null;
+      if (ass) { const [y, mm, dd] = ass.split('-').map(Number); prim = new Date(Date.UTC(y, mm - 1 + (dd > 10 ? 1 : 0), 15)).toISOString().slice(0, 10); }
+      const vale = !!(ass || pagos.length);
+      if (p1 && prim && p1.slice(0, 7) > prim.slice(0, 7)) prim = p1.slice(0, 8) + String(prim).slice(8, 10);
       const fecha = !nP0 || !vp || Math.abs(vp * nP0 - credito) <= Math.max(1, nP0 * 0.02);
       const nP = fecha ? nP0 : Math.ceil(credito / vp - 0.001);
       const crono = [];
@@ -43,18 +47,18 @@ export function criaDevolucoes({ q, asaas, json, log }) {
         for (let i = 0; i < nP; i++) {
           const v = i < nP - 1 ? vp : R2(credito - vp * (nP - 1));
           const pago = R2(Math.min(Math.max(resto, 0), v)); resto = R2(resto - pago);
-          crono.push({ n: i + 1, venc: addMes(prim, i), valor: v, pago, situacao: pago >= v - 0.01 ? 'paga' : pagos.length && addMes(prim, i) < hoje ? 'atrasada' : 'a vencer' });
+          crono.push({ n: i + 1, venc: addMes(prim, i), valor: v, pago, situacao: pago >= v - 0.01 ? 'paga' : vale && addMes(prim, i) < hoje ? 'atrasada' : 'a vencer' });
         }
       }
       const esperado = R2(crono.filter(p => p.venc <= hoje).reduce((s, p) => s + p.valor, 0));
-      const atraso = pagos.length ? R2(Math.max(0, esperado - devolvido)) : 0;
+      const atraso = vale ? R2(Math.max(0, esperado - devolvido)) : 0;
       const prox = crono.find(p => p.situacao !== 'paga');
       const c = ct[n] || {};
       const nomes = new Set([...(Array.isArray(c.compradores) ? c.compradores.map(x => x.nome) : []), ...(d.clientes || []).map(k => porCod[String(+k)]).filter(Boolean), ...(d.favorecidos || [])].filter(Boolean));
       out.push({ contrato: n, quadra: c.quadra, lote: c.lote, nomes: [...nomes], credito, devolvido, saldo, prazo: nP, aviso_prazo: fecha ? null : `O prazo anotado (${nP0} parcelas de ${vp.toFixed(2).replace('.', ',')}) não fecha com o crédito; o cronograma segue o valor da parcela (${nP} parcelas)`, valor_parcela: vp, primeira: prim,
         parcelas_pagas: crono.filter(p => p.situacao === 'paga').length, atraso, atrasadas: crono.filter(p => p.situacao === 'atrasada').length,
         proxima: prox ? { n: prox.n, venc: prox.venc, falta: R2(prox.valor - prox.pago) } : null,
-        situacao: saldo <= 1 ? 'quitada' : !pagos.length ? 'aguardando' : atraso > 0.01 ? 'atrasada' : 'em dia',
+        assinado_em: ass, situacao: saldo <= 1 ? 'quitada' : !vale ? 'aguardando' : atraso > 0.01 ? 'atrasada' : 'em dia',
         dados: d, cronograma: crono, pagos, credito_ids: X.creditos.map(e => e.id) });
     }
     return out.sort((a, b) => (a.situacao === 'quitada') - (b.situacao === 'quitada') || a.contrato.localeCompare(b.contrato));

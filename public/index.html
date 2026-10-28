@@ -726,7 +726,7 @@ async function abrirContrato(n){
   const pcl=api('clientes?contrato='+n).catch(()=>[]);
   C=await api('contrato/'+n);SEL.clear();SELMODO=false;C.clientes=await pcl;
   try{if(await acertaAcordos())C=await api('contrato/'+n)}catch(e){console.warn('acertaAcordos',e)}
-  desenhaContrato();if(window._ABRE_DEV){window._ABRE_DEV=false;setTimeout(async()=>{modalDevolucao();if(!C.eventos.some(e=>e.tipo==='credito'))await gravaCreditoDev(true)},200)}
+  desenhaContrato();if(window._ABRE_DEV){window._ABRE_DEV=false;setTimeout(async()=>{modalDevolucao();if(!C.eventos.some(e=>e.tipo==='credito'))await gravaCreditoDev(true);if(window._ABRE_CDEV){window._ABRE_CDEV=false;modalContratoDev()}},200)}
 }
 /* composição do acordo pela regra de hoje (mesma conta do relatório de atraso, na data do acordo, com as correções lançadas).
    Se o valor acordado ficou abaixo, a diferença sai em cascata: custo de cobrança -> juros -> multa -> principal (nunca vira desconto). */
@@ -1347,7 +1347,7 @@ function modalDevolucao(){const CRD=C.eventos.find(e=>e.tipo==='credito')?.dados
   <div><label>1º vencimento da devolução</label><input id="dv_vc" type="date" value="${CRD.primeira||venc}"></div></div>
   <div class="mut" style="margin-top:4px">Sugestão de parcelas: ${meses} (meses em que o cliente pagou).</div>
   <div id="dv_res" style="margin-top:10px"></div>
-  <div class="bt"><button onclick="relatorio('devolucao')">Imprimir / salvar em PDF</button>${!COMO?`<button class="pri" onclick="gravaCreditoDev()">${C.eventos.some(e=>e.tipo==='credito')?'Atualizar a devolução':'Gerar a devolução (crédito e parcelas)'}</button>`:''}</div>`);
+  <div class="bt"><button onclick="relatorio('devolucao')">Imprimir / salvar em PDF</button>${!COMO?`<button class="pri" onclick="gravaCreditoDev()">${C.eventos.some(e=>e.tipo==='credito')?'Atualizar a devolução':'Gerar a devolução (crédito e parcelas)'}</button>`:''}${!COMO?`<button onclick="modalContratoDev()">Gerar contrato de devolução</button>`:''}</div>`);
   const le=()=>({pago:numBR($('#dv_pg').value)||0,corr:numBR($('#dv_co').value)||0,pm:numBR($('#dv_pm').value)||0,pr:numBR($('#dv_pr').value)||0,modo:$('#dv_md').value,data:$('#dv_dt').value,n:Number($('#dv_n').value)||1,venc:$('#dv_vc').value||venc,ls});
   const at=()=>{const D=le(),R=calcDevolucao(D);window._DEV={...D,...R};
     $('#dv_res').innerHTML=`<table><tbody><tr><td>Valor pago</td><td class="n">${brl(D.pago)}</td></tr><tr><td>(−) Multa de ${D.pm}%</td><td class="n">${brl(R.multa)}</td></tr><tr><td>(−) Corretagem</td><td class="n">${brl(D.corr)}</td></tr><tr><td>(−) Retenção de ${D.pr}%</td><td class="n">${brl(R.ret)}</td></tr><tr><td><b>Valor a devolver</b></td><td class="n"><b>${brl(R.dev)}</b></td></tr><tr><td>Total descontado</td><td class="n">${brl(r2(D.pago-R.dev))}</td></tr></tbody></table>
@@ -1657,7 +1657,7 @@ function desenhaDev(){const L=DEVL.lista,h=DEVL.hoje,mes=h.slice(0,7);
   const doMes=ab.map(x=>({x,ps:x.cronograma.filter(p=>p.situacao!=='paga'&&p.venc.slice(0,7)<=mes)})).filter(o=>o.ps.length);
   const vMes=doMes.reduce((s,o)=>s+o.ps.reduce((a,p)=>a+p.valor-p.pago,0),0);
   const F={abertas:ab,atrasadas:atr,quitadas:L.filter(x=>x.situacao==='quitada'),todas:L}[DEVF]||ab;
-  const sit=x=>x.situacao==='aguardando'?'<span class="tag">Aguardando o 1º pagamento</span>':x.situacao==='quitada'?'<span class="tag ok">Quitada</span>':x.situacao==='atrasada'?`<span class="tag al">Atrasada ${brl(x.atraso)}</span>`:x.cronograma.length?'<span class="tag">Em dia</span>':'<span class="tag al">Sem cronograma</span>';
+  const sit=x=>x.situacao==='aguardando'?'<span class="tag">Aguardando contrato assinado</span>':x.situacao==='quitada'?'<span class="tag ok">Quitada</span>':x.situacao==='atrasada'?`<span class="tag al">Atrasada ${brl(x.atraso)}</span>`:x.cronograma.length?'<span class="tag">Em dia</span>':'<span class="tag al">Sem cronograma</span>';
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button><span style="flex:1"></span><button onclick="buscaDevAsaas()">Buscar Pix de devolução no Asaas</button><button class="pri" onclick="listaDia15()">Lista para pagar (dia 15)</button></div>
   <div class="card"><h3 style="margin-top:0">Devoluções</h3><div class="tot">
    <div><span class="mut">Saldo a devolver (${ab.length} contratos)</span><b>${brl(sal)}</b></div>
@@ -1673,6 +1673,7 @@ function detDev(n){const x=DEVL.lista.find(z=>z.contrato===n),d=x.dados||{};
   <div class="tot"><div><span class="mut">Crédito a devolver</span><b>${brl(x.credito)}</b></div><div><span class="mut">Devolvido</span><b>${brl(x.devolvido)}</b></div><div><span class="mut">Saldo</span><b>${brl(x.saldo)}</b></div></div>
   ${x.aviso_prazo?`<div class="aviso">${esc(x.aviso_prazo)}</div>`:''}${d.pago_cliente?`<div class="mut" style="margin-top:6px">Pago pelo cliente ${brl(d.pago_cliente)} · multa ${brl(d.multa||0)} · retenção ${brl(d.retido||0)}${d.data_distrato?' · distrato em '+dbr(d.data_distrato):''}</div>`:''}
   <div class="f2" style="margin-top:10px">
+   <div><label>Contrato de devolução assinado em</label><input id="dd_as" type="date" value="${d.assinado_em||''}"></div>
    <div><label>Nº de parcelas</label><input id="dd_n" inputmode="numeric" value="${d.prazo||''}"></div>
    <div><label>1ª parcela (data)</label><input id="dd_p" type="date" value="${d.primeira||''}"></div>
    <div><label>Valor da parcela</label><input id="dd_v" inputmode="decimal" value="${d.valor_parcela?brl(d.valor_parcela):''}"></div>
@@ -1680,17 +1681,18 @@ function detDev(n){const x=DEVL.lista.find(z=>z.contrato===n),d=x.dados||{};
    <div><label>Chave Pix</label><input id="dd_px" value="${esc(d.pix||'')}"></div>
    <div><label>Banco / conta</label><input id="dd_b" value="${esc([d.banco,d.conta].filter(Boolean).join(' · '))}"></div></div>
   <label style="margin-top:8px">Quem recebe o Pix (nomes, um por linha) — é por esses nomes que o sistema reconhece o Pix no Asaas</label><textarea id="dd_f">${esc(x.nomes.join('\n'))}</textarea>
-  <div class="bt" style="margin-top:8px"><button class="pri" onclick="salvaDev('${n}')">Salvar</button></div>
+  <div class="bt" style="margin-top:8px"><button class="pri" onclick="salvaDev('${n}')">Salvar</button><button onclick="fechaModal();window._ABRE_CDEV=true;location.hash='c/${n}/dev'">Gerar contrato de devolução</button></div>
+  ${!d.assinado_em&&!x.pagos.length?'<div class="aviso">Sem contrato de devolução assinado: não há pagamento a fazer. Quando ele voltar assinado e com firma reconhecida, preencha a data acima — a 1ª parcela vence no dia 15 seguinte.</div>':''}${d.contrato_dev?`<div class="mut" style="margin-top:4px">Contrato de devolução nº ${esc(d.contrato_dev.numero)} gerado em ${dbr(d.contrato_dev.gerado_em)}.</div>`:''}
   <h4>Cronograma</h4>${x.cronograma.length?`<div class="pcs">${x.cronograma.map(p=>`<div class="pc lt2 ${p.situacao==='paga'?'paga':p.situacao==='atrasada'?'em_atraso':'futura'}" title="${p.situacao}${p.pago&&p.situacao!=='paga'?' · pago '+n2b(p.pago):''}">${p.n}/${x.prazo}<small>${dbr(p.venc)}</small><small>${n2b(p.valor)}</small></div>`).join('')}</div>`:'<div class="mut">Sem cronograma: informe o nº de parcelas e a 1ª parcela.</div>'}
   <h4>Pagamentos feitos</h4>${x.pagos.length?`<div class="pcs">${x.pagos.map(p=>`<div class="pc lt2 paga" title="${esc((p.forma||'')+(p.destino?' → '+p.destino:'')+' · '+(p.obs||''))}">${dbr(p.data)}<small>${n2b(p.valor)}</small><small>${esc(p.forma||'')}</small></div>`).join('')}</div>`:'<div class="mut">Nenhum pagamento lançado.</div>'}`);
   const m=document.querySelector('#modal .card');if(m)m.style.maxWidth='980px'}
 async function salvaDev(n){const x=DEVL.lista.find(z=>z.contrato===n);const bc=$('#dd_b').value.split('·').map(s=>s.trim());
-  const dados={prazo:Number($('#dd_n').value)||null,primeira:$('#dd_p').value||null,valor_parcela:numBR($('#dd_v').value)||null,pix_tipo:$('#dd_pt').value.trim()||null,pix:$('#dd_px').value.trim()||null,banco:bc[0]||null,conta:bc[1]||null,favorecidos:$('#dd_f').value.split('\n').map(s=>s.trim()).filter(Boolean)};
+  const dados={assinado_em:$('#dd_as').value||null,prazo:Number($('#dd_n').value)||null,primeira:$('#dd_p').value||null,valor_parcela:numBR($('#dd_v').value)||null,pix_tipo:$('#dd_pt').value.trim()||null,pix:$('#dd_px').value.trim()||null,banco:bc[0]||null,conta:bc[1]||null,favorecidos:$('#dd_f').value.split('\n').map(s=>s.trim()).filter(Boolean)};
   await api('devolucoes/credito/'+x.credito_ids[0],{method:'PUT',body:{dados}});fechaModal();telaDevolucoes()}
 async function buscaDevAsaas(){const b=event.target;b.disabled=true;let desde=prompt('Buscar Pix de devolução no Asaas a partir de qual data? (AAAA-MM-DD)','2025-01-01');if(!desde){b.disabled=false;return}
   let tot=[],r;try{do{b.textContent='Buscando a partir de '+dbr(desde)+'…';r=await api('devolucoes/buscar-asaas',{method:'POST',body:{desde}});tot=tot.concat(r.novos);desde=r.proximo}while(desde)}finally{b.disabled=false;b.textContent='Buscar Pix de devolução no Asaas'}
   alert(tot.length?tot.length+' Pix lançados como devolução:\n'+tot.slice(0,40).map(x=>`${x.contrato} · ${dbr(x.data)} · ${brl(x.valor)} · ${x.favorecido}`).join('\n'):'Nenhum Pix novo de devolução.');telaDevolucoes()}
-function listaDia15(){const h=DEVL.hoje,mes=h.slice(0,7);const L=DEVL.lista.filter(x=>x.situacao!=='quitada').map(x=>({x,ps:x.cronograma.filter(p=>p.situacao!=='paga'&&p.venc.slice(0,7)<=mes)})).filter(o=>o.ps.length);
+function listaDia15(){const h=DEVL.hoje,mes=h.slice(0,7);const L=DEVL.lista.filter(x=>x.situacao!=='quitada'&&x.situacao!=='aguardando').map(x=>({x,ps:x.cronograma.filter(p=>p.situacao!=='paga'&&p.venc.slice(0,7)<=mes)})).filter(o=>o.ps.length);
   const tot=L.reduce((s,o)=>s+o.ps.reduce((a,p)=>a+p.valor-p.pago,0),0);
   const w=window.open('','_blank');if(!w)return alert('Libere pop-ups para este site.');
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Devoluções a pagar ${mes.split('-').reverse().join('-')}</title><style>body{font:12px Arial;margin:24px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:4px 8px;text-align:left}.r{text-align:right}h1{font-size:17px}tfoot td{font-weight:bold}@media print{button{display:none}}</style></head><body><button onclick="print()">Imprimir / salvar em PDF</button>
@@ -1994,6 +1996,83 @@ function tabelaEmBlocos(t){if(t.dataset.manter!=null||t.classList.contains('act'
 function blocosEm(el){if(!el)return;el.querySelectorAll('table').forEach(tabelaEmBlocos)}
 (()=>{const ob=new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1){if(n.tagName==='TABLE')tabelaEmBlocos(n);else blocosEm(n)}});
   const go=()=>{for(const id of ['app','modal']){const e=document.getElementById(id);if(e)ob.observe(e,{childList:true,subtree:true})}};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',go);else go()})();
+
+/* ===== Contrato de devolução (Termo de acordo amigável para restituição de parcelas pagas) ===== */
+function numExt(n,fem){n=Math.round(n);const u=fem?['zero','uma','duas','três','quatro','cinco','seis','sete','oito','nove','dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove']:['zero','um','dois','três','quatro','cinco','seis','sete','oito','nove','dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove'];
+  const d=['','','vinte','trinta','quarenta','cinquenta','sessenta','setenta','oitenta','noventa'],c=['','cento','duzentos','trezentos','quatrocentos','quinhentos','seiscentos','setecentos','oitocentos','novecentos'];
+  const cf=fem?c.map(x=>x.replace(/os$/,'as')):c;
+  const a999=x=>{if(x===100)return'cem';const p=[];if(x>=100){p.push(cf[Math.floor(x/100)]);x%=100}if(x>=20){p.push(d[Math.floor(x/10)]);x%=10;if(x)p.push(u[x])}else if(x)p.push(u[x]);return p.join(' e ')};
+  if(!n)return'zero';const p=[];const mi=Math.floor(n/1e6),mil=Math.floor(n%1e6/1000),r=n%1000;
+  if(mi)p.push(mi===1?'um milhão':a999(mi)+' milhões');if(mil)p.push(mil===1?'mil':a999(mil)+' mil');if(r)p.push(a999(r));
+  return p.length>1&&(r<100||r%100===0)?p.slice(0,-1).join(' ')+' e '+p.at(-1):p.join(' ')}
+function reaisExt(v){v=Math.round(v*100)/100;const r=Math.floor(v),c=Math.round((v-r)*100);const s=[];if(r)s.push(numExt(r)+(r===1?' real':(r%1e6===0?' de reais':' reais')));if(c)s.push(numExt(c)+(c===1?' centavo':' centavos'));return s.join(' e ')||'zero reais'}
+const nE=(n,fem)=>String(n).padStart(2,'0')+' ('+numExt(n,fem)+')';
+function qualifPessoa(p){const g=/a$/i.test(String(p.nacionalidade||'').trim())?'a':'o';
+  return [p.profissao&&p.profissao.toLowerCase(),String(p.nacionalidade||'brasileira').toLowerCase(),p.estado_civil&&p.estado_civil.toLowerCase(),p.cpf?`inscrit${g} no CPF sob o nº ${p.cpf}`:'',p.rg?`portador${g==='a'?'a':''} da Carteira de Identificação nº ${p.rg}`:'',p.endereco?`residente e domiciliad${g} na ${p.endereco}`:''].filter(Boolean).join(', ')}
+let CDEV=null;
+function modalContratoDev(){const D=window._DEV;if(!D||!D.dev)return alert('Calcule primeiro o valor a devolver.');const c=C.contrato,n=c.numero;
+  const cls=(C.clientes||[]).filter(x=>(x.contratos||[]).some(k=>k.numero===n&&(k.atual||k.encerrado)));const ps=[];for(const p of (cls.length?cls:(C.clientes||[])).map(pessoaDoCliente)){const j=ps.findIndex(x=>norm(x.nome)===norm(p.nome));if(j<0)ps.push(p);else if(Object.values(p).filter(Boolean).length>Object.values(ps[j]).filter(Boolean).length)ps[j]=p}
+  const T=C.titulos.filter(t=>t.grupo!=='acordo'),cnt=g=>T.filter(t=>t.grupo===g).length,tot=T.length;
+  const ls=D.ls||[],pg=g=>new Set(ls.filter(x=>x.t.grupo===g).map(x=>x.t.id)).size,np=new Set(ls.map(x=>x.t.id)).size;
+  const cr=C.eventos.find(e=>e.tipo==='credito')?.dados||{};
+  const hoje=new Date(Date.now()-3*36e5).toISOString().slice(0,10);
+  CDEV={numero:n,data:hoje,compradores:ps.map(p=>({nome:p.nome.toUpperCase(),qualificacao:qualifPessoa(p)})),rua:c.rua||'',local:'Condomínio de Chácaras Beira Rio',
+    data_contrato:c.data_assinatura?dataExt(String(c.data_assinatura).slice(0,10)):'',
+    plano:`em ${nE(tot,true)} parcelas, sendo ${[cnt('entrada')?nE(cnt('entrada'),true)+' referentes à entrada':'',cnt('anual')?nE(cnt('anual'),true)+' parcelas anuais':'',cnt('mensal')?'as demais ('+nE(cnt('mensal'),true)+') destinadas ao pagamento mensal do restante do saldo':''].filter(Boolean).join(', ')}, reajustadas anualmente conforme contrato de compra e venda`,
+    pagas:`${nE(np,true)} parcelas, sendo ${[pg('entrada')?nE(pg('entrada'),true)+' referentes à entrada':'',pg('anual')?nE(pg('anual'),true)+' referentes às parcelas anuais':'',pg('mensal')?nE(pg('mensal'),true)+' referentes às parcelas mensais':''].filter(Boolean).join(', ')}`,
+    banco:cr.banco||'',agencia:cr.agencia||'',conta_n:cr.conta||'',pix:[cr.pix_tipo,cr.pix].filter(Boolean).join(' '),titular_conta:ps[0]?.nome||'',D};
+  desenhaContratoDev()}
+function desenhaContratoDev(){const X=CDEV,D=X.D;
+  const f=(k,l,w)=>`<div style="${w?'grid-column:span '+w:''}"><label>${l}</label><input value="${esc(X[k]||'')}" oninput="CDEV.${k}=this.value"></div>`;
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1;margin:0">Contrato de devolução — ${X.numero}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="info">Valores do cálculo: pago ${brl(D.pago)} · desconto ${brl(r2(D.pago-D.dev))} · a devolver <b>${brl(D.dev)}</b> em ${D.ps.length} parcela(s) de ${brl(D.ps[0].v)}${D.ps.length>1&&D.ps.at(-1).v!==D.ps[0].v?' (última '+brl(D.ps.at(-1).v)+')':''}. Para mudar, feche e ajuste em "Valores para devolução".</div>
+  <div class="f2">${f('numero','Documento nº')}${f('data','Data do termo')}${f('rua','Rua do lote')}${f('local','Local (ex.: Expansão do Condomínio…)')}${f('data_contrato','Data do contrato de compra (por extenso)')}</div>
+  <h4>Compradores</h4>${X.compradores.map((p,i)=>`<div style="border:1px solid var(--ln);border-radius:8px;padding:8px;margin-bottom:6px"><label>Nome</label><input value="${esc(p.nome)}" oninput="CDEV.compradores[${i}].nome=this.value"><label>Qualificação (profissão, nacionalidade, estado civil, CPF, RG, endereço)</label><textarea oninput="CDEV.compradores[${i}].qualificacao=this.value">${esc(p.qualificacao)}</textarea><button onclick="CDEV.compradores.splice(${i},1);desenhaContratoDev()">Tirar</button></div>`).join('')}<button onclick="CDEV.compradores.push({nome:'',qualificacao:''});desenhaContratoDev()">+ Comprador</button>
+  <label style="margin-top:8px">Plano de pagamento do contrato de compra</label><textarea oninput="CDEV.plano=this.value">${esc(X.plano)}</textarea>
+  <label>Parcelas pagas</label><input value="${esc(X.pagas)}" oninput="CDEV.pagas=this.value">
+  <h4>Conta para o depósito</h4><div class="f2">${f('banco','Banco')}${f('agencia','Agência')}${f('conta_n','Conta')}${f('pix','Pix (tipo e chave)')}${f('titular_conta','Em nome de')}</div>
+  <div class="bt" style="margin-top:10px"><button class="pri" onclick="previaContratoDev()">Ver a prévia</button></div>`);const m=document.querySelector('#modal .card');if(m)m.style.maxWidth='1000px'}
+function textosContratoDev(){const X=CDEV,D=X.D,n=D.ps.length,v=D.ps[0].v,ult=D.ps.at(-1).v;
+  const conta=['em sua conta'+(X.banco?' da '+X.banco:''),X.agencia?'agência '+X.agencia:'',X.conta_n?'conta '+X.conta_n:'',X.pix?'pix '+X.pix:'',X.titular_conta?'em nome de '+X.titular_conta:''].filter(Boolean).join(', ');
+  const parcelas_txt=n>1&&ult!==v?`${nE(n-1,true)} parcelas de R$ ${n2b(v)} (${reaisExt(v)}) e 01 (uma) de R$ ${n2b(ult)} (${reaisExt(ult)})`:`${nE(n,true)} parcela${n>1?'s':''} de R$ ${n2b(v)} (${reaisExt(v)})${n>1?' cada':''}`;
+  const T=C.titulos.filter(t=>t.grupo!=='acordo').length;
+  return {numero:String(X.numero).padStart(4,'0'),compradores:X.compradores.filter(p=>p.nome).map((p,i,a)=>({nome:p.nome,nome_ass:p.nome,qualificacao:p.qualificacao,fim:i<a.length-1?'; e ':'.'})),
+    rua:X.rua,quadra:C.contrato.quadra,lote:C.contrato.lote,local:X.local,data_contrato:X.data_contrato,plano:X.plano,total_parcelas:nE(T,true),pagas:X.pagas,
+    valor_pago:n2b(D.pago),valor_pago_ext:reaisExt(D.pago),desconto:n2b(r2(D.pago-D.dev)),desconto_ext:reaisExt(r2(D.pago-D.dev)),devolver:n2b(D.dev),devolver_ext:reaisExt(D.dev),
+    n:nE(n,true),parcelas_txt,conta,data_extenso:dataExt(X.data)}}
+function htmlContratoDev(T){const B=s=>`<b>${s}</b>`,CTR='INSTRUMENTO PARTICULAR DE CONTRATO DE VENDA E COMPRA DE UNIDADE DE LOTE DE TERRENO E OUTRAS AVENÇAS, COM FORÇA DE ESCRITURA PÚBLICA';
+  return `<p style="text-align:center"><b>TERMO DE ACORDO AMIGÁVEL PARA RESTITUIÇÃO DE PARCELAS PAGAS</b></p><p style="text-align:center">Documento nº ${T.numero}</p>
+  <p>PROMITENTE VENDEDOR: <b>FCA CONSTRUTORA E INCORPORADORA LTDA</b>, pessoa jurídica inscrita no CNPJ sob o número 46.228.347/0001-97, em Goiânia-GO. Representada nesse ato por seu sócio proprietário <b>ANDRÉ DARLAN PIMENTA FRANCISCON,</b> empresário, brasileiro, casado, inscrito no CPF sob o nº 894.656.791-00, portador da Carteira de Identificação nº 3666771 SSP/GO, residente e domiciliado(a) na Via Gustavo Corção, nº 281, Q26, L01, Condomínio Amin Camargo, Goiânia, estado de Goiás.</p>
+  <p>PROMITENTE(S) COMPRADOR(ES): ${T.compradores.map(p=>`${B(esc(p.nome))}, ${esc(p.qualificacao)}${p.fim}`).join('')}</p>
+  <p><b>OBJETO:</b></p><p>${B(CTR)} referente ao imóvel:</p><p>Chácara de lazer situada na ${esc(T.rua)}, ${B('QUADRA '+T.quadra+', LOTE '+T.lote)}, ${esc(T.local)}.</p>
+  <p style="margin-left:30px">Considerando o Princípio da Função Social e da Boa-fé Contratual, objetiva e subjetiva, que norteia todos os negócios jurídicos tanto na formalização quanto na execução das cláusulas contratuais.</p>
+  <p style="margin-left:30px">Considerando que os contratos devem obedecer aos valores da ética, igualdade, equidade, autonomia privada e da justiça para que atinja o seu resultado útil às partes.</p>
+  <p style="margin-left:30px">Considerando ainda que as partes estão agindo livre de coação, erro ou ignorância, dolo, estado de perigo, lesão, fraude entre si;<br>Considerando que o(s) PROMITENTE(S) COMPRADOR(ES) foi(ram) devidamente esclarecido(s) das condições e termos deste ressarcimento;</p>
+  <p>Celebram o presente Termo de Ressarcimento de Valores nas condições abaixo especificadas na melhor forma de direito:</p>
+  <p>O(s) ${B('PROMITENTE(S) COMPRADOR(ES)')} comprou(aram) do ${B('PROMITENTE VENDEDOR')} conforme ${B(CTR)}, firmado na data ${esc(T.data_contrato)}, a Chácara de lazer situada na ${esc(T.rua)}, QUADRA ${T.quadra}, LOTE ${T.lote}, ${esc(T.local)}; com plano de pagamento ${esc(T.plano)}.</p>
+  <p>Das ${T.total_parcelas} parcelas supracitadas O(s) ${B('PROMITENTE(S) COMPRADOR(ES)')} pagou(aram) ${esc(T.pagas)}; perfazendo assim o montante de R$ ${T.valor_pago} (${T.valor_pago_ext}).</p>
+  <p>O(s) PROMITENTE(S) COMPRADOR(ES) diante da impossibilidade de continuar com o pagamento das parcelas do citado lote celebra(am) o presente acordo amigável com o PROMITENTE VENDEDOR para solucionar o problema fazendo da seguinte forma:</p>
+  <p>${B('CLÁUSULA PRIMEIRA:')} O ${B('PROMITENTE VENDEDOR')} REINTEGRA NA POSSE a Chácara de lazer situada na ${esc(T.rua)} ${B('QUADRA '+T.quadra+', LOTE '+T.lote)}, ${esc(T.local)} no ato de assinatura do presente acordo, podendo o mesmo dar à referida unidade a destinação que melhor lhe convier, inclusive, revendê-la a terceiros.</p>
+  <p>${B('CLÁUSULA SEGUNDA:')} Do montante pago, o ${B('PROMITENTE VENDEDOR,')} nesta data, descontará ${B('R$ '+T.desconto+' ('+T.desconto_ext+')')}, conforme cláusula 09 do “QUADRO RESUMO” constante no ${CTR}.</p>
+  <p>${B('CLÁUSULA TERCEIRA:')} O ${B('PROMITENTE VENDEDOR')} devolverá a quantia restante de ${B('R$ '+T.devolver+' ('+T.devolver_ext+')')}, a serem restituídos via depósito em conta corrente em nome do titular do contrato, em ${T.n} prestações, vencendo a primeira no próximo dia 15 após a devolução deste termo assinado e reconhecido firma e as demais todo dia 15 (quinze) dos meses subsequentes; perfazendo assim ${esc(T.parcelas_txt)}.</p>
+  <p>${B('CLÁUSULA QUARTA:')} O(s) ${B('PROMITENTE(S) COMPRADOR(ES)')} está(ão) ciente(s) de que este termo deverá ser devolvido devidamente assinado e reconhecido firma para o ${B('PROMITENTE VENDEDOR')} em até 05 dias antes do vencimento da primeira parcela acima, sob pena de ser prorrogado por igual prazo de atraso no vencimento desta respectiva parcela.</p>
+  <p>${B('CLÁUSULA QUINTA:')} O(s) ${B('PROMITENTE(S) COMPRADOR(ES)')} autoriza(am) que o depósito de cada parcela acima discriminada seja efetuado ${esc(T.conta)}.</p>
+  <p>${B('CLÁUSULA SEXTA:')} As partes elegem a 2ª Corte de Conciliação e Arbitragem de Goiânia (2ª CCA), com sede a Avenida Fued José Sebba, quadra 22, lotes 22/24 - Jardim Goiás, Goiânia/GO como foro competente para dirimir toda e qualquer questão proveniente do presente instrumento, renunciando todo e qualquer outro, por mais privilegiado que seja.</p>
+  <p>E por estarem assim justos e acordados, assinam o presente em 2 (duas) vias de igual teor, firmam o instrumento em caráter irrevogável e irretratável na presença das testemunhas abaixo para que surta seus devidos fins de direito de forma que passará a ser integrante do contrato objeto deste termo aditivo.</p>
+  <p style="text-align:right">Goiânia, ${T.data_extenso}.</p>
+  <div style="margin-top:34px;text-align:center">__________________________________________________<br><b>FCA CONSTRUTORA E INCORPORADORA LTDA</b><br>VENDEDOR</div>
+  ${T.compradores.map(p=>`<div style="margin-top:34px;text-align:center">______________________________________________<br><b>${esc(p.nome)}</b><br>COMPRADOR (A)</div>`).join('')}
+  <p style="margin-top:34px">Testemunha I (assinatura):________________________________________________<br>Nome/CPF:____________________________________________________________</p><p>Testemunha II (assinatura):________________________________________________<br>Nome/CPF:____________________________________________________________</p>`}
+function previaContratoDev(){const T=textosContratoDev();window._CDT=T;PILHA.push($('#modal').innerHTML);
+  $('#modal').innerHTML=`<div class="modal"><div class="card" style="max-width:900px;width:96vw"><div class="bt" style="align-items:center;position:sticky;top:0;background:var(--card);z-index:2;padding-bottom:8px;border-bottom:1px solid var(--ln)"><h3 style="flex:1;margin:0">Prévia — Termo de devolução nº ${T.numero}</h3><button onclick="$('#modal').innerHTML=PILHA.pop()">← Voltar e corrigir</button></div>
+   <div style="background:#fff;color:#111;font-family:Arial;font-size:13px;line-height:1.45;padding:40px 48px;border:1px solid var(--ln);text-align:justify;margin-top:8px">${htmlContratoDev(T)}</div>
+   <div class="bt" style="margin-top:10px;position:sticky;bottom:0;background:var(--card);padding-top:8px"><button class="pri" onclick="gravaContratoDev()">Registrar e baixar o Word</button><button onclick="pdfContratoDev(window._CDT)">Imprimir / PDF</button></div></div></div>`}
+async function wordContratoDev(T){await libsDocx();const buf=await (await fetch('/modelos/devolucao.docx')).arrayBuffer();const doc=new window.docxtemplater(new window.PizZip(buf),{paragraphLoop:true,linebreaks:true});doc.render(T);
+  const blob=doc.getZip().generate({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${T.numero} - Q${T.quadra} L${T.lote} - devolução.docx`;a.click()}
+function pdfContratoDev(T){const w=window.open('','_blank');if(!w)return alert('Libere pop-ups para este site.');w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${T.numero} - Q${T.quadra} L${T.lote} - devolução</title><style>body{font-family:Arial;font-size:12.5px;line-height:1.45;text-align:justify;margin:0}p{margin:0 0 8px}.wm{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:330px;z-index:-1}@page{size:A4;margin:20mm}</style></head><body><img class="wm" src="${location.origin}/ferramentas/wm.png">${htmlContratoDev(T)}<script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`);w.document.close()}
+async function gravaContratoDev(){const T=window._CDT,X=CDEV;await gravaCreditoDev(true);await recarrega();const ex=C.eventos.find(e=>e.tipo==='credito');
+  if(ex)await api('evento/'+ex.id,{method:'PUT',body:{contrato:C.contrato.numero,tipo:'credito',motivo:ex.motivo,a_partir_titulo:ex.a_partir_titulo,data:ex.data,dados:{...ex.dados,contrato_dev:{numero:T.numero,gerado_em:X.data,textos:T},banco:X.banco||ex.dados.banco,agencia:X.agencia||null,conta:X.conta_n||ex.dados.conta,pix:X.pix||ex.dados.pix,favorecidos:[...new Set([...(ex.dados.favorecidos||[]),X.titular_conta].filter(Boolean))]},obs:ex.obs}});
+  await wordContratoDev(T);PILHA=[];fechaModal();await recarrega();alert('Contrato de devolução gerado. Quando ele voltar assinado, marque a data da assinatura na devolução (módulo Devoluções): o 1º pagamento é no dia 15 seguinte.')}
 </script>
 </body>
 </html>
