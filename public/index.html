@@ -49,6 +49,7 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .drop img{max-width:100%;max-height:260px;margin-top:8px;border-radius:6px}
 .aviso{background:#fef2f2;color:#7f1d1d;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;margin:8px 0}
 .info{background:#f0f9ff;color:#0c4a6e;border:1px solid #bae6fd;border-radius:8px;padding:8px 10px;margin:8px 0}
+.ac2{display:grid;grid-template-columns:1fr 1fr;gap:28px}@media(max-width:800px){.ac2{grid-template-columns:1fr}}.ach{color:#1b9fd0;font-weight:700;font-size:12px;letter-spacing:1px;margin-bottom:4px}table.act td{padding:4px 0;border-bottom:1px solid #eef0f3}table.act tr.tt td{font-weight:700;border:0}table.act tr.tt td.r{color:#1b9fd0}table.act tr.mu td{color:#888}table.act a{color:inherit;border-bottom:1px dashed #9ad;text-decoration:none}.acres{background:#f5fafd;border:1px solid #dbe9f1;border-left:3px solid #29b6e8;border-radius:8px;padding:10px 12px}.acrt{color:#1b8fb8;font-weight:700;font-size:12px;letter-spacing:.5px;margin-bottom:6px}.acres p{font-size:13px;text-align:justify;margin:8px 0 0}
 .mut{color:var(--mut);font-size:12px}.r{text-align:right}.hid{display:none}
 .cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
 .cb{text-align:left;background:#fff;border:1px solid var(--ln);border-left:5px solid var(--fu);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px;min-height:140px}
@@ -146,7 +147,7 @@ function route(){const h=location.hash.slice(1);COMO='';document.body.classList.
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
-  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
+  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function novaPend(){const t=prompt('Descreva a pendência deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
 async function novaObs(){const t=prompt('Observação deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'observacao',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
@@ -159,7 +160,7 @@ function telaModulos(){
    <div class="mod" style="border-left-color:#2e9e4f" onclick="location.hash='clientes'"><b>Clientes</b><span>Cadastro dos clientes: telefones, e-mails, endereço, documentos e os contratos de cada um.</span></div>
    ${EU==='luis'||EU==='assistente'?`<div class="mod" style="border-left-color:#dc2626" onclick="location.hash='cobranca'"><b>Cobrança</b><span>Campanha de cobrança: funil, agenda de contatos, promessas e mensagens prontas de WhatsApp.</span></div>`:''}
    ${EU==='assistente'?`<div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar boletos, 2ª via, cobrança e relatórios de cobrança.</span></div>`:''}
-   ${EU==='luis'?`<div class="mod" style="border-left-color:#64748b" onclick="location.hash='usuarios'"><b>Usuários</b><span>Liberar ou bloquear o acesso da equipe.</span></div><div class="mod" style="border-left-color:#0d9488" onclick="location.hash='correcao'"><b>Correção anual</b><span>Prévia e aplicação da correção de janeiro (IGP-M + 2% para quem atrasou), contrato por contrato.</span></div><div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar os boletos do mês, cobrança dos 60 dias e boletos feitos direto no Asaas.</span></div><div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
+   ${EU==='luis'?`<div class="mod" style="border-left-color:#64748b" onclick="location.hash='usuarios'"><b>Usuários</b><span>Liberar ou bloquear o acesso da equipe.</span></div><div class="mod" style="border-left-color:#1b9fd0" onclick="location.hash='acerto'"><b>Acerto mensal</b><span>Fechamento do mês com a FCA: entradas pela data de crédito, saídas, serviços da Inerente, saldo que passa para o mês seguinte, planilha e relatório em PDF.</span></div><div class="mod" style="border-left-color:#0d9488" onclick="location.hash='correcao'"><b>Correção anual</b><span>Prévia e aplicação da correção de janeiro (IGP-M + 2% para quem atrasou), contrato por contrato.</span></div><div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar os boletos do mês, cobrança dos 60 dias e boletos feitos direto no Asaas.</span></div><div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
   </div>`}
 
 
@@ -1447,6 +1448,178 @@ async function cruzAcao(acao){await api('cruzamento/'+X.n,{method:'POST',body:{a
 async function cruzResolver(np){if(np&&!confirm(`Ainda há ${np} divergência(s) sem decisão. Marcar resolvido mesmo assim?`))return;cruzAcao('resolver')}
 
 iniciar();
+/* ===== Acerto mensal ===== */
+let AC=null,ACTAB='resumo';
+const MESES_AC=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+const nomeMesAc=m=>MESES_AC[+m.slice(5)-1]+'/'+m.slice(0,4);
+const n2b=v=>(+v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const CAT_E_AC={entrada:'Entrada',mensal:'Mensal',anual:'Intermediária',cobranca:'Cobrança',contrato:'Contrato (cessão)',revisar:'A classificar'};
+const CAT_S_AC={andre:'André Darlan · FCA',luis:'Luis Fernando · Inerente',lucikelly:'Lucikelly · salário',imposto:'Impostos da folha · Lucikelly',devolucao:'Devoluções de terreno',saneago:'Saneago',equatorial:'Equatorial',telefone:'Telefone',outro_inerente:'Outra despesa da Inerente',indenizacao:'Indenização · Banco do Brasil',conta_fca:'Contas a pedido do André · FCA',taxas:'Custos da Conta',revisar:'A classificar'};
+function mesPadraoAc(){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-1);return d.toISOString().slice(0,7)}
+async function telaAcerto(mes){
+  mes=mes||mesPadraoAc();app.innerHTML='<div class="card">Carregando…</div>';
+  AC=await api('acerto/'+mes);
+  if(!AC.fechado&&!AC.carregado_em)return carregaAc(mes,false);
+  desenhaAc();
+}
+async function carregaAc(mes,recomecar){
+  app.innerHTML=`<div class="card"><b>Buscando o extrato de ${nomeMesAc(mes)} no Asaas…</b><div class="mut" id="ac_pr">Isso leva alguns segundos.</div></div>`;
+  let r,i=0;
+  do{r=await api('acerto/'+mes+'/carregar',{method:'POST',body:{recomecar:recomecar&&i===0}});i++;const el=$('#ac_pr');if(el)el.textContent=`${r.lancamentos} lançamentos no extrato · faltam ${r.falta} boleto(s) para identificar`}while(r.falta>0&&i<15);
+  AC=await api('acerto/'+mes);desenhaAc();
+}
+function opcoesMesAc(sel){const L=[];const d=new Date();d.setDate(1);for(let i=0;i<18;i++){const m=d.toISOString().slice(0,7);L.push(m);d.setMonth(d.getMonth()-1)}if(!L.includes(sel))L.push(sel);return L.map(m=>`<option value="${m}" ${m===sel?'selected':''}>${nomeMesAc(m)}</option>`).join('')}
+function blocoAc(tit,linhas,total,rotTot){return `<div style="margin-bottom:14px"><div class="ach">${tit}</div><table class="act">${linhas.map(l=>`<tr${l.cls?` class="${l.cls}"`:''}><td>${l.lk?`<a href="#" onclick="ACTAB='${l.lk}';desenhaAc();return false">${esc(l.r)}</a>`:esc(l.r)}</td><td class="r">${n2b(l.v)}</td></tr>`).join('')}${total!=null?`<tr class="tt"><td>${rotTot||'Total'}</td><td class="r">${n2b(total)}</td></tr>`:''}</table></div>`}
+function resultadoAc(){const A=AC;return A.resultado<0?['INERENTE ADIANTOU (A COMPENSAR)',-A.resultado]:['FALTOU FCA PAGAR',A.resultado]}
+function desenhaAc(){const A=AC,E=A.E,S=A.S;
+  const ord=['andre','luis','lucikelly','imposto','devolucao','saneago','equatorial','telefone','outro_inerente','indenizacao','conta_fca','taxas','revisar'];
+  const [rr,rv]=resultadoAc();
+  const tabs=[['resumo','Resumo'],['classificar',`A classificar${A.pendentes?' ('+A.pendentes+')':''}`],['entrada','Entradas'],['mensal','Mensais'],['anual','Intermediárias'],['cobranca','Cobrança'],['contrato','Contratos'],['saidas','Saídas'],['conf','Conferências'],['ajustes','Ajustes e texto']];
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px;align-items:center"><button onclick="location.hash=''">← Início</button>
+   <select style="width:auto" onchange="location.hash='acerto/'+this.value">${opcoesMesAc(A.mes)}</select>
+   ${A.fechado?`<span class="tag ok">Fechado em ${dbr(A.fechado_em)}</span><button onclick="reabreAc()">Reabrir</button>`:`<button onclick="carregaAc('${A.mes}',true)">Atualizar do Asaas</button><button class="pri" onclick="fechaAc()">Fechar o mês</button>`}
+   <span style="flex:1"></span><button onclick="planilhaAc()">Baixar planilha (Excel)</button><button onclick="pdfAc()">Relatório (PDF)</button></div>
+   ${A.fechado_fora?`<div class="info">${esc(A.fechado_fora)}</div>`:''}
+   ${!A.fechado&&A.pendentes?`<div class="aviso">${A.pendentes} lançamento(s) precisam da sua classificação antes de fechar. <a href="#" onclick="ACTAB='classificar';desenhaAc();return false">Classificar agora</a></div>`:''}
+   <div class="card"><div class="tot">
+    <div><span class="mut">Recebido (${A.entradas.length} boletos)</span><b>${brl(A.totE)}</b></div>
+    <div><span class="mut">Saídas</span><b>${brl(A.totS)}</b></div>
+    <div><span class="mut">Serviços da Inerente</span><b>${brl(A.totServ)}</b></div>
+    <div class="${A.resultado<0?'neg':''}"><span class="mut">${rr}</span><b>${brl(rv)}</b></div>
+    <div><span class="mut">Caixa (entradas − saídas)</span><b>${brl(A.caixa)}</b></div></div>
+    <div class="filtros" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">${tabs.map(([k,t])=>`<button class="${ACTAB===k?'on':''}" onclick="ACTAB='${k}';desenhaAc()">${t}</button>`).join('')}</div>
+    <div class="mut" style="margin-top:6px">${A.carregado_em?'Extrato buscado no Asaas em '+new Date(A.carregado_em).toLocaleString('pt-BR'):''} · base: data em que o dinheiro caiu na conta (${dbr(A.periodo[0])} a ${dbr(A.periodo[1])})</div></div>
+   <div id="ac_c"></div>`;
+  const el=$('#ac_c');
+  if(ACTAB==='resumo'){
+    el.innerHTML=`<div class="card"><div class="ac2"><div>
+     ${blocoAc('ENTRADAS',['entrada','mensal','anual','cobranca','contrato'].map(k=>({r:E[k].rotulo,v:E[k].total,lk:k})).concat(E.revisar.qtd?[{r:'A classificar',v:E.revisar.total,lk:'classificar'}]:[]),A.totE)}
+     ${blocoAc('SAÍDAS',ord.filter(k=>S[k].total).map(k=>({r:S[k].rotulo,v:S[k].total,lk:k==='revisar'?'classificar':'saidas'})),A.totS)}
+     ${blocoAc('SERVIÇOS INERENTE',A.servicos.map(s=>({r:s.rotulo,v:s.valor})),A.totServ)}
+     ${blocoAc('ACERTO',A.acerto.map((a,i)=>({r:a.rotulo,v:a.valor,cls:i?'mu':''})),rv,rr)}
+     ${blocoAc('CAIXA',[{r:'Entradas − Saídas',v:A.caixa}])}
+    </div><div>
+     ${blocoAc('TRANSFERÊNCIAS ANDRÉ',A.andre.map(x=>({r:dbr(x.data),v:-x.valor})),S.andre.total)}
+     ${cardResumoAc()}
+    </div></div><div class="mut">Saldo anterior: ${brl(A.saldo_anterior)} (${esc(A.origem_saldo)}) — dá para mudar em "Ajustes e texto".</div></div>`;
+  }else if(ACTAB==='classificar'){
+    const L=A.entradas.filter(x=>x.cat==='revisar'),S2=A.saidas.filter(x=>x.cat==='revisar');
+    el.innerHTML=`<div class="card"><h3 style="margin-top:0">Lançamentos a classificar</h3>${!L.length&&!S2.length?'<div class="mut">Nada a classificar. Tudo certo.</div>':''}
+     ${S2.length?`<table><tr><th>Data</th><th>Saída</th><th class="r">Valor</th><th>Por quê</th><th>Classificar como</th></tr>${S2.map(x=>`<tr><td>${dbr(x.data)}</td><td>${esc(x.descricao)}</td><td class="r">${n2b(-x.valor)}</td><td class="mut">${esc(x.como)}</td><td>${selSaiAc(x)}</td></tr>`).join('')}</table>`:''}
+     ${L.length?`<table style="margin-top:10px"><tr><th>Data</th><th>Entrada</th><th class="r">Valor</th><th>Classificar como</th></tr>${L.map(x=>`<tr><td>${dbr(x.data)}</td><td>${esc(x.descricao)}<div class="mut">${esc(x.linha||'(sem boleto do Asaas)')}</div></td><td class="r">${n2b(x.valor)}</td><td>${selEntAc(x)}</td></tr>`).join('')}</table>`:''}
+     <div class="mut" style="margin-top:8px">Imposto da folha da Lucikelly é da Inerente; conta paga a pedido do André é da FCA — o que decide é quem pediu, não o nome de quem recebeu.</div></div>`;
+  }else if(['entrada','mensal','anual','cobranca','contrato'].includes(ACTAB)){
+    const L=A.entradas.filter(x=>x.cat===ACTAB),cob=ACTAB==='cobranca';
+    el.innerHTML=`<div class="card"><h3 style="margin-top:0">${E[ACTAB].rotulo} — ${L.length} lançamento(s) · ${brl(E[ACTAB].total)}${cob?` · FCA ${brl(E.cobranca.fca)} · 10% ${brl(E.cobranca.hon)}`:''}</h3>
+     <table><tr><th>Data</th><th>Descrição</th><th>Contrato</th><th>Boleto</th><th class="r">Valor</th>${cob?'<th class="r">FCA</th><th class="r">10%</th><th>Observação</th>':''}<th>Categoria</th></tr>
+     ${L.map(x=>`<tr><td>${dbr(x.data)}</td><td>${esc(x.descricao)}</td><td>${x.contrato?`<a href="#c/${x.contrato}">${x.contrato}</a>`:''} <span class="mut">${esc(x.ql||'')}</span></td><td class="mut">${esc(x.linha)}${x.venc?`<br>venc. ${dbr(x.venc)} · pago ${dbr(x.pago)}`:''}</td><td class="r">${n2b(x.valor)}</td>${cob?`<td class="r">${n2b(x.fca)}</td><td class="r">${n2b(x.hon)}</td><td class="mut">${esc(x.obs)}</td>`:''}<td>${selEntAc(x)}</td></tr>`).join('')}</table></div>`;
+  }else if(ACTAB==='saidas'){
+    el.innerHTML=`<div class="card"><h3 style="margin-top:0">Saídas — ${A.saidas.length} lançamento(s) · ${brl(A.totS)}</h3>
+     <table><tr><th>Data</th><th>Descrição</th><th class="r">Valor</th><th>Categoria</th></tr>${A.saidas.filter(x=>x.cat!=='taxas').map(x=>`<tr><td>${dbr(x.data)}</td><td>${esc(x.descricao)}${x.duvida?' <span class="tag al">confira</span>':''}</td><td class="r">${n2b(x.valor)}</td><td>${selSaiAc(x)}</td></tr>`).join('')}
+     <tr><td></td><td>Custos da Conta (taxas do Asaas: ${A.saidas.filter(x=>x.cat==='taxas').length} lançamentos)</td><td class="r">${n2b(-S.taxas.total)}</td><td></td></tr></table></div>`;
+  }else if(ACTAB==='conf'){
+    el.innerHTML=`<div class="card"><h3 style="margin-top:0">Conferências</h3>${A.conferencias.map(c=>`<div style="padding:8px 0;border-bottom:1px solid var(--ln)"><b>${c.ok?'✅':'⚠️'} ${esc(c.t)}</b><div class="mut" style="font-size:13px">${esc(c.d)}</div></div>`).join('')}</div>`;
+  }else if(ACTAB==='ajustes'){
+    const aj=A.ajustes||[];
+    el.innerHTML=`<div class="card"><h3 style="margin-top:0">Ajustes do mês</h3>
+     <div class="f2"><div><label>Saldo anterior (negativo = a Inerente adiantou)</label><input id="aj_sa" type="number" step="0.01" placeholder="${A.saldo_anterior}" value="${A.origem_saldo==='informado por você'?A.saldo_anterior:''}" ${A.fechado?'disabled':''}><div class="mut">Em branco = usa o fechamento do mês anterior (${brl(A.saldo_anterior)}).</div></div></div>
+     <h4>Linhas extras</h4><div class="mut">Ex.: "Comissão Q05 L01" em Serviços (valor positivo) ou um desconto no Acerto (valor negativo).</div>
+     <table id="aj_l"><tr><th>Bloco</th><th>Descrição</th><th class="r">Valor</th><th></th></tr>${aj.map(a=>linhaAjAc(a)).join('')}</table>
+     ${A.fechado?'':`<div class="bt" style="margin-top:6px"><button onclick="$('#aj_l').insertAdjacentHTML('beforeend',linhaAjAc({bloco:'servicos',descricao:'',valor:''}))">+ Linha</button></div>`}
+     <h4>Texto do quadro "Resumo do mês" (vai para o André)</h4>
+     <textarea id="aj_tx" style="min-height:180px" ${A.fechado?'disabled':''}>${esc(A.texto||'')}</textarea>
+     ${A.fechado?'':`<div class="bt" style="margin-top:8px"><button onclick="textoAc()">Escrever o texto com IA</button><button class="pri" onclick="salvaAjAc()">Salvar ajustes</button></div>`}</div>`;
+  }
+}
+const linhaAjAc=a=>`<tr class="ajl"><td><select style="width:auto"><option value="servicos" ${a.bloco==='servicos'?'selected':''}>Serviços</option><option value="acerto" ${a.bloco==='acerto'?'selected':''}>Acerto</option></select></td><td><input value="${esc(a.descricao)}"></td><td><input type="number" step="0.01" value="${a.valor}" style="text-align:right"></td><td><button onclick="this.closest('tr').remove()">×</button></td></tr>`;
+function selEntAc(x){if(AC.fechado)return `<span class="mut">${CAT_E_AC[x.cat]}</span>`;return `<select style="width:auto;font-size:12px;padding:3px" onchange="clsAc('${x.id}',this.value,false)">${Object.entries(CAT_E_AC).map(([k,t])=>`<option value="${k}" ${k===x.cat?'selected':''}>${t}${k===x.auto&&x.manual?' (sugerido)':''}</option>`).join('')}</select>`}
+function selSaiAc(x){if(AC.fechado)return `<span class="mut">${CAT_S_AC[x.cat]}</span>`;return `<select style="width:auto;font-size:12px;padding:3px" onchange="clsAc('${x.id}',this.value,${x.duvida?'false':'true'})">${Object.entries(CAT_S_AC).filter(([k])=>k!=='taxas'||x.cat==='taxas').map(([k,t])=>`<option value="${k}" ${k===x.cat?'selected':''}>${t}</option>`).join('')}</select>`}
+async function clsAc(id,cat,lembrar){await api('acerto/'+AC.mes+'/cls',{method:'POST',body:{id,cat,lembrar}});AC=await api('acerto/'+AC.mes);desenhaAc()}
+async function salvaAjAc(){const aj=[...document.querySelectorAll('#aj_l tr.ajl')].map(tr=>{const s=tr.querySelectorAll('select,input');return {bloco:s[0].value,descricao:s[1].value.trim(),valor:s[2].value}}).filter(a=>a.descricao&&a.valor!=='');
+  await api('acerto/'+AC.mes+'/ajustes',{method:'POST',body:{ajustes:aj,saldo_anterior:$('#aj_sa').value,texto:$('#aj_tx').value}});AC=await api('acerto/'+AC.mes);desenhaAc();alert('Ajustes salvos.')}
+async function textoAc(){const b=event.target;b.disabled=true;b.textContent='Escrevendo…';try{const r=await api('acerto/'+AC.mes+'/texto',{method:'POST'});$('#aj_tx').value=r.texto;AC.texto=r.texto}finally{b.disabled=false;b.textContent='Escrever o texto com IA'}}
+async function fechaAc(){if(AC.pendentes)return alert('Classifique os '+AC.pendentes+' lançamento(s) pendentes antes de fechar.');
+  if(!AC.texto&&!confirm('O texto do "Resumo do mês" para o André ainda está vazio. Fechar assim mesmo?'))return;
+  const [rr,rv]=resultadoAc();if(!confirm(`Fechar ${nomeMesAc(AC.mes)}?\n\nRecebido: ${brl(AC.totE)}\nServiços da Inerente: ${brl(AC.totServ)}\n${rr}: ${brl(rv)}\n\nEsse resultado vira o saldo anterior do mês seguinte.`))return;
+  await api('acerto/'+AC.mes+'/fechar',{method:'POST'});telaAcerto(AC.mes)}
+async function reabreAc(){if(!confirm('Reabrir '+nomeMesAc(AC.mes)+'? O mês seguinte passa a ver o saldo de novo só quando você fechar outra vez.'))return;await api('acerto/'+AC.mes+'/reabrir',{method:'POST'});telaAcerto(AC.mes)}
+function cardResumoAc(){const c=AC.comparativo,a=c.atual,p=c.anterior,ma=p?nomeMesAc(p.mes).split('/')[0]:'',mm=nomeMesAc(AC.mes).split('/')[0];
+  const lin=(r,va,vb,qtd)=>{const v=vb==null?'':qtd?((va-vb>=0?'+':'')+(va-vb)):(vb?((va/vb-1)*100>=0?'+':'−')+Math.abs((va/vb-1)*100).toFixed(1).replace('.',',')+'%':'');return `<tr><td>${r}</td><td class="r">${vb==null?'—':qtd?vb:n2b(vb)}</td><td class="r">${qtd?va:n2b(va)}</td><td class="r">${v}</td></tr>`};
+  return `<div class="acres"><div class="acrt">RESUMO DO MÊS · ${mm.toUpperCase()}${p?' × '+ma.toUpperCase():''}</div>
+   <table class="act"><tr class="mu"><td></td><td class="r">${ma.toUpperCase()}</td><td class="r">${mm.toUpperCase()}</td><td class="r">VAR.</td></tr>
+   ${lin('Recebido',a.recebido,p?+p.recebido:null)}${lin('Boletos',a.boletos,p&&p.boletos!=null?+p.boletos:null,1)}${lin('Mensais',a.mensais,p&&p.mensais!=null?+p.mensais:null)}${lin('Anuais',a.anuais,p&&p.anuais!=null?+p.anuais:null)}${lin('Cobranças',a.cobrancas,p&&p.cobrancas!=null?+p.cobrancas:null)}</table>
+   ${(AC.texto||'').split(/\n\s*\n/).filter(Boolean).map(t=>`<p>${esc(t)}</p>`).join('')||'<p class="mut">Texto ainda não escrito — veja "Ajustes e texto".</p>'}</div>`}
+/* ---- PDF ---- */
+function pdfAc(){const A=AC,E=A.E,S=A.S,[rr,rv]=resultadoAc(),o=location.origin;
+  const ord=['andre','luis','lucikelly','imposto','devolucao','saneago','equatorial','telefone','outro_inerente','indenizacao','conta_fca','taxas'];
+  const bl=(t,L,tot,rt,id)=>`<div class="bk"><div class="h">${t}</div><table>${L.map(l=>`<tr class="${l.c||''}"><td>${l.a?`<a href="#${l.a}">${esc(l.r)}</a>`:esc(l.r)}</td><td class="r">${n2b(l.v)}</td></tr>`).join('')}${tot!=null?`<tr class="tt"><td>${rt||'Total'}</td><td class="r">${n2b(tot)}</td></tr>`:''}</table></div>`;
+  const sec=(id,t,L,neg)=>L.length?`<section id="${id}"><div class="st">${t} — ${dbr(A.periodo[0])} a ${dbr(A.periodo[1])}</div><table class="dt"><tr class="mu"><td>DATA</td><td>DESCRIÇÃO</td><td class="r">VALOR</td></tr>${L.map(x=>`<tr><td>${dbr(x.data)}</td><td>${esc(x.descricao)}${x.obs?` <i>(${esc(x.obs)})</i>`:''}</td><td class="r">${n2b(neg?-x.valor:x.valor)}</td></tr>`).join('')}<tr class="tt"><td colspan="2">TOTAL · ${L.length} lançamento(s)</td><td class="r">${n2b(L.reduce((s,x)=>s+(neg?-x.valor:x.valor),0))}</td></tr></table></section>`:'';
+  const en=k=>A.entradas.filter(x=>x.cat===k);
+  const h=`<!doctype html><html><head><meta charset="utf-8"><title>Beira Rio ${nomeMesAc(A.mes).replace('/','-')}</title><style>
+  @page{size:A4;margin:14mm 13mm}body{font:9.5pt Arial,Helvetica,sans-serif;color:#222;margin:0}a{color:#222;text-decoration:none;border-bottom:1px dashed #9ad}
+  .top{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ccc;padding-bottom:8px;margin-bottom:12px}.top img{height:52px}.top .t{text-align:right}.top .t b{font-size:17pt;display:block}.top .t span{color:#777;font-size:8.5pt}
+  table{width:100%;border-collapse:collapse}td{padding:2.2px 0;border-bottom:1px solid #eee}.r{text-align:right;white-space:nowrap}.tt td{font-weight:bold;border-bottom:0;padding-top:5px}.tt td.r{color:#1b9fd0}
+  .h{color:#1b9fd0;font-weight:bold;font-size:8pt;letter-spacing:1px;margin:0 0 3px}.bk{margin-bottom:12px}.mu td{color:#999}
+  table.cols>tbody>tr>td{width:50%;vertical-align:top;border:0;padding:0 10px}
+  .res{background:#f5fafd;border:1px solid #dbe9f1;border-left:3px solid #29b6e8;padding:8px 10px;margin-top:6px}.res .h{color:#1b8fb8}.res p{font-size:7.9pt;text-align:justify;margin:6px 0}.res td{font-size:8pt}
+  section{page-break-before:always;position:relative;min-height:250mm}section:before{content:"";position:fixed;left:50%;top:50%;width:300px;height:420px;transform:translate(-50%,-50%);background:url(${o}/acerto-marca.png) center/contain no-repeat;opacity:.05}
+  .st{color:#1b9fd0;font-weight:bold;font-size:11pt;margin-bottom:8px}.dt td{font-size:8pt}.dt i{color:#777}.ass{display:flex;gap:40px;margin-top:40px}.ass div{flex:1;border-top:1px solid #444;text-align:center;font-size:8pt;padding-top:4px}
+  </style></head><body>
+  <div class="top"><img src="${o}/acerto-logo.png"><div class="t"><b>Acerto da Carteira</b><span>Condomínio Beira Rio · FCA<br>${dbr(A.periodo[0])} a ${dbr(A.periodo[1])}</span></div></div>
+  <table class="cols"><tr><td>
+  ${bl('ENTRADAS',['entrada','mensal','anual','cobranca','contrato'].map(k=>({r:E[k].rotulo,v:E[k].total,a:'s-'+k})),A.totE)}
+  ${bl('SAÍDAS',ord.filter(k=>S[k].total).map(k=>({r:S[k].rotulo,v:S[k].total,a:k==='devolucao'?'s-devolucao':null})),A.totS)}
+  ${bl('SERVIÇOS INERENTE',A.servicos.map(s=>({r:s.rotulo,v:s.valor})),A.totServ)}
+  ${bl('ACERTO',A.acerto.map((x,i)=>({r:x.rotulo,v:x.valor,c:i?'mu':''})),rv,rr)}
+  ${bl('CAIXA',[{r:'Entradas − Saídas',v:A.caixa}])}
+  </td><td>${bl('TRANSFERÊNCIAS ANDRÉ',A.andre.map(x=>({r:dbr(x.data),v:-x.valor})),S.andre.total)}
+  <div class="res">${cardResumoAc().replace('class="acres"','').replace('<div class="acrt">','<div class="h">')}</div>
+  </td></tr></table>
+  <div class="ass"><div>ANDRÉ DARLAN PIMENTA FRANCISCON</div><div>LUIS FERNANDO PIMENTEL SOARES</div></div>
+  ${sec('s-entrada','ENTRADAS',en('entrada'))}${sec('s-anual','INTERMEDIÁRIAS',en('anual'))}${sec('s-cobranca','COBRANÇA',en('cobranca'))}${sec('s-contrato','CONTRATOS',en('contrato'))}${sec('s-devolucao','DEVOLUÇÕES',A.saidas.filter(x=>x.cat==='devolucao'),true)}${sec('s-mensal','MENSAIS',en('mensal'))}
+  <script>window.onload=()=>setTimeout(()=>print(),400)<\/script></body></html>`;
+  const w=window.open('','_blank');if(!w)return alert('O navegador bloqueou a janela. Libere pop-ups para este site.');w.document.write(h);w.document.close()}
+/* ---- Excel ---- */
+async function planilhaAc(){
+  if(!window.ExcelJS){await new Promise((ok,er)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';s.onload=ok;s.onerror=er;document.head.appendChild(s)})}
+  const A=AC,E=A.E,S=A.S,wb=new ExcelJS.Workbook(),per=`Período ${dbr(A.periodo[0])} a ${dbr(A.periodo[1])}`;
+  const AZ='FF29B6E8',F={name:'Arial',size:10},FB={name:'Arial',size:10,bold:true},NF='#,##0.00';
+  const det=(nome,tit,L,cob,neg)=>{const ws=wb.addWorksheet(nome);ws.getColumn(1).width=12;ws.getColumn(2).width=92;ws.getColumn(3).width=14;if(cob){ws.getColumn(4).width=14;ws.getColumn(5).width=14;ws.getColumn(6).width=40}
+    ws.getCell('A1').value=`${tit} - ${per.replace('Período ','Período ')}`;ws.getCell('A1').font={name:'Arial',size:11,bold:true};
+    const hd=cob?['Data','Descrição','Valor','FCA','Cobrança','Observação']:['Data','Descrição','Valor'];hd.forEach((h,i)=>{const c=ws.getCell(3,i+1);c.value=h;c.font=FB});
+    let r=4;for(const x of L){ws.getCell(r,1).value=dbr(x.data);ws.getCell(r,2).value=x.descricao;ws.getCell(r,3).value=x.valor;ws.getCell(r,3).numFmt=NF;
+      if(cob){ws.getCell(r,4).value={formula:`ROUND(C${r}/1.1,2)`,result:x.fca};ws.getCell(r,5).value={formula:`ROUND(C${r}-D${r},2)`,result:x.hon};ws.getCell(r,4).numFmt=ws.getCell(r,5).numFmt=NF;ws.getCell(r,6).value=x.obs||''}
+      for(let c=1;c<=hd.length;c++)ws.getCell(r,c).font=F;r++}
+    const t=r+1,tot=L.reduce((s,x)=>s+x.valor,0);ws.getCell(t,2).value='TOTAL';ws.getCell(t,2).font=FB;ws.getCell(t,3).value={formula:`SUM(C4:C${Math.max(4,r-1)})`,result:Math.round(tot*100)/100};ws.getCell(t,3).numFmt=NF;ws.getCell(t,3).font=FB;
+    if(cob){ws.getCell(t,4).value={formula:`SUM(D4:D${Math.max(4,r-1)})`,result:E.cobranca.fca};ws.getCell(t,5).value={formula:`SUM(E4:E${Math.max(4,r-1)})`,result:E.cobranca.hon};ws.getCell(t,4).numFmt=ws.getCell(t,5).numFmt=NF;ws.getCell(t,4).font=ws.getCell(t,5).font=FB}
+    return t};
+  const en=k=>A.entradas.filter(x=>x.cat===k);
+  const R=wb.addWorksheet('Resumo');R.getColumn(2).width=42;R.getColumn(3).width=16;
+  const tE=det('Entradas','ENTRADAS',en('entrada')),tI=det('Interm.','INTERMEDIÁRIAS',en('anual')),tM=det('Mensais','MENSAIS',en('mensal')),tC=det('Cobrança','COBRANÇA',en('cobranca'),true),tCt=det('Contratos','CONTRATOS',en('contrato'));
+  const tD=det('Devoluções','DEVOLUÇÕES',A.saidas.filter(x=>x.cat==='devolucao'));
+  det('Extrato','SAÍDAS DA CONTA',A.saidas.filter(x=>x.cat!=='taxas'));
+  let r=1;const put=(b,c,bold,cor)=>{const cb=R.getCell(r,2),cc=R.getCell(r,3);cb.value=b;cb.font=bold?{...FB,...(cor&&c==null?{color:{argb:AZ}}:{})}:F;if(c!=null){cc.value=c;cc.numFmt=NF;cc.font=bold?{...FB,color:{argb:AZ}}:F}r++};
+  const tit=t=>{const c=R.getCell(r,2);c.value=t;c.font={...FB,color:{argb:AZ}};r++};
+  R.getCell(1,2).value=per;R.getCell(1,2).font=FB;r=3;
+  tit('ENTRADAS');const e0=r;
+  put('Parcelas de Entrada',{formula:`Entradas!C${tE}`,result:E.entrada.total});put('Parcelas Mensais',{formula:`Mensais!C${tM}`,result:E.mensal.total});put('Parcelas Intermediárias',{formula:`'Interm.'!C${tI}`,result:E.anual.total});put('Parcelas de Cobrança',{formula:`Cobrança!C${tC}`,result:E.cobranca.total});put('Contratos',{formula:`Contratos!C${tCt}`,result:E.contrato.total});
+  const rTE=r;put('TOTAL',{formula:`SUM(C${e0}:C${r-1})`,result:A.totE},true);r++;
+  tit('SAÍDAS');const s0=r;
+  for(const k of ['andre','lucikelly','luis','devolucao','imposto','telefone','equatorial','saneago','outro_inerente','indenizacao','conta_fca','taxas'])if(S[k].total)put(S[k].rotulo+(k==='taxas'?' (não entra no acerto)':''),k==='devolucao'?{formula:`Devoluções!C${tD}*-1`,result:S[k].total}:S[k].total);
+  const rTS=r;put('TOTAL',{formula:`SUM(C${s0}:C${r-1})`,result:A.totS},true);r++;
+  tit('TRANSFERÊNCIAS ANDRÉ');const a0=r;for(const x of A.andre){R.getCell(r,2).value=dbr(x.data);R.getCell(r,2).font=F;R.getCell(r,3).value=x.valor;R.getCell(r,3).numFmt=NF;R.getCell(r,3).font=F;r++}
+  put('TOTAL',{formula:`SUM(C${a0}:C${Math.max(a0,r-1)})`,result:-S.andre.total},true);r++;
+  tit('SERVIÇOS INERENTE');const v0=r;const sv=A.servicos;
+  put(sv[0].rotulo,{formula:`ROUND(Mensais!C${tM}*0.06,2)`,result:sv[0].valor});put(sv[1].rotulo,{formula:`ROUND('Interm.'!C${tI}*0.06,2)`,result:sv[1].valor});put(sv[2].rotulo,{formula:`ROUND(Cobrança!D${tC}*0.06,2)`,result:sv[2].valor});put(sv[3].rotulo,{formula:`Cobrança!E${tC}`,result:sv[3].valor});put(sv[4].rotulo,{formula:`ROUND(Contratos!C${tCt}*0.2,2)`,result:sv[4].valor});
+  for(const s of sv.slice(5))put(s.rotulo,s.valor);
+  const rSv=r;put('TOTAL',{formula:`SUM(C${v0}:C${r-1})`,result:A.totServ},true);r++;
+  tit('ACERTO');const k0=r;put('Serviços',{formula:`C${rSv}`,result:A.totServ});for(const x of A.acerto.slice(1))put(x.rotulo,x.valor);
+  const [rr,rv]=resultadoAc();put(rr,{formula:`${A.resultado<0?'-':''}SUM(C${k0}:C${r-1})`,result:rv},true);r++;
+  tit('CAIXA');put('Entradas − Saídas',{formula:`C${rTE}-C${rTS}`,result:A.caixa},true);
+  r+=3;R.getCell(r,2).value='ANDRÉ DARLAN PIMENTA FRANCISCON';R.getCell(r,2).font=FB;r+=4;R.getCell(r,2).value='LUIS FERNANDO PIMENTEL SOARES';R.getCell(r,2).font=FB;
+  wb.views=[{activeTab:0}];
+  const buf=await wb.xlsx.writeBuffer();const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));a.download=`Acerto mês ${A.mes.slice(5)}-${A.mes.slice(0,4)}.xlsx`;a.click()}
+
 </script>
 </body>
 </html>
