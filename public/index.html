@@ -1588,7 +1588,7 @@ async function planilhaAc(){
     ws.getCell('A1').value=`${tit} - ${per.replace('Período ','Período ')}`;ws.getCell('A1').font={name:'Arial',size:11,bold:true};
     const hd=cob?['Data','Descrição','Valor','FCA','Cobrança','Observação']:['Data','Descrição','Valor'];hd.forEach((h,i)=>{const c=ws.getCell(3,i+1);c.value=h;c.font=FB});
     let r=4;for(const x of L){ws.getCell(r,1).value=dbr(x.data);ws.getCell(r,2).value=x.descricao;ws.getCell(r,3).value=x.valor;ws.getCell(r,3).numFmt=NF;
-      if(cob){ws.getCell(r,4).value={formula:`ROUND(C${r}/1.1,2)`,result:x.fca};ws.getCell(r,5).value={formula:`ROUND(C${r}-D${r},2)`,result:x.hon};ws.getCell(r,4).numFmt=ws.getCell(r,5).numFmt=NF;ws.getCell(r,6).value=x.obs||''}
+      if(cob){ws.getCell(r,4).value=x.fca;ws.getCell(r,5).value={formula:`ROUND(C${r}-D${r},2)`,result:x.hon};ws.getCell(r,4).numFmt=ws.getCell(r,5).numFmt=NF;ws.getCell(r,6).value=x.obs||''}
       for(let c=1;c<=hd.length;c++)ws.getCell(r,c).font=F;r++}
     const t=r+1,tot=L.reduce((s,x)=>s+x.valor,0);ws.getCell(t,2).value='TOTAL';ws.getCell(t,2).font=FB;ws.getCell(t,3).value={formula:`SUM(C4:C${Math.max(4,r-1)})`,result:Math.round(tot*100)/100};ws.getCell(t,3).numFmt=NF;ws.getCell(t,3).font=FB;
     if(cob){ws.getCell(t,4).value={formula:`SUM(D4:D${Math.max(4,r-1)})`,result:E.cobranca.fca};ws.getCell(t,5).value={formula:`SUM(E4:E${Math.max(4,r-1)})`,result:E.cobranca.hon};ws.getCell(t,4).numFmt=ws.getCell(t,5).numFmt=NF;ws.getCell(t,4).font=ws.getCell(t,5).font=FB}

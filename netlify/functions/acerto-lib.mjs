@@ -170,7 +170,6 @@ export function criaAcerto({ q, asaas, json, log }) {
         if (cls[e.id]) cat = cls[e.id];
         const fat = (String(e.descricao).match(/fatura nr\.?\s*(\d+)/i) || [])[1] || (g.invoiceNumber ? String(g.invoiceNumber) : null);
         const L = { id: e.id, data: e.data, descricao: e.descricao, valor: R2(v), cat, auto, manual: !!cls[e.id], contrato: ct, ql, linha, venc, pago, dias: d, obs, fatura: fat, payment: e.payment_id, sem_boleto: !e.pg };
-        if (cat === 'cobranca') { L.fca = R2(v / 1.1); L.hon = R2(v - L.fca); }
         ent.push(L);
       } else {
         const ben = beneficiario(e.descricao), n = nm(ben);
@@ -183,7 +182,12 @@ export function criaAcerto({ q, asaas, json, log }) {
         sai.push({ id: e.id, data: e.data, descricao: e.descricao, beneficiario: ben, valor: R2(v), cat, auto, como, duvida: DUVIDA.test(n), tipo: e.tipo });
       }
     }
-    await custoDaParcela(ent.filter(x => x.cat === 'cobranca'));
+    await custoDaParcela(ent.filter(x => ['mensal', 'anual', 'cobranca'].includes(x.cat)));
+    for (const x of ent) {
+      if ((x.cat === 'mensal' || x.cat === 'anual') && !x.manual && x.hon > 0) { x.cat = x.auto = 'cobranca'; x.obs = (x.obs ? x.obs + ' · ' : '') + 'Tem custo de cobrança lançado na parcela'; }
+      if (x.cat !== 'cobranca') { delete x.hon; delete x.fca; }
+      else if (x.sem_lancamento || x.hon == null) { x.fca = R2(x.valor / 1.1); x.hon = R2(x.valor - x.fca); x.provisorio = true; x.obs = (x.obs ? x.obs + ' · ' : '') + 'Pagamento ainda não lançado na parcela (valor ÷ 1,10 provisório)'; }
+    }
     const soma = (L, f = x => x.valor) => R2(L.reduce((s, x) => s + f(x), 0));
     const E = {}; for (const k of Object.keys(CAT_E)) { const L = ent.filter(x => x.cat === k); E[k] = { rotulo: CAT_E[k], qtd: L.length, total: soma(L) }; }
     const cob = ent.filter(x => x.cat === 'cobranca'); E.cobranca.fca = soma(cob, x => x.fca); E.cobranca.hon = R2(E.cobranca.total - E.cobranca.fca);
@@ -220,6 +224,8 @@ export function criaAcerto({ q, asaas, json, log }) {
       const ia = new Set((P.dados.saidas || []).map(x => x.id)), rs = sai.filter(x => ia.has(x.id));
       conf.push({ ok: !rep.length && !rs.length, t: 'Emenda com o mês anterior', d: rep.length || rs.length ? `Repetidos do mês anterior: ${rep.map(x => x.fatura).concat(rs.map(x => x.descricao)).join(', ')}` : 'Nenhuma fatura nem saída repetida com o mês anterior.' });
     }
+    const prov = ent.filter(x => x.provisorio);
+    conf.push({ ok: !prov.length, t: 'Cobranças com o pagamento lançado na parcela', d: prov.length ? `Ainda sem lançamento na parcela (o custo de cobrança fica provisório até lançar): ${prov.map(x => `${x.contrato || ''} ${x.linha.slice(0, 50)} ${br(x.valor)}`).join(' · ')}` : 'Todas: o custo de cobrança é o mesmo que está na parcela.' });
     const r42 = ent.filter(x => x.obs && /dias de atraso/.test(x.obs));
     conf.push({ ok: true, t: 'Pagas com mais de 60 dias de atraso (vão para Cobrança)', d: r42.length ? r42.map(x => `${x.contrato || ''} ${x.linha} — ${x.dias} dias`).join(' · ') : 'Nenhuma.' });
     const fora = ent.filter(x => x.cat === 'mensal' && !/^\d+\s*\/\s*\d+$/.test(x.linha.trim()));
@@ -318,6 +324,7 @@ export function criaAcerto({ q, asaas, json, log }) {
       if (p[2] === 'fechar' && m === 'POST') {
         const A = await calcula(mes);
         if (A.pendentes) return json({ erro: `Ainda há ${A.pendentes} lançamento(s) a classificar.` }, 400);
+        if (A.entradas.some(x => x.provisorio)) return json({ erro: 'Há cobrança paga que ainda não foi lançada na parcela. Lance o pagamento no contrato (ou espere o lançamento automático) e atualize.' }, 400);
         if (A.entradas.some(x => x.sem_boleto)) return json({ erro: 'Há recebimentos sem o boleto identificado. Clique em "Atualizar do Asaas".' }, 400);
         if (mes >= new Date().toISOString().slice(0, 7)) return json({ erro: 'O mês ainda não terminou.' }, 400);
         await q(`update carteira.acerto_meses set fechado_em=now(), por='luis', saldo=$2, dados=$3 where mes=$1`, [mes, A.resultado, JSON.stringify(A)]);
