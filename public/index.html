@@ -1550,7 +1550,8 @@ function cardResumoAc(){const c=AC.comparativo,a=c.atual,p=c.anterior,ma=p?nomeM
    ${lin('Recebido',a.recebido,p?+p.recebido:null)}${lin('Boletos',a.boletos,p&&p.boletos!=null?+p.boletos:null,1)}${lin('Mensais',a.mensais,p&&p.mensais!=null?+p.mensais:null)}${lin('Anuais',a.anuais,p&&p.anuais!=null?+p.anuais:null)}${lin('Cobranças',a.cobrancas,p&&p.cobrancas!=null?+p.cobrancas:null)}</table>
    ${(AC.texto||'').split(/\n\s*\n/).filter(Boolean).map(t=>`<p>${esc(t)}</p>`).join('')||'<p class="mut">Texto ainda não escrito — veja "Ajustes e texto".</p>'}</div>`}
 /* ---- PDF ---- */
-function pdfAc(){const A=AC,E=A.E,S=A.S,[rr,rv]=resultadoAc(),o=location.origin;
+function pdfAc(){const h=htmlPdfAc();const w=window.open('','_blank');if(!w)return alert('O navegador bloqueou a janela. Libere pop-ups para este site.');w.document.write(h);w.document.close()}
+function htmlPdfAc(semPrint){const A=AC,E=A.E,S=A.S,[rr,rv]=resultadoAc(),o=location.origin;
   const ord=['andre','luis','lucikelly','imposto','devolucao','saneago','equatorial','telefone','outro_inerente','indenizacao','conta_fca','taxas'];
   const bl=(t,L,tot,rt,id)=>`<div class="bk"><div class="h">${t}</div><table>${L.map(l=>`<tr class="${l.c||''}"><td>${l.a?`<a href="#${l.a}">${esc(l.r)}</a>`:esc(l.r)}</td><td class="r">${n2b(l.v)}</td></tr>`).join('')}${tot!=null?`<tr class="tt"><td>${rt||'Total'}</td><td class="r">${n2b(tot)}</td></tr>`:''}</table></div>`;
   const sec=(id,t,L,neg)=>L.length?`<section id="${id}"><div class="st">${t} — ${dbr(A.periodo[0])} a ${dbr(A.periodo[1])}</div><table class="dt"><tr class="mu"><td>DATA</td><td>DESCRIÇÃO</td><td class="r">VALOR</td></tr>${L.map(x=>`<tr><td>${dbr(x.data)}</td><td>${esc(x.descricao)}${x.obs?` <i>(${esc(x.obs)})</i>`:''}</td><td class="r">${n2b(neg?-x.valor:x.valor)}</td></tr>`).join('')}<tr class="tt"><td colspan="2">TOTAL · ${L.length} lançamento(s)</td><td class="r">${n2b(L.reduce((s,x)=>s+(neg?-x.valor:x.valor),0))}</td></tr></table></section>`:'';
@@ -1567,8 +1568,8 @@ function pdfAc(){const A=AC,E=A.E,S=A.S,[rr,rv]=resultadoAc(),o=location.origin;
   </style></head><body>
   <div class="top"><img src="${o}/acerto-logo.png"><div class="t"><b>Acerto da Carteira</b><span>Condomínio Beira Rio · FCA<br>${dbr(A.periodo[0])} a ${dbr(A.periodo[1])}</span></div></div>
   <table class="cols"><tr><td>
-  ${bl('ENTRADAS',['entrada','mensal','anual','cobranca','contrato'].map(k=>({r:E[k].rotulo,v:E[k].total,a:'s-'+k})),A.totE)}
-  ${bl('SAÍDAS',ord.filter(k=>S[k].total).map(k=>({r:S[k].rotulo,v:S[k].total,a:k==='devolucao'?'s-devolucao':null})),A.totS)}
+  ${bl('ENTRADAS',['entrada','mensal','anual','cobranca','contrato'].map(k=>({r:E[k].rotulo,v:E[k].total,a:'s-'+k})).concat(E.revisar.qtd?[{r:'A classificar',v:E.revisar.total}]:[]),A.totE)}
+  ${bl('SAÍDAS',ord.concat('revisar').filter(k=>S[k].total).map(k=>({r:S[k].rotulo,v:S[k].total,a:k==='devolucao'?'s-devolucao':null})),A.totS)}
   ${bl('SERVIÇOS INERENTE',A.servicos.map(s=>({r:s.rotulo,v:s.valor})),A.totServ)}
   ${bl('ACERTO',A.acerto.map((x,i)=>({r:x.rotulo,v:x.valor,c:i?'mu':''})),rv,rr)}
   ${bl('CAIXA',[{r:'Entradas − Saídas',v:A.caixa}])}
@@ -1577,8 +1578,7 @@ function pdfAc(){const A=AC,E=A.E,S=A.S,[rr,rv]=resultadoAc(),o=location.origin;
   </td></tr></table>
   <div class="ass"><div>ANDRÉ DARLAN PIMENTA FRANCISCON</div><div>LUIS FERNANDO PIMENTEL SOARES</div></div>
   ${sec('s-entrada','ENTRADAS',en('entrada'))}${sec('s-anual','INTERMEDIÁRIAS',en('anual'))}${sec('s-cobranca','COBRANÇA',en('cobranca'))}${sec('s-contrato','CONTRATOS',en('contrato'))}${sec('s-devolucao','DEVOLUÇÕES',A.saidas.filter(x=>x.cat==='devolucao'),true)}${sec('s-mensal','MENSAIS',en('mensal'))}
-  <script>window.onload=()=>setTimeout(()=>print(),400)<\/script></body></html>`;
-  const w=window.open('','_blank');if(!w)return alert('O navegador bloqueou a janela. Libere pop-ups para este site.');w.document.write(h);w.document.close()}
+  ${semPrint?'':'<script>window.onload=()=>setTimeout(()=>print(),400)<\/script>'}</body></html>`;return h}
 /* ---- Excel ---- */
 async function planilhaAc(){
   if(!window.ExcelJS){await new Promise((ok,er)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';s.onload=ok;s.onerror=er;document.head.appendChild(s)})}
@@ -1602,10 +1602,10 @@ async function planilhaAc(){
   const tit=t=>{const c=R.getCell(r,2);c.value=t;c.font={...FB,color:{argb:AZ}};r++};
   R.getCell(1,2).value=per;R.getCell(1,2).font=FB;r=3;
   tit('ENTRADAS');const e0=r;
-  put('Parcelas de Entrada',{formula:`Entradas!C${tE}`,result:E.entrada.total});put('Parcelas Mensais',{formula:`Mensais!C${tM}`,result:E.mensal.total});put('Parcelas Intermediárias',{formula:`'Interm.'!C${tI}`,result:E.anual.total});put('Parcelas de Cobrança',{formula:`Cobrança!C${tC}`,result:E.cobranca.total});put('Contratos',{formula:`Contratos!C${tCt}`,result:E.contrato.total});
+  put('Parcelas de Entrada',{formula:`Entradas!C${tE}`,result:E.entrada.total});put('Parcelas Mensais',{formula:`Mensais!C${tM}`,result:E.mensal.total});put('Parcelas Intermediárias',{formula:`'Interm.'!C${tI}`,result:E.anual.total});put('Parcelas de Cobrança',{formula:`Cobrança!C${tC}`,result:E.cobranca.total});put('Contratos',{formula:`Contratos!C${tCt}`,result:E.contrato.total});if(E.revisar.qtd)put('A classificar',E.revisar.total);
   const rTE=r;put('TOTAL',{formula:`SUM(C${e0}:C${r-1})`,result:A.totE},true);r++;
   tit('SAÍDAS');const s0=r;
-  for(const k of ['andre','lucikelly','luis','devolucao','imposto','telefone','equatorial','saneago','outro_inerente','indenizacao','conta_fca','taxas'])if(S[k].total)put(S[k].rotulo+(k==='taxas'?' (não entra no acerto)':''),k==='devolucao'?{formula:`Devoluções!C${tD}*-1`,result:S[k].total}:S[k].total);
+  for(const k of ['andre','lucikelly','luis','devolucao','imposto','telefone','equatorial','saneago','outro_inerente','indenizacao','conta_fca','taxas','revisar'])if(S[k].total)put(S[k].rotulo+(k==='taxas'?' (não entra no acerto)':''),k==='devolucao'?{formula:`Devoluções!C${tD}*-1`,result:S[k].total}:S[k].total);
   const rTS=r;put('TOTAL',{formula:`SUM(C${s0}:C${r-1})`,result:A.totS},true);r++;
   tit('TRANSFERÊNCIAS ANDRÉ');const a0=r;for(const x of A.andre){R.getCell(r,2).value=dbr(x.data);R.getCell(r,2).font=F;R.getCell(r,3).value=x.valor;R.getCell(r,3).numFmt=NF;R.getCell(r,3).font=F;r++}
   put('TOTAL',{formula:`SUM(C${a0}:C${Math.max(a0,r-1)})`,result:-S.andre.total},true);r++;
