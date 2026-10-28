@@ -50,7 +50,7 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .aviso{background:#fef2f2;color:#7f1d1d;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;margin:8px 0}
 .info{background:#f0f9ff;color:#0c4a6e;border:1px solid #bae6fd;border-radius:8px;padding:8px 10px;margin:8px 0}
 .ac2{display:grid;grid-template-columns:1fr 1fr;gap:28px}@media(max-width:800px){.ac2{grid-template-columns:1fr}}.ach{color:#1b9fd0;font-weight:700;font-size:12px;letter-spacing:1px;margin-bottom:4px}table.act td{padding:4px 0;border-bottom:1px solid #eef0f3}table.act tr.tt td{font-weight:700;border:0}table.act tr.tt td.r{color:#1b9fd0}table.act tr.mu td{color:#888}table.act a{color:inherit;border-bottom:1px dashed #9ad;text-decoration:none}.acres{background:#f5fafd;border:1px solid #dbe9f1;border-left:3px solid #29b6e8;border-radius:8px;padding:10px 12px}.acrt{color:#1b8fb8;font-weight:700;font-size:12px;letter-spacing:.5px;margin-bottom:6px}.acres p{font-size:13px;text-align:justify;margin:8px 0 0}
-.mut{color:var(--mut);font-size:12px}.r{text-align:right}.hid{display:none}
+.lq{margin-bottom:12px}.lts{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.lt{width:38px;height:30px;border-radius:6px;color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer}.lt.vazio{background:#fff;border:1px dashed #aaa;color:#999;cursor:default}.mut{color:var(--mut);font-size:12px}.r{text-align:right}.hid{display:none}
 .cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
 .cb{text-align:left;background:#fff;border:1px solid var(--ln);border-left:5px solid var(--fu);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px;min-height:140px}
 .cb.pend{outline:4px dashed #f59e0b!important;outline-offset:2px!important;box-shadow:0 0 0 2px #fff,0 0 12px rgba(245,158,11,.7)!important}.cb.pend{position:relative;overflow:visible!important}.cbtip{display:none;position:absolute;left:0;top:100%;margin-top:6px;z-index:50;width:320px;max-width:80vw;background:#fffbeb;color:#422006;border:2px solid #f59e0b;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:400;line-height:1.35;text-align:left;white-space:normal;box-shadow:0 6px 18px rgba(0,0,0,.2)}.cb.pend:hover .cbtip{display:block}.cbp{display:inline-block;font-size:10px;font-weight:800;color:#000;background:#fbbf24;border-radius:4px;padding:0 4px;margin-top:3px}.cb:hover{border-color:var(--az);box-shadow:0 2px 10px rgba(0,0,0,.06)}.cb.st-troca{background:#1e3a8a;border-color:#1e3a8a;border-left-color:#1e3a8a;color:#fff;opacity:.5}.cb.st-troca .cbt b,.cb.st-troca .cbn{color:#fff}.cb.st-troca .cbt span{color:#e5e7eb}.cb.st-dia{background:#bbf7d0;border-color:#16a34a;border-left-color:#16a34a}.cb.st-atraso{background:#fecaca;border-color:#dc2626;border-left-color:#dc2626}.cb.st-atrasoG{background:#b91c1c;border-color:#7f1d1d;border-left-color:#7f1d1d;color:#fff}.cb.st-atrasoG .cbt b,.cb.st-atrasoG .cbn{color:#fff}.cb.st-atrasoG .cbt span{color:#fecaca}.cb.st-canc{background:#000;border-color:#000;border-left-color:#000;color:#fff;opacity:.45}.cb.st-canc:hover{opacity:.8}.cb.st-retom{background:#3b0764;border-color:#3b0764;border-left-color:#3b0764;color:#fff;opacity:.45}.cb.st-dev{background:#a16207;border-color:#a16207;border-left-color:#a16207;color:#fff;opacity:.6}.cb.st-retom:hover,.cb.st-dev:hover{opacity:.8}.cb.st-retom .cbt b,.cb.st-retom .cbn,.cb.st-dev .cbt b,.cb.st-dev .cbn{color:#fff}.cb.st-retom .cbt span,.cb.st-dev .cbt span{color:#e5e7eb}.cb.st-canc .cbt b,.cb.st-canc .cbn{color:#fff}.cb.st-canc .cbt span{color:#9ca3af}.cb.st-conf{background:#fff;border-left-color:var(--fu)}
@@ -147,7 +147,7 @@ function route(){const h=location.hash.slice(1);COMO='';document.body.classList.
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
-  else if(h.startsWith('c/')){const pp=h.slice(2).split('/');window._ABRE_DEV=pp[1]==='dev';abrirContrato(pp[0])}else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='destrinchar'&&EU==='luis')telaDestrinchar();else if(h==='devolucoes'&&EU==='luis')telaDevolucoes();else if(h==='cessoes'&&EU==='luis')telaCessoes();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
+  else if(h.startsWith('c/')){const pp=h.slice(2).split('/');window._ABRE_DEV=pp[1]==='dev';abrirContrato(pp[0])}else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='destrinchar'&&EU==='luis')telaDestrinchar();else if(h==='devolucoes'&&EU==='luis')telaDevolucoes();else if(h==='cessoes'&&EU==='luis')telaCessoes();else if(h==='mapa')telaMapa();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function novaPend(){const t=prompt('Descreva a pendência deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
 async function novaObs(){const t=prompt('Observação deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'observacao',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
@@ -157,6 +157,7 @@ async function resolvePend(id){if(!confirm('Marcar esta pendência como resolvid
 function telaModulos(){
   app.innerHTML=`<div class="mods">
    <div class="mod" onclick="location.hash='contratos'"><b>Contratos</b><span>Carteira do Beira Rio: parcelas, pagamentos, acordos, cessões e relatórios.</span></div>
+   <div class="mod" style="border-left-color:#16a34a" onclick="location.hash='mapa'"><b>Mapa de lotes</b><span>Quadra por quadra: em dia, em atraso, em cobrança e lotes disponíveis (encerrados/retomados). Clique para abrir o contrato.</span></div>
    <div class="mod" style="border-left-color:#2e9e4f" onclick="location.hash='clientes'"><b>Clientes</b><span>Cadastro dos clientes: telefones, e-mails, endereço, documentos e os contratos de cada um.</span></div>
    ${EU==='luis'||EU==='assistente'?`<div class="mod" style="border-left-color:#dc2626" onclick="location.hash='cobranca'"><b>Cobrança</b><span>Campanha de cobrança: funil, agenda de contatos, promessas e mensagens prontas de WhatsApp.</span></div>`:''}
    ${EU==='assistente'?`<div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar boletos, 2ª via, cobrança e relatórios de cobrança.</span></div>`:''}
@@ -1841,6 +1842,29 @@ async function salvaPessoais(id){const c=CLI.find(x=>x.id==id),M=c.manual||{};co
   const pl=c.planilha||{},pes={};for(const k of ks){const v=$('#dp_'+k).value.trim();if(v&&v!==String(pl[k]||''))pes[k]=v}
   const manual={...M,pessoais:pes,emails_invalidos:[...document.querySelectorAll('.dp_ei:checked')].map(x=>x.value)};
   await api('cliente/'+id,{method:'PUT',body:{manual}});c.manual=manual;fechaModal();fichaCliente(id)}
+
+/* ===== Mapa de lotes ===== */
+async function telaMapa(){app.innerHTML='<div class="card">Carregando…</div>';
+  const [L,cob]=await Promise.all([api('contratos'),EU==='luis'||EU==='assistente'?api('cobranca/painel').catch(()=>null):null]);
+  const emCob=new Set((cob?.casos||[]).map(c=>c.contrato));
+  const lotes={};for(const k of L){const id=k.quadra+'-'+k.lote;(lotes[id]=lotes[id]||[]).push(k)}
+  const q={};for(const k of L){const qq=+k.quadra,ll=+k.lote;q[qq]=Math.max(q[qq]||0,ll)}
+  const sit=ks=>{const at=ks.filter(k=>!k.cancelado).sort((a,b)=>String(b.data_assinatura).localeCompare(String(a.data_assinatura)))[0];
+    if(!at)return{c:'#d1d5db',t:'Disponível (contrato encerrado)',k:ks[ks.length-1],cls:'disp'};
+    if(emCob.has(at.numero))return{c:'#7c3aed',t:'Em cobrança',k:at,cls:'cob'};
+    const n=+at.em_atraso||0;if(n>=3)return{c:'#b91c1c',t:`${n} parcelas em atraso`,k:at,cls:'grave'};if(n>0)return{c:'#f59e0b',t:`${n} parcela(s) em atraso`,k:at,cls:'atr'};
+    return{c:'#16a34a',t:'Em dia',k:at,cls:'dia'}};
+  const cont={dia:0,atr:0,grave:0,cob:0,disp:0};
+  const qs=Object.keys(q).map(Number).sort((a,b)=>a-b);
+  const html=qs.map(qq=>{let cel='';for(let l=1;l<=q[qq];l++){const id=String(qq).padStart(2,'0')+'-'+String(l).padStart(2,'0'),ks=lotes[id];
+      if(!ks){cel+=`<div class="lt vazio" title="Q${qq} L${l}: sem contrato no sistema">${l}</div>`;continue}
+      const s=sit(ks);cont[s.cls]++;cel+=`<div class="lt" style="background:${s.c}" title="Q${qq} L${l} · contrato ${s.k.numero} · ${esc(s.k.titular||'')} · ${s.t}${+s.k.em_atraso_valor?' · '+brl(+s.k.em_atraso_valor):''}" onclick="location.hash='c/${s.k.numero}'">${l}</div>`}
+    return `<div class="lq"><b>Quadra ${String(qq).padStart(2,'0')}</b><div class="lts">${cel}</div></div>`}).join('');
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
+  <div class="card"><h3 style="margin-top:0">Mapa de lotes</h3>
+   <div class="leg"><span style="--c:#16a34a">Em dia (${cont.dia})</span><span style="--c:#f59e0b">1 ou 2 parcelas em atraso (${cont.atr})</span><span style="--c:#b91c1c">3 ou mais em atraso (${cont.grave})</span><span style="--c:#7c3aed">Em cobrança (${cont.cob})</span><span style="--c:#d1d5db">Disponível — encerrado/retomado (${cont.disp})</span><span style="--c:#fff;outline:1px dashed #999">Sem contrato no sistema</span></div>
+   <div class="mut" style="margin-top:4px">Passe o mouse no lote para ver o contrato; clique para abrir.</div></div>
+  <div class="card">${html}</div>`}
 </script>
 </body>
 </html>
