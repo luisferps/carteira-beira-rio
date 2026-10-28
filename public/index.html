@@ -722,7 +722,7 @@ async function abrirContrato(n){
   const pcl=api('clientes?contrato='+n).catch(()=>[]);
   C=await api('contrato/'+n);SEL.clear();SELMODO=false;C.clientes=await pcl;
   try{if(await acertaAcordos())C=await api('contrato/'+n)}catch(e){console.warn('acertaAcordos',e)}
-  desenhaContrato();if(window._ABRE_DEV){window._ABRE_DEV=false;setTimeout(()=>{if(typeof modalDevolucao==='function')modalDevolucao()},200)}
+  desenhaContrato();if(window._ABRE_DEV){window._ABRE_DEV=false;setTimeout(async()=>{modalDevolucao();if(!C.eventos.some(e=>e.tipo==='credito'))await gravaCreditoDev(true)},200)}
 }
 /* composição do acordo pela regra de hoje (mesma conta do relatório de atraso, na data do acordo, com as correções lançadas).
    Se o valor acordado ficou abaixo, a diferença sai em cascata: custo de cobrança -> juros -> multa -> principal (nunca vira desconto). */
@@ -808,6 +808,7 @@ function desenhaContrato(){
    <details open><summary>Acordos (${ACS.length})</summary>${ac}</details>
    <details open><summary>Repactuações (${RPS.length+DLS.length})</summary><div class="mut" style="margin-bottom:4px">Parcela dividida em vários boletos a pedido do cliente, antes de atrasar — sem multa nem juros. Diluição da dívida: parte do que estava devendo foi somada nas parcelas a vencer.</div>${rp}<div class="bt" style="margin-top:6px"><button onclick="modalDiluicao()">Diluir dívida nas parcelas a vencer</button></div></details>
    <details open><summary>Correções (${CORS.length})</summary>${co}</details>
+   ${C.eventos.some(e=>e.tipo==='credito')?(()=>{const cr=C.eventos.filter(e=>e.tipo==='credito').reduce((a,e)=>a+Number(e.dados?.valor||0),0),dv=totDev(),d=C.eventos.find(e=>e.tipo==='credito').dados||{};return `<div class="info" style="margin-top:10px"><b>Devolução:</b> crédito ${brl(cr)} · devolvido ${brl(dv)} · <b>saldo ${brl(r2(cr-dv))}</b>${d.prazo?` · ${d.prazo} parcelas de ${brl(d.valor_parcela)} a partir de ${dbr(d.primeira)}`:''} ${EU==='luis'?`· <a href="#devolucoes">abrir em Devoluções</a>`:''}</div>`})():''}
    <details open><summary>Eventos — cessão, diluição, encerramento, crédito e vencimento (${EVS.length+DIL.length})</summary>${ev}</details></div>`;  botaoCob();
 }
 async function botaoCob(){if(!(EU==='luis'||EU==='assistente')||COMO||document.documentElement.classList.contains('embed'))return;const n=C.contrato.numero,ac=document.querySelector('.acoes');if(!ac)return;
@@ -1259,7 +1260,7 @@ async function salvaEvento(tipo,eid){const old=eid?C.eventos.find(x=>x.id==eid)?
   const body={contrato:C.contrato.numero,tipo,motivo:$('#e_m')?.value,a_partir_titulo:Number($('#e_t').value),data:$('#e_d').value,dados,obs:$('#e_o').value};
   await api(eid?'evento/'+eid:'evento',{method:eid?'PUT':'POST',body});fechaModal();await recarrega();
   if(!eid&&tipo==='encerramento'&&['Distrato','Retomada'].includes(body.motivo)&&!C.eventos.some(e=>e.tipo==='credito')){/* distrato/retomada já abre a conta da devolução para gravar o crédito e o cronograma */
-    setTimeout(()=>{if(confirm('Contrato encerrado por '+body.motivo.toLowerCase()+'. Calcular agora o valor a devolver e gerar as parcelas da devolução?'))modalDevolucao()},300)}}
+    setTimeout(async()=>{modalDevolucao();await gravaCreditoDev(true)},300)}}
 
 
 /* relatórios (abrem em nova aba, prontos para imprimir/salvar em PDF) */
@@ -1320,13 +1321,14 @@ function calcDevolucao(D){const multa=r2(D.pago*D.pm/100),base=r2(D.pago-multa-D
   const n=Math.max(1,D.n|0),b=r2(Math.floor(dev/n*100)/100),ps=[];const [y,m]=String(D.venc).split('-').map(Number);
   for(let i=0;i<n;i++){const dt=new Date(Date.UTC(y,m-1+i,1)),dd=String(D.venc).slice(8,10)||'15';ps.push({n:i+1,venc:dt.toISOString().slice(0,7)+'-'+dd,v:i<n-1?b:r2(dev-b*(n-1))})}
   return{multa,base,ret,dev,ps}}
-async function gravaCreditoDev(){const D=window._DEV;if(!D||!D.dev)return alert('Nada a devolver.');
-  if(C.eventos.some(e=>e.tipo==='credito')&&!confirm('Este contrato já tem crédito a devolver lançado. Lançar outro crédito somando a ele?'))return;
-  const enc=C.eventos.find(x=>x.tipo==='encerramento');
-  await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'credito',motivo:'Distrato (devolução)',a_partir_titulo:enc?.a_partir_titulo||null,data:D.data||null,
-    dados:{valor:D.dev,origem:'Distrato (devolução)',pago_cliente:D.pago,multa:D.multa,comissao:D.corr,retido:D.ret,prazo:D.ps.length,primeira:D.ps[0].venc,valor_parcela:D.ps[0].v,data_distrato:D.data},obs:'Calculado em "Valores para devolução"'}});
-  fechaModal();recarrega();alert('Crédito a devolver gravado. Ele aparece no módulo Devoluções, com o cronograma.')}
-function modalDevolucao(){const ls=pagoDevolucao(),pago=r2(ls.reduce((a,x)=>a+x.v,0)),meses=new Set(ls.map(x=>x.d.slice(0,7))).size;
+async function gravaCreditoDev(auto){const D=window._DEV;if(!D||!D.dev){if(!auto)alert('Nada a devolver.');return}
+  const enc=C.eventos.find(x=>x.tipo==='encerramento'),ex=C.eventos.find(e=>e.tipo==='credito');
+  const dados={...(ex?.dados||{}),valor:D.dev,origem:ex?.dados?.origem||'Distrato (devolução)',pago_cliente:D.pago,multa:D.multa,comissao:D.corr,retido:D.ret,prazo:D.ps.length,primeira:D.ps[0].venc,valor_parcela:D.ps[0].v,data_distrato:D.data};
+  const body={contrato:C.contrato.numero,tipo:'credito',motivo:dados.origem,a_partir_titulo:ex?.a_partir_titulo||enc?.a_partir_titulo||null,data:D.data||null,dados,obs:ex?.obs||'Gerado pelo cálculo de "Valores para devolução"'};
+  await api(ex?'evento/'+ex.id:'evento',{method:ex?'PUT':'POST',body});await recarrega();
+  if(auto){const el=document.querySelector('#modal .info');if(el)el.insertAdjacentHTML('beforebegin',`<div class="info" style="background:#ecfdf5;border-color:#a7f3d0;color:#065f46"><b>Devolução gerada:</b> ${brl(D.dev)} em ${D.ps.length} parcela(s), a partir de ${dbr(D.ps[0].venc)}. Se mudar algum valor abaixo, clique em "Atualizar a devolução".</div>`)}
+  else{fechaModal();alert('Devolução '+(ex?'atualizada':'gerada')+': '+brl(D.dev)+' em '+D.ps.length+' parcela(s). Aparece no contrato e no módulo Devoluções.')}}
+function modalDevolucao(){const CRD=C.eventos.find(e=>e.tipo==='credito')?.dados||{};const ls=pagoDevolucao(),pago=r2(ls.reduce((a,x)=>a+x.v,0)),meses=new Set(ls.map(x=>x.d.slice(0,7))).size;
   const enc=C.eventos.filter(e=>e.tipo==='encerramento').sort((a,b)=>String(b.data).localeCompare(String(a.data)))[0];
   const h=new Date(C.hoje+'T12:00:00');h.setMonth(h.getMonth()+1);const venc=h.toISOString().slice(0,7)+'-15';
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Valores para devolução</h3><button onclick="fechaModal()">Fechar</button></div>
@@ -1337,11 +1339,11 @@ function modalDevolucao(){const ls=pagoDevolucao(),pago=r2(ls.reduce((a,x)=>a+x.
   <div><label>Retenção (%)</label><input id="dv_pr" inputmode="decimal" value="10"></div>
   <div><label>Retenção calculada sobre</label><select id="dv_md"><option value="resto">O que sobra depois da multa e da corretagem (regra atual)</option><option value="pago">O valor pago (como está no contrato)</option></select></div>
   <div><label>Data do distrato</label><input id="dv_dt" type="date" value="${String(enc?.data||C.hoje).slice(0,10)}"></div>
-  <div><label>Nº de parcelas da devolução</label><input id="dv_n" inputmode="numeric" value="${meses||1}"></div>
-  <div><label>1º vencimento da devolução</label><input id="dv_vc" type="date" value="${venc}"></div></div>
+  <div><label>Nº de parcelas da devolução</label><input id="dv_n" inputmode="numeric" value="${CRD.prazo||meses||1}"></div>
+  <div><label>1º vencimento da devolução</label><input id="dv_vc" type="date" value="${CRD.primeira||venc}"></div></div>
   <div class="mut" style="margin-top:4px">Sugestão de parcelas: ${meses} (meses em que o cliente pagou).</div>
   <div id="dv_res" style="margin-top:10px"></div>
-  <div class="bt"><button class="pri" onclick="relatorio('devolucao')">Imprimir / salvar em PDF</button>${EU==='luis'&&!COMO?`<button onclick="gravaCreditoDev()">Gravar como crédito a devolver</button>`:''}</div>`);
+  <div class="bt"><button onclick="relatorio('devolucao')">Imprimir / salvar em PDF</button>${!COMO?`<button class="pri" onclick="gravaCreditoDev()">${C.eventos.some(e=>e.tipo==='credito')?'Atualizar a devolução':'Gerar a devolução (crédito e parcelas)'}</button>`:''}</div>`);
   const le=()=>({pago:numBR($('#dv_pg').value)||0,corr:numBR($('#dv_co').value)||0,pm:numBR($('#dv_pm').value)||0,pr:numBR($('#dv_pr').value)||0,modo:$('#dv_md').value,data:$('#dv_dt').value,n:Number($('#dv_n').value)||1,venc:$('#dv_vc').value||venc,ls});
   const at=()=>{const D=le(),R=calcDevolucao(D);window._DEV={...D,...R};
     $('#dv_res').innerHTML=`<table><tbody><tr><td>Valor pago</td><td class="n">${brl(D.pago)}</td></tr><tr><td>(−) Multa de ${D.pm}%</td><td class="n">${brl(R.multa)}</td></tr><tr><td>(−) Corretagem</td><td class="n">${brl(D.corr)}</td></tr><tr><td>(−) Retenção de ${D.pr}%</td><td class="n">${brl(R.ret)}</td></tr><tr><td><b>Valor a devolver</b></td><td class="n"><b>${brl(R.dev)}</b></td></tr><tr><td>Total descontado</td><td class="n">${brl(r2(D.pago-R.dev))}</td></tr></tbody></table>
