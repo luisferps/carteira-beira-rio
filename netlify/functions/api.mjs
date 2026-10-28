@@ -711,7 +711,7 @@ async function clienteCessionario(n) {
   const [e] = await q(`select dados->>'novos_titulares' t from carteira.eventos where contrato=$1 and tipo='cessao' and coalesce(dados->>'novos_titulares','')<>''
                        order by data desc nulls last, id desc limit 1`, [n]).catch(() => []);
   if (!e) return { tem: false };
-  const nomes = String(e.t).split(/\s+e\s+|,|;/i).map(x => x.trim()).filter(x => x.length > 5);
+  const nomes = String(e.t).replace(/[\[\]"]/g, '').split(/\s+e\s+|,|;/i).map(x => x.trim()).filter(x => x.length > 5);
   for (const nome of nomes) {
     const r = await asaas('/customers?name=' + encodeURIComponent(nome) + '&limit=20').catch(() => null);
     const c = (r?.data || []).find(x => !x.deleted && semAc(x.name) === semAc(nome)); if (c) return { tem: true, id: c.id, nome };
