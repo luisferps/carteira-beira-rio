@@ -31,7 +31,9 @@ export function criaDevolucoes({ q, asaas, json, log }) {
       const pagos = X.pagos.map(e => ({ id: e.id, data: e.data, valor: R2(e.dados?.valor), forma: e.dados?.forma, documento: e.dados?.documento, destino: e.dados?.destino, obs: e.obs }));
       const devolvido = R2(pagos.reduce((s, p) => s + p.valor, 0));
       const saldo = R2(credito - devolvido);
-      const nP = +d.prazo || 0, vp = +d.valor_parcela || (nP ? R2(credito / nP) : 0), prim = d.primeira || null;
+      const nP0 = +d.prazo || 0, vp = +d.valor_parcela || (nP0 ? R2(credito / nP0) : 0), prim = d.primeira || null;
+      const fecha = !nP0 || !vp || Math.abs(vp * nP0 - credito) <= Math.max(1, nP0 * 0.02);
+      const nP = fecha ? nP0 : Math.ceil(credito / vp - 0.001);
       const crono = [];
       if (nP && prim && credito > 0) {
         let resto = devolvido;
@@ -46,7 +48,7 @@ export function criaDevolucoes({ q, asaas, json, log }) {
       const prox = crono.find(p => p.situacao !== 'paga');
       const c = ct[n] || {};
       const nomes = new Set([...(Array.isArray(c.compradores) ? c.compradores.map(x => x.nome) : []), ...(d.clientes || []).map(k => porCod[String(+k)]).filter(Boolean), ...(d.favorecidos || [])].filter(Boolean));
-      out.push({ contrato: n, quadra: c.quadra, lote: c.lote, nomes: [...nomes], credito, devolvido, saldo, prazo: nP, valor_parcela: vp, primeira: prim,
+      out.push({ contrato: n, quadra: c.quadra, lote: c.lote, nomes: [...nomes], credito, devolvido, saldo, prazo: nP, aviso_prazo: fecha ? null : `O prazo anotado (${nP0} parcelas de ${vp.toFixed(2).replace('.', ',')}) não fecha com o crédito; o cronograma segue o valor da parcela (${nP} parcelas)`, valor_parcela: vp, primeira: prim,
         parcelas_pagas: crono.filter(p => p.situacao === 'paga').length, atraso, atrasadas: crono.filter(p => p.situacao === 'atrasada').length,
         proxima: prox ? { n: prox.n, venc: prox.venc, falta: R2(prox.valor - prox.pago) } : null,
         situacao: saldo <= 0.01 ? 'quitada' : atraso > 0.01 ? 'atrasada' : 'em dia',

@@ -1663,7 +1663,7 @@ function desenhaDev(){const L=DEVL.lista,h=DEVL.hoje,mes=h.slice(0,7);
 function detDev(n){const x=DEVL.lista.find(z=>z.contrato===n),d=x.dados||{};
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Devolução — contrato ${n}</h3><button onclick="fechaModal();location.hash='c/${n}'">Abrir o contrato</button><button onclick="fechaModal()">Fechar</button></div>
   <div class="tot"><div><span class="mut">Crédito a devolver</span><b>${brl(x.credito)}</b></div><div><span class="mut">Devolvido</span><b>${brl(x.devolvido)}</b></div><div><span class="mut">Saldo</span><b>${brl(x.saldo)}</b></div></div>
-  ${d.pago_cliente?`<div class="mut" style="margin-top:6px">Pago pelo cliente ${brl(d.pago_cliente)} · multa ${brl(d.multa||0)} · retenção ${brl(d.retido||0)}${d.data_distrato?' · distrato em '+dbr(d.data_distrato):''}</div>`:''}
+  ${x.aviso_prazo?`<div class="aviso">${esc(x.aviso_prazo)}</div>`:''}${d.pago_cliente?`<div class="mut" style="margin-top:6px">Pago pelo cliente ${brl(d.pago_cliente)} · multa ${brl(d.multa||0)} · retenção ${brl(d.retido||0)}${d.data_distrato?' · distrato em '+dbr(d.data_distrato):''}</div>`:''}
   <div class="f2" style="margin-top:10px">
    <div><label>Nº de parcelas</label><input id="dd_n" inputmode="numeric" value="${d.prazo||''}"></div>
    <div><label>1ª parcela (data)</label><input id="dd_p" type="date" value="${d.primeira||''}"></div>
