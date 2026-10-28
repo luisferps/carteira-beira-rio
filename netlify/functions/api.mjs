@@ -577,6 +577,8 @@ async function processaPagamentoAsaas(g, X, opc = {}) {
   if (bol?.composicao) {
     Object.assign(body, separaPagamento(bol.composicao, +g.value), { obs: 'Lançado automaticamente pela integração com o Asaas — ' + (+bol.composicao.cobranca ? 'pago em cobrança (boleto com os 10%)' : '2ª via atualizada') });
   }
+  { const ac = t.grupo === 'acordo' ? D.acordos.find(a => a.id == t.acordo_id) : null;
+    if (ac) Object.assign(body, destrinchaAcordo(ac, body)); }
 
   const [pg] = await q(`insert into carteira.pagamentos(conferente, titulo_id, ${CAMPOS_PAG.join(',')}, tem_print)
                         values ('luis',$1,${CAMPOS_PAG.map((_, i) => '$' + (i + 2)).join(',')}, false) returning id`, [t.id, ...CAMPOS_PAG.map(c => limpa(body[c]))]);
@@ -912,6 +914,15 @@ async function desfazCobranca(idCob, conf) {
   const [cb] = await q(`select * from carteira.boletos where id_asaas=$1 and tipo='cobranca'`, [idCob]);
   if (!cb || !ATIVOS_B.includes(cb.status)) return { erro: 'Boleto de cobrança não encontrado ou não está em aberto' };
   return segundaVia(cb.titulo_id, hojeBR(), conf, { semCobranca: true, motivo: 'Reemitido sem os 10% (já era renegociação)' });
+}
+/* destrincha o valor da parcela de acordo / 2ª via pela composição gravada (parcela, multa, juros, custo de cobrança).
+   s = separação já feita (valor_cobranca = valor da parcela do acordo, encargos = o que foi pago a mais por atraso). */
+function destrinchaAcordo(a, s) {
+  const pr = +a.principal || 0, mu = +a.multa || 0, ju = +a.juros || 0, ho = +a.honorarios || 0, S = pr + mu + ju + ho;
+  const face = +s.valor_cobranca || 0;
+  if (!(S > 0) || !(face > 0) || !(mu + ju + ho > 0)) return s;
+  const f = face / S, m2 = R2(mu * f), j2 = R2(ju * f), h2 = R2(ho * f), p2 = R2(face - m2 - j2 - h2);
+  return { ...s, valor_cobranca: p2, multa_paga: R2((+s.multa_paga || 0) + m2), juros_pago: R2((+s.juros_pago || 0) + j2), honorarios_pago: R2((+s.honorarios_pago || 0) + h2) };
 }
 function separaPagamento(c, pago) {
   const B = +c.total, base = R2(c.principal + (c.correcao || 0));
@@ -1617,25 +1628,30 @@ export default async (req) => {
       if (p[1] === 'cobranca-volta-parcela' && m === 'POST') return json(await cobrancaVoltaParaParcela(real));
       if (p[1] === 'ressepara' && m === 'POST') {
         if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
-        const L = await q(`select g.id, g.id_asaas, g.fatura, g.valor_pago, g.valor_cobranca, g.multa_paga, g.juros_pago, g.honorarios_pago, g.desconto_dado, g.titulo_id,
-                             t.contrato, t.rotulo, b.titulo_id b_tit, b.composicao, bt.rotulo b_rot
-                           from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id join carteira.boletos b on b.id_asaas=g.id_asaas
-                           left join carteira.titulos bt on bt.id=b.titulo_id
-                           where g.conferente='luis' and b.composicao is not null and (b.composicao->>'total') is not null and g.valor_pago > 0`);
-        const muda = [];
+        /* pagamento em parcela de acordo (ou em parcela com 2ª via de 1 parcela) que ainda está com o valor inteiro, sem destrinchar */
+        const L = await q(`select g.id, g.valor_pago, g.valor_cobranca, g.multa_paga, g.juros_pago, g.honorarios_pago, g.desconto_dado, t.contrato, t.rotulo, t.grupo, t.valor_face,
+                             a.id a_id, a.principal, a.multa, a.juros, a.honorarios, a.valor_acordado
+                           from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
+                           join carteira.acordos a on (t.grupo='acordo' and a.id=t.acordo_id)
+                             or (t.grupo<>'acordo' and a.conferente='luis' and array_length(a.titulos_origem,1)=1 and a.titulos_origem[1]=t.id
+                                 and (select count(*) from carteira.titulos x where x.acordo_id=a.id)=1)
+                           where g.conferente='luis' and g.valor_pago > 0 and coalesce(a.tipo,'acordo')<>'repactuacao'
+                             and coalesce(a.multa,0)+coalesce(a.juros,0)+coalesce(a.honorarios,0) > 0`);
+        const muda = [], conferir = [];
         for (const g of L) {
-          const s = separaPagamento(g.composicao, +g.valor_pago);
-          const dif = ['valor_cobranca', 'multa_paga', 'juros_pago', 'honorarios_pago', 'desconto_dado'].some(k => Math.abs((+g[k] || 0) - (+s[k] || 0)) > 0.009);
-          if (dif) muda.push({ id: g.id, contrato: g.contrato, parcela: g.rotulo, boleto_parcela: g.b_rot, fatura: g.fatura, pago: +g.valor_pago,
-            antes: { cobranca: +g.valor_cobranca, multa: +g.multa_paga || 0, juros: +g.juros_pago || 0, custo: +g.honorarios_pago || 0, desconto: +g.desconto_dado || 0 },
-            depois: { cobranca: s.valor_cobranca, multa: s.multa_paga, juros: s.juros_pago, custo: s.honorarios_pago, desconto: s.desconto_dado } });
+          const face = g.grupo === 'acordo' ? +g.valor_face : +g.valor_acordado;
+          if (Math.abs((+g.valor_cobranca || 0) - face) > 0.01) { if ((+g.valor_cobranca || 0) > +g.principal + 0.01) conferir.push({ contrato: g.contrato, parcela: g.rotulo, valor_cobranca: +g.valor_cobranca, parcela_acordo: face }); continue; }
+          const d = destrinchaAcordo(g, { valor_cobranca: face, multa_paga: +g.multa_paga || 0, juros_pago: +g.juros_pago || 0, honorarios_pago: +g.honorarios_pago || 0, desconto_dado: +g.desconto_dado || 0 });
+          muda.push({ id: g.id, contrato: g.contrato, parcela: g.rotulo, pago: +g.valor_pago,
+            antes: { cobranca: +g.valor_cobranca, multa: +g.multa_paga || 0, juros: +g.juros_pago || 0, custo: +g.honorarios_pago || 0 },
+            depois: { cobranca: d.valor_cobranca, multa: d.multa_paga, juros: d.juros_pago, custo: d.honorarios_pago } });
         }
         if (body.aplicar) {
-          for (const x of muda) await q(`update carteira.pagamentos set valor_cobranca=$2, multa_paga=$3, juros_pago=$4, honorarios_pago=$5, desconto_dado=$6 where id=$1`,
-            [x.id, x.depois.cobranca, x.depois.multa, x.depois.juros, x.depois.custo, x.depois.desconto]);
-          await log(real, 'pagamentos_resseparados_pela_2a_via', { itens: muda });
+          for (const x of muda) await q(`update carteira.pagamentos set valor_cobranca=$2, multa_paga=$3, juros_pago=$4, honorarios_pago=$5 where id=$1`,
+            [x.id, x.depois.cobranca, x.depois.multa, x.depois.juros, x.depois.custo]);
+          await log(real, 'pagamentos_destrinchados_pelo_acordo', { itens: muda });
         }
-        return json({ total_com_2a_via: L.length, mudam: muda.length, aplicado: !!body.aplicar, itens: muda });
+        return json({ encontrados: L.length, mudam: muda.length, conferir, aplicado: !!body.aplicar, itens: muda });
       }
       if (p[1] === 'segunda-via' && m === 'POST') return json(await segundaVia(body.titulo_id, body.vencimento, real, { previa: !!body.previa }));
       if (p[1] === 'desfaz-cobranca' && m === 'POST') return json(await desfazCobranca(body.id_asaas, real));
