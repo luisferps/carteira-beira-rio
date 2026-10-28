@@ -124,24 +124,46 @@ export function criaAcerto({ q, asaas, json, log }) {
   }
 
 
-  /* custo de cobrança = o "custo de cobrança pago" registrado no pagamento da parcela (o que o cliente pagou). */
-  async function custoDaParcela(L) {
+  /* liga cada recebimento ao pagamento lançado na parcela: diz de que parcela é (entrada, mensal, anual, acordo) e o custo de cobrança registrado */
+  async function ligaParcelas(L) {
     if (!L.length) return;
     const ids = L.map(x => x.payment).filter(Boolean), fs = L.map(x => x.fatura).filter(Boolean);
-    const rs = await q(`select g.id_asaas, regexp_replace(coalesce(g.fatura,''),'\\D','','g') fat, g.valor_pago, g.honorarios_pago, t.contrato, t.rotulo, t.grupo, t.valor_face,
-                          a.honorarios a_hon, a.valor_acordado a_val
-                        from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id left join carteira.acordos a on a.id=t.acordo_id
-                        where g.conferente='luis' and (g.id_asaas = any($1) or regexp_replace(coalesce(g.fatura,''),'\\D','','g') = any($2))`, [ids, fs]).catch(() => []);
+    const rs = await q(`select g.id_asaas, g.conferente, regexp_replace(coalesce(g.fatura,''),'\\D','','g') fat, g.valor_pago, g.honorarios_pago, g.confirmada_em::text pago_em,
+                          t.id tid, t.contrato, t.rotulo, t.grupo, t.numero, t.valor_face
+                        from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
+                        where (g.id_asaas = any($1) or regexp_replace(coalesce(g.fatura,''),'\\D','','g') = any($2))`, [ids, fs]).catch(() => []);
     for (const x of L) {
-      const P = rs.filter(r => (x.payment && r.id_asaas === x.payment) || (x.fatura && r.fat === x.fatura));
+      let P = rs.filter(r => (x.payment && r.id_asaas === x.payment) || (x.fatura && r.fat === x.fatura));
+      if (P.some(r => r.conferente === 'luis')) P = P.filter(r => r.conferente === 'luis');
       x.parcelas_sis = P.map(r => r.rotulo).join(', ');
+      x.lanc = P;
       if (!P.length) { x.sem_lancamento = true; continue; }
-      let h = 0;
-      for (const r of P) {
-        h += +r.honorarios_pago || 0;
+      if (!x.contrato) x.contrato = P[0].contrato;
+      if (!x.manual) {
+        const gs = new Set(P.map(r => r.grupo));
+        if (gs.size === 1 && gs.has('entrada')) x.cat = x.auto = 'entrada';
+        else if (gs.has('acordo')) x.cat = x.auto = 'cobranca';
+        else if (x.cat === 'revisar' && gs.size === 1) x.cat = x.auto = gs.has('anual') ? 'anual' : 'mensal';
       }
-      h = h < 0.05 ? 0 : h; x.hon = R2(Math.min(h, x.valor)); x.fca = R2(x.valor - x.hon);
+      const h = P.reduce((s2, r) => s2 + (+r.honorarios_pago || 0), 0);
+      x.hon = R2(Math.min(h < 0.05 ? 0 : h, x.valor)); x.fca = R2(x.valor - x.hon);
     }
+  }
+  /* comissão de venda da Inerente (5% do valor do contrato): no mês em que a entrada à vista do contrato vendido pela Inerente fica paga */
+  async function comissoes(ent) {
+    const cts = [...new Set(ent.filter(x => x.cat === 'entrada' && x.lanc?.length).map(x => x.lanc[0].contrato))];
+    if (!cts.length) return [];
+    const ks = await q(`select numero, quadra, lote, valor_imovel from carteira.contratos where numero = any($1) and corretor ilike '%inerente%'`, [cts]).catch(() => []);
+    const out = [];
+    for (const k of ks) {
+      const [e1] = await q(`select t.id, t.valor_face, coalesce(sum(g.valor_pago),0) pago from carteira.titulos t left join carteira.pagamentos g on g.titulo_id=t.id
+                            where t.contrato=$1 and t.grupo='entrada' and t.numero=1 group by t.id, t.valor_face`, [k.numero]);
+      if (!e1 || +e1.pago < +e1.valor_face - 0.01) continue;
+      const doMes = ent.filter(x => x.lanc?.some(r => +r.tid === +e1.id)).reduce((s2, x) => s2 + x.valor, 0);
+      if (!(doMes > 0) || +e1.pago - doMes >= +e1.valor_face - 0.01) continue;
+      out.push({ rotulo: `Comissão de venda Q${k.quadra} L${k.lote} (${k.numero}) — 5% de ${br(+k.valor_imovel)}`, valor: R2(+k.valor_imovel * 0.05), contrato: k.numero });
+    }
+    return out;
   }
   async function calcula(mes) {
     const [M] = await q(`select * from carteira.acerto_meses where mes=$1`, [mes]);
@@ -179,9 +201,11 @@ export function criaAcerto({ q, asaas, json, log }) {
         sai.push({ id: e.id, data: e.data, descricao: e.descricao, beneficiario: ben, valor: R2(v), cat, auto, como, duvida: DUVIDA.test(n), tipo: e.tipo });
       }
     }
-    await custoDaParcela(ent.filter(x => ['mensal', 'anual', 'cobranca'].includes(x.cat)));
+    await ligaParcelas(ent.filter(x => x.cat !== 'contrato'));
+    const comis = await comissoes(ent);
     for (const x of ent) {
       if ((x.cat === 'mensal' || x.cat === 'anual') && !x.manual && x.hon > 0.5) { x.cat = x.auto = 'cobranca'; x.obs = (x.obs ? x.obs + ' · ' : '') + 'Tem custo de cobrança lançado na parcela'; }
+      delete x.lanc;
       if (x.cat !== 'cobranca') { delete x.hon; delete x.fca; }
       else if (x.sem_lancamento || x.hon == null) { x.fca = R2(x.valor / 1.1); x.hon = R2(x.valor - x.fca); x.provisorio = true; x.obs = (x.obs ? x.obs + ' · ' : '') + 'Pagamento ainda não lançado na parcela (valor ÷ 1,10 provisório)'; }
     }
@@ -195,6 +219,7 @@ export function criaAcerto({ q, asaas, json, log }) {
     const serv = [
       ['ADM de Carteira (Mensais)', R2(E.mensal.total * .06)], ['ADM de Carteira (Intermediárias)', R2(E.anual.total * .06)],
       ['ADM de Carteira (Cobrança)', R2(E.cobranca.fca * .06)], ['Cobrança (acima de 60 dias de atraso)', E.cobranca.hon], ['Contratos', R2(E.contrato.total * .2)],
+      ...comis.map(c => [c.rotulo, c.valor]),
       ...ajustes.filter(a => a.bloco === 'servicos').map(a => [a.descricao, R2(a.valor)])].map(([rotulo, valor]) => ({ rotulo, valor }));
     const totServ = soma(serv);
     let saldoAnt = M?.saldo_anterior, origemSaldo = 'informado por você';
