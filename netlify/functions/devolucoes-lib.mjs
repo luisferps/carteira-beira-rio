@@ -54,7 +54,7 @@ export function criaDevolucoes({ q, asaas, json, log }) {
       out.push({ contrato: n, quadra: c.quadra, lote: c.lote, nomes: [...nomes], credito, devolvido, saldo, prazo: nP, aviso_prazo: fecha ? null : `O prazo anotado (${nP0} parcelas de ${vp.toFixed(2).replace('.', ',')}) não fecha com o crédito; o cronograma segue o valor da parcela (${nP} parcelas)`, valor_parcela: vp, primeira: prim,
         parcelas_pagas: crono.filter(p => p.situacao === 'paga').length, atraso, atrasadas: crono.filter(p => p.situacao === 'atrasada').length,
         proxima: prox ? { n: prox.n, venc: prox.venc, falta: R2(prox.valor - prox.pago) } : null,
-        situacao: saldo <= 0.01 ? 'quitada' : !pagos.length ? 'aguardando' : atraso > 0.01 ? 'atrasada' : 'em dia',
+        situacao: saldo <= 1 ? 'quitada' : !pagos.length ? 'aguardando' : atraso > 0.01 ? 'atrasada' : 'em dia',
         dados: d, cronograma: crono, pagos, credito_ids: X.creditos.map(e => e.id) });
     }
     return out.sort((a, b) => (a.situacao === 'quitada') - (b.situacao === 'quitada') || a.contrato.localeCompare(b.contrato));
@@ -62,7 +62,7 @@ export function criaDevolucoes({ q, asaas, json, log }) {
 
   /* acha o contrato de devolução pelo nome de quem recebeu o Pix */
   function contratoDoFavorecido(L, nome) {
-    const c = L.filter(x => x.saldo > 0.01 && x.nomes.some(n => mesmoNome(n, nome)));
+    const c = L.filter(x => x.saldo > 1 && x.nomes.some(n => mesmoNome(n, nome)));
     return c.length === 1 ? c[0] : null;
   }
 
