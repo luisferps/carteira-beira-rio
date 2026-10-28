@@ -1945,7 +1945,13 @@ function editaComissao(n){const x=COML.find(z=>z.numero===n);
 async function salvaComissao(n){await api('painel/comissao/'+n,{method:'PUT',body:{corretor:$('#cm_c').value.trim(),percentual:numBR($('#cm_p').value),valor:numBR($('#cm_v').value),pago_em:$('#cm_d').value||null,valor_pago:numBR($('#cm_vp').value),obs:$('#cm_o').value.trim()}});fechaModal();telaComissoes()}
 
 /* ===== Textos prontos (WhatsApp) ===== */
+function txtExtratoCliente(){const hoje=new Date(Date.now()-3*36e5).toISOString().slice(0,10),c=C.contrato;
+  const pg=C.pagamentos.reduce((a,p)=>a+(+p.valor_pago||0),0),np=new Set(C.pagamentos.map(p=>p.titulo_id)).size;
+  const atr=C.titulos.filter(t=>t.vencimento&&t.vencimento<=hoje&&['vencida','em_atraso'].includes(estado(t))),vat=atr.reduce((a,t)=>a+atrasoDe(t,hoje).tot,0);
+  const fut=C.titulos.filter(t=>t.vencimento&&estado(t)==='futura'&&!C.pagamentos.some(p=>p.titulo_id==t.id)),vf=fut.reduce((a,t)=>a+valorAno(t),0);
+  return `*CONDOMÍNIO DE CHÁCARAS BEIRA RIO* — Extrato do seu contrato\n\nContrato ${c.numero} · Quadra ${c.quadra} · Lote ${c.lote}\nPosição em ${dbr(hoje)}\n\n✅ Já pago: ${brl(pg)} (${np} parcela${np==1?'':'s'})\n${atr.length?`⚠️ Em atraso: ${brl(vat)} (${atr.length} parcela${atr.length==1?'':'s'}, com multa, juros e custo de cobrança)\n`:'✅ Nenhuma parcela em atraso\n'}📅 A vencer: ${brl(vf)} (${fut.length} parcela${fut.length==1?'':'s'})\n\nSe precisar do relatório completo ou de algum boleto, é só me chamar.`}
 const TEXTOS_PRONTOS=[
+ ['Extrato do contrato (resumo do que pagou e do que falta)',()=>txtExtratoCliente()],
  ['Cessão: documentos necessários',()=>TXT_DOCS_CES],
  ['Cessão: instruções de assinatura',()=>TXT_ASS_CES],
  ['Orientações para assinatura de contrato',()=>`Orientações para assinatura de contratos:\n\n- Ler e conferir principalmente valores;\n- Conferir seus dados pessoais constantes na primeira página;\n- Vistar no rodapé de cada página (pode ser uma rubrica ou o primeiro nome);\n- Assinar em cima do seu nome na última página;\n- Reconhecer a assinatura supracitada em cartório.\n\nEm caso de dúvidas me ponho à disposição.`],
