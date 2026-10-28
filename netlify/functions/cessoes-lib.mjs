@@ -56,9 +56,12 @@ export function criaCessoes({ q, json, log }) {
         /* cessionários entram no cadastro de clientes */
         for (const x of d.cessionarios || []) {
           const cpf = dig(x.cpf); if (!cpf) continue;
-          const manual = { nome: x.nome, cpf: x.cpf, rg: x.rg, profissao: x.profissao, estado_civil: x.estado_civil, nacionalidade: x.nacionalidade, endereco: x.endereco, fone: x.fone || null, email: x.email || null };
+          const [ex] = await q(`select manual from carteira.clientes where chave=$1`, ['cpf:' + cpf]);
+          const M = ex?.manual || {};
+          const manual = { ...M, ...(x.endereco && !M.endereco ? { endereco: x.endereco } : {}), ...(x.fone && !M.telefone ? { telefone: x.fone } : {}), ...(x.email && !M.email ? { email: x.email } : {}),
+            pessoais: { ...(M.pessoais || {}), ...Object.fromEntries(Object.entries({ rg: x.rg, profissao: x.profissao, estado_civil: x.estado_civil, nacionalidade: x.nacionalidade }).filter(([, v]) => v)) } };
           await q(`insert into carteira.clientes(chave, cpf, nome, manual) values ($1,$2,$3,$4)
-                   on conflict (chave) do update set manual = coalesce(carteira.clientes.manual,'{}'::jsonb) || excluded.manual, atualizado_em=now()`, ['cpf:' + cpf, cpf, x.nome, manual]);
+                   on conflict (chave) do update set manual = excluded.manual, atualizado_em=now()`, ['cpf:' + cpf, cpf, x.nome, manual]);
         }
         await q(`update carteira.cessoes set status='concluida', datas=datas || $2, evento_id=$3 where id=$1`, [c.id, { concluida: hoje }, ev.id]);
         await log(real, 'cessao_concluida', { numero: c.numero, contrato: c.contrato, novos: nomes });

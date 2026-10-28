@@ -512,7 +512,7 @@ let CLI=[],CLIQ='',CLIF='todos';
 const digs=v=>String(v??'').replace(/\D/g,'');
 function fone(v){let d=digs(v);if(d.length>11&&d.startsWith('55'))d=d.slice(2);if(d.length===11)return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;if(d.length===10)return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;return d||''}
 function cpfF(v){const d=digs(v);return d.length===11?d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4'):d.length===14?d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,'$1.$2.$3/$4-$5'):d}
-function cliDados(c){const P=c.planilha||{},A=c.asaas||{},M=c.manual||{};
+function cliDados(c){const A=c.asaas||{},M=c.manual||{},P={...(c.planilha||{}),...(M.pessoais||{})};
   const tel=[],ja=new Set();const addT=(v,o,tipo)=>{const d=digs(v);if(d.length<8)return;const k=d.slice(-8);if(ja.has(k))return;ja.add(k);tel.push({v:fone(d),o,tipo})};
   addT(M.telefone,'Editado','');addT(A.mobilePhone,'Asaas','celular');addT(A.phone,'Asaas','fixo');addT(P.fone,'Planilha','pessoal');addT(P.fone_com,'Planilha','comercial');addT(P.fone_ref,'Planilha','referência');
   const em=[],je=new Set();const addE=(v,o)=>String(v||'').split(/[,;\s]+/).forEach(x=>{x=x.trim().toLowerCase();if(!x.includes('@')||je.has(x))return;je.add(x);em.push({v:x,o})});
@@ -550,10 +550,10 @@ async function fichaCliente(id){if(!CLI.length||!CLI.find(c=>c.id==id)){app.inne
   const d=cliDados(c),P=d.P,A=d.A;const dd=(l,v)=>v!=null&&v!==''&&v!=='-'?`<div class="dado"><span>${l}</span><b>${esc(v)}</b></div>`:'';
   const nasc=P.nascimento?dbr(P.nascimento):A.birthDate?dbr(A.birthDate):'';
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='clientes'">← Clientes</button></div>
-  <div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">${esc(d.nome)}</h3><button onclick="editaCliente(${c.id})">Editar contato</button></div>
+  <div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">${esc(d.nome)}</h3><button onclick="editaCliente(${c.id})">Editar contato</button><button onclick="editaPessoais(${c.id})">Editar dados pessoais</button></div>
    <h4>Contratos</h4>${c.contratos.length?c.contratos.map(k=>`<div style="margin:4px 0"><span class="chip ${k.atual?'at':'old'}" onclick="location.hash='c/${k.numero}'">Contrato ${k.numero}</span> Quadra ${k.quadra} · Lote ${k.lote} · ${k.papel}${k.atual?' · <b>titular atual</b>':k.encerrado?' · contrato encerrado':' · já não é titular (cedeu)'}</div>`).join(''):'<div class="mut">Nenhum contrato ligado a este cliente.</div>'}
    <h4>Telefones</h4>${d.tel.length?d.tel.map((t,i)=>`<div style="margin:3px 0">${i?'':'<b>'}<a href="https://wa.me/55${digs(t.v)}" target="_blank">${esc(t.v)}</a>${i?'':'</b>'} <span class="mut">${t.tipo}</span>${orgT(t.o)}</div>`).join(''):'<div class="mut">Sem telefone.</div>'}
-   <h4>E-mails</h4>${d.em.length?d.em.map((e,i)=>`<div style="margin:3px 0">${i?'':'<b>'}${esc(e.v)}${i?'':'</b>'}${orgT(e.o)}</div>`).join(''):'<div class="mut">Sem e-mail.</div>'}
+   <h4>E-mails</h4>${d.em.length?d.em.map((e,i)=>`<div style="margin:3px 0">${i?'':'<b>'}${esc(e.v)}${i?'':'</b>'}${orgT(e.o)}${(d.M.emails_invalidos||[]).includes(e.v)?' <span class="tag al">voltou / inválido</span>':''}</div>`).join(''):'<div class="mut">Sem e-mail.</div>'}
    <h4>Endereço</h4>${d.end.length?d.end.map((e,i)=>`<div style="margin:3px 0">${i?'':'<b>'}${esc(e.v)}${i?'':'</b>'}${orgT(e.o)}</div>`).join(''):'<div class="mut">Sem endereço.</div>'}
    <h4>Dados pessoais</h4><div class="cgrid mini">${dd('CPF',d.cpf)}${dd('RG / CNH',[P.rg,P.emissor].filter(Boolean).join(' '))}${dd('Nascimento',nasc)}${dd('Estado civil',P.estado_civil)}${dd('Sexo',P.sexo)}${dd('Naturalidade',[P.naturalidade,P.uf_nat].filter(Boolean).join('/'))}${dd('Nacionalidade',P.nacionalidade)}${dd('Profissão',P.profissao)}${dd('Empresa',P.empresa||A.company)}${dd('Renda',P.renda?brl(+P.renda):'')}</div>
    ${d.M.obs||A.observations?`<h4>Observações</h4>${d.M.obs?`<div>${esc(d.M.obs)}${orgT('Editado')}</div>`:''}${A.observations?`<div>${esc(A.observations)}${orgT('Asaas')}</div>`:''}`:''}
@@ -567,7 +567,7 @@ function editaCliente(id){const c=cliPorId(id),M=c.manual||{};
   <label>Endereço</label><input id="ce_d" value="${esc(M.endereco||'')}">
   <label>Observação</label><input id="ce_o" value="${esc(M.obs||'')}">
   <div class="bt"><button class="pri" onclick="salvaCliente(${id})">Salvar</button></div>`)}
-async function salvaCliente(id){const manual={telefone:$('#ce_t').value.trim(),email:$('#ce_e').value.trim(),endereco:$('#ce_d').value.trim(),obs:$('#ce_o').value.trim()};
+async function salvaCliente(id){const M0=cliPorId(id)?.manual||{};const manual={...M0,telefone:$('#ce_t').value.trim(),email:$('#ce_e').value.trim(),endereco:$('#ce_d').value.trim(),obs:$('#ce_o').value.trim()};
   await api('cliente/'+id,{method:'PUT',body:{manual}});const c=cliPorId(id);if(c)c.manual=manual;fechaModal();if(location.hash.startsWith('#cob/')&&CASO)telaCaso(CASO.caso.id);else if(location.hash.startsWith('#c/'))abrirContrato(C.contrato.numero);else fichaCliente(id)}
 
 /* ---------- LISTA ---------- */
@@ -1731,9 +1731,7 @@ const EXTN=['zero','uma','duas','três','quatro','cinco','seis','sete','oito','n
 const nExt=n=>n<=20?EXTN[n]:String(n);
 const TXT_DOCS_CES=`Para a cessão de direitos precisamos dos seguintes documentos:\n\nCEDENTE (VENDEDOR):\n- RG\n- CPF\n- Comprovante de endereço\n- Certidão de estado civil\n- Informar telefone e e-mail\n- Informar profissão\n- Mesmos documentos do cônjuge (caso haja)\n\nCESSIONÁRIO (COMPRADOR):\n- RG\n- CPF\n- Comprovante de endereço\n- Certidão de estado civil\n- Informar telefone e e-mail\n- Informar profissão\n- Mesmos documentos do cônjuge (caso haja)\n- Informar dois telefones para recado`;
 const TXT_ASS_CES=`*INSTRUÇÕES PARA ASSINATURA:*\n\n1 - Conferir os dados dos integrantes do contrato;\n2 - Imprimir duas vias do contrato;\n3 - Todos os integrantes devem vistar o rodapé de todas as páginas. Pode ser com uma rubrica, ou até mesmo só o primeiro nome;\n4 - No final do contrato há um espaço para assinatura. Cada integrante deve assinar acima do seu próprio nome;\n5 - Uma das vias deverá ser levada ao cartório (tabelionato de notas) para que sejam reconhecidas as assinaturas de todos os cedentes e cônjuges dos cedentes;\n6 - Entregar as duas vias na sede da construtora, juntamente com o comprovante de pagamento do boleto referente à cessão de direitos.`;
-function pessoaDoCliente(c){const p={...(c.planilha||{}),...(c.manual||{})};const end=p.endereco||[p.logradouro,p.complemento,p.bairro,p.cidade,p.uf,p.cep?'CEP '+String(p.cep).replace(/^(\d{2})(\d{3})(\d{3})$/,'$1.$2-$3'):''].filter(Boolean).join(', ');
-  const cpf=String(p.cpf||c.cpf||'').replace(/\D/g,'').replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4');
-  return {nome:c.nome||p.nome||'',cpf,rg:[p.rg,p.emissor].filter(Boolean).join(' '),profissao:p.profissao||'',estado_civil:p.estado_civil||'',nacionalidade:p.nacionalidade||'Brasileira',endereco:end,fone:p.fone||'',email:p.email||''}}
+function pessoaDoCliente(c){const d=cliDados(c),P=d.P;return {nome:(c.nome||P.nome||'').trim(),cpf:d.cpf||'',rg:[P.rg,P.emissor].filter(Boolean).join(' '),profissao:P.profissao||'',estado_civil:P.estado_civil||'',nacionalidade:P.nacionalidade||'Brasileira',endereco:d.end[0]?.v||'',fone:d.tel[0]?.v||'',email:d.em[0]?.v||''}}
 function faixas(ns){ns=[...new Set(ns)].sort((a,b)=>a-b);const r=[];let i=0;while(i<ns.length){let j=i;while(j+1<ns.length&&ns[j+1]===ns[j]+1)j++;r.push(i===j?ns[i]+'ª':ns[i]+'ª a '+ns[j]+'ª');i=j+1}return r.join(', ')}
 function valoresCessao(ate){const atr=C.titulos.filter(t=>t.vencimento&&t.vencimento<=ate&&['vencida','em_atraso'].includes(estado(t)));
   const tot=r2(atr.reduce((a,t)=>a+atrasoDe(t,ate).tot,0));const g=k=>atr.filter(t=>t.grupo===k).map(t=>t.numero);
@@ -1831,6 +1829,18 @@ async function concluiCes(id){const c=CESL.lista.find(x=>x.id==id),d=c.dados||{}
   await api('cessoes/'+id+'/concluir',{method:'POST',body:{}});alert('Cessão concluída: titulares trocados no contrato '+c.contrato+'.');telaCessoes()}
 async function apagaCes(id){if(!confirm('Apagar este registro de cessão? (o documento Word que você já baixou não é afetado)'))return;await api('cessoes/'+id,{method:'DELETE'});telaCessoes()}
 async function copiaTxt(t){try{await navigator.clipboard.writeText(t);alert('Texto copiado. É só colar no WhatsApp.')}catch(e){prompt('Copie o texto:',t)}}
+
+/* ficha completa: dados pessoais editáveis (ficam no cadastro e saem nos documentos) */
+function editaPessoais(id){const c=CLI.find(x=>x.id==id),d=cliDados(c),P=d.P,M=c.manual||{};
+  const F=[['rg','RG / CNH'],['emissor','Órgão emissor'],['nascimento','Nascimento','date'],['estado_civil','Estado civil'],['sexo','Sexo'],['naturalidade','Naturalidade'],['uf_nat','UF de nascimento'],['nacionalidade','Nacionalidade'],['profissao','Profissão'],['empresa','Empresa'],['renda','Renda']];
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Dados pessoais — ${esc(d.nome)}</h3><button onclick="fechaModal()">Fechar</button></div>
+  <div class="f2">${F.map(([k,l,t])=>`<div><label>${l}</label><input id="dp_${k}" ${t?'type="'+t+'"':''} value="${esc(P[k]||'')}"></div>`).join('')}</div>
+  ${d.em.length?`<h4>E-mails que voltaram (inválidos)</h4>${d.em.map(e=>`<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto" class="dp_ei" value="${esc(e.v)}" ${(M.emails_invalidos||[]).includes(e.v)?'checked':''}> ${esc(e.v)}</label>`).join('')}`:''}
+  <div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaPessoais(${id})">Salvar</button></div>`)}
+async function salvaPessoais(id){const c=CLI.find(x=>x.id==id),M=c.manual||{};const ks=['rg','emissor','nascimento','estado_civil','sexo','naturalidade','uf_nat','nacionalidade','profissao','empresa','renda'];
+  const pl=c.planilha||{},pes={};for(const k of ks){const v=$('#dp_'+k).value.trim();if(v&&v!==String(pl[k]||''))pes[k]=v}
+  const manual={...M,pessoais:pes,emails_invalidos:[...document.querySelectorAll('.dp_ei:checked')].map(x=>x.value)};
+  await api('cliente/'+id,{method:'PUT',body:{manual}});c.manual=manual;fechaModal();fichaCliente(id)}
 </script>
 </body>
 </html>
