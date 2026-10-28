@@ -15,17 +15,33 @@ async function igpmMeses(desde) {
   return (Array.isArray(L) ? L : []).map(x => ({ mes: x.data.split('/').reverse().join('-').slice(0, 7), pct: +String(x.valor).replace(',', '.') }));
 }
 export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garanteBoletos }) {
-  /* taxa de cessão = 2% do valor total do contrato, corrigido pelo IGP-M desde a assinatura (cláusula 10.1 dos contratos FCA) */
+  /* taxa de cessão = 2% do valor total do contrato, corrigido pelo IGP-M desde o mês da assinatura (cláusula 10.1 dos contratos FCA) */
   async function calculaTaxa(contrato) {
     const [ct] = await q(`select numero, valor_imovel, data_assinatura::text data_assinatura from carteira.contratos where numero=$1`, [contrato]);
     if (!ct || !+ct.valor_imovel) throw new Error('Contrato sem valor do imóvel cadastrado');
     if (!ct.data_assinatura) throw new Error('Contrato sem data de assinatura cadastrada');
     const base = R2(+ct.valor_imovel * 0.02);
-    const ini = new Date(ct.data_assinatura.slice(0, 7) + '-01T12:00:00Z'); ini.setUTCMonth(ini.getUTCMonth() + 1);
-    const meses = await igpmMeses(ini.toISOString().slice(0, 10));
+    /* conta desde o IGP-M do mês da assinatura: ele só é divulgado no fim do mês, depois que o contrato já foi assinado */
+    const meses = await igpmMeses(ct.data_assinatura.slice(0, 7) + '-01');
     const fator = meses.reduce((a, x) => a * (1 + x.pct / 100), 1);
     return { contrato, valor_contrato: +ct.valor_imovel, data_assinatura: ct.data_assinatura, base, meses: meses.length,
       desde: meses[0]?.mes || null, ate: meses[meses.length - 1]?.mes || null, igpm_pct: R2((fator - 1) * 100), taxa: R2(base * fator) };
+  }
+  /* todos os cedentes e cessionários entram (ou são atualizados) no cadastro de clientes já no registro da cessão */
+  async function cadastraPessoas(d, contrato, numero) {
+    const out = [];
+    for (const [papel, L] of [['cedente', d.cedentes || []], ['cessionário', d.cessionarios || []]]) for (const x of L) {
+      const cpf = dig(x.cpf); if (cpf.length < 11 || !x.nome) continue;
+      const [ex] = await q(`select id, manual from carteira.clientes where chave=$1`, ['cpf:' + cpf]);
+      const M = ex?.manual || {};
+      const manual = { ...M, ...(x.endereco && !M.endereco ? { endereco: x.endereco } : {}), ...(x.fone && !M.telefone ? { telefone: x.fone } : {}), ...(x.email && !M.email ? { email: x.email } : {}),
+        pessoais: { ...Object.fromEntries(Object.entries({ rg: x.rg, profissao: x.profissao, estado_civil: x.estado_civil, nacionalidade: x.nacionalidade }).filter(([, v]) => v)), ...(M.pessoais || {}) },
+        origem: M.origem || `Cessão de direitos nº ${pad4(numero)} (contrato ${contrato}) — ${papel}` };
+      const [r] = await q(`insert into carteira.clientes(chave, cpf, nome, manual) values ($1,$2,$3,$4)
+               on conflict (chave) do update set manual = excluded.manual, nome = coalesce(carteira.clientes.nome, excluded.nome), atualizado_em=now() returning id, (xmax = 0) novo`, ['cpf:' + cpf, cpf, x.nome, manual]);
+      out.push({ nome: x.nome, papel, novo: r.novo });
+    }
+    return out;
   }
   /* boleto da taxa sai sempre no nome do 1º cessionário */
   async function clienteAsaas(p) {
@@ -78,6 +94,7 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
         const [r] = await q(`insert into carteira.cessoes(numero, contrato, dados, status, datas, por) values ($1,$2,$3,'emitida',$4,$5) returning *`,
           [numero, b.contrato, b.dados, { emitida: new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10) }, real]);
         await log(real, 'cessao_emitida', { numero, contrato: b.contrato });
+        try { r.cadastro = await cadastraPessoas(b.dados, b.contrato, numero); } catch (e) { r.cadastro_erro = e.message; }
         if (b.dados.gerar_boleto !== false && +b.dados.taxa > 0) {
           try { r.boleto = await emiteBoletoTaxa(r); } catch (e) { r.boleto_erro = e.message; }
         }
@@ -90,7 +107,8 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
           const extra = { ...(body.taxa != null ? { taxa: +body.taxa } : {}), ...(body.venc_taxa ? { venc_taxa: body.venc_taxa } : {}) };
           await q(`update carteira.cessoes set dados = dados || $2::jsonb where id=$1`, [c.id, JSON.stringify(extra)]); c.dados = { ...c.dados, ...extra };
         }
-        return json({ ok: true, boleto: await emiteBoletoTaxa(c) });
+        const cadastro = await cadastraPessoas(c.dados || {}, c.contrato, c.numero);
+        return json({ ok: true, cadastro, boleto: await emiteBoletoTaxa(c) });
       }
       if (!p[2] && m === 'PUT') {
         if (c.status === 'concluida' && body.dados) return json({ erro: 'Cessão já concluída' }, 400);
@@ -117,16 +135,7 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
           [c.contrato, t0?.id || null, data, { novos_titulares: nomes.join(' e '), antes: (d.cedentes || []).map(x => x.nome).join(' e '), taxa_cessao: d.taxa ?? null, documento: String(c.numero).padStart(4, '0'),
             fatura: d.boleto?.fatura || null, vencimento: d.boleto?.vencimento || null, forma: 'Boleto Bancário', pago_em: d.taxa_paga?.pago_em || null, valor_pago: d.taxa_paga?.valor_pago ?? null },
             `Cessão de direitos nº ${String(c.numero).padStart(4, '0')}`]);
-        /* cessionários entram no cadastro de clientes */
-        for (const x of d.cessionarios || []) {
-          const cpf = dig(x.cpf); if (!cpf) continue;
-          const [ex] = await q(`select manual from carteira.clientes where chave=$1`, ['cpf:' + cpf]);
-          const M = ex?.manual || {};
-          const manual = { ...M, ...(x.endereco && !M.endereco ? { endereco: x.endereco } : {}), ...(x.fone && !M.telefone ? { telefone: x.fone } : {}), ...(x.email && !M.email ? { email: x.email } : {}),
-            pessoais: { ...(M.pessoais || {}), ...Object.fromEntries(Object.entries({ rg: x.rg, profissao: x.profissao, estado_civil: x.estado_civil, nacionalidade: x.nacionalidade }).filter(([, v]) => v)) } };
-          await q(`insert into carteira.clientes(chave, cpf, nome, manual) values ($1,$2,$3,$4)
-                   on conflict (chave) do update set manual = excluded.manual, atualizado_em=now()`, ['cpf:' + cpf, cpf, x.nome, manual]);
-        }
+        await cadastraPessoas(d, c.contrato, c.numero);
         await q(`update carteira.cessoes set status='concluida', datas=datas || $2, evento_id=$3 where id=$1`, [c.id, { concluida: hoje }, ev.id]);
         await log(real, 'cessao_concluida', { numero: c.numero, contrato: c.contrato, novos: nomes });
         return json({ ok: true, evento: ev.id });
