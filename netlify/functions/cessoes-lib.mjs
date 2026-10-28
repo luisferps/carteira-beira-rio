@@ -77,7 +77,30 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
              status text not null default 'emitida', datas jsonb not null default '{}', evento_id int, criado_em timestamptz default now(), por text)`);
     ok = true;
   }
-  return async function rotasCessoes(p, m, body, real) {
+  /* conclusão: troca os titulares do contrato a partir da 1ª parcela em aberto (chamada à mão ou quando o boleto da taxa é pago) */
+  async function concluir(c, dataBody, real) {
+        const d = c.dados || {}, hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+        const data = dataBody || d.data || hoje;
+        /* troca de titulares a partir da 1ª parcela em aberto */
+        const [t0] = await q(`select t.id from carteira.titulos t where t.contrato=$1 and t.grupo<>'acordo'
+                               and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id) order by t.vencimento limit 1`, [c.contrato]);
+        const nomes = (d.cessionarios || []).map(x => x.nome).filter(Boolean);
+        const [ev] = await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','cessao',null,$2,$3,$4,$5) returning id`,
+          [c.contrato, t0?.id || null, data, { novos_titulares: nomes.join(' e '), antes: (d.cedentes || []).map(x => x.nome).join(' e '), taxa_cessao: d.taxa ?? null, documento: String(c.numero).padStart(4, '0'),
+            fatura: d.boleto?.fatura || null, vencimento: d.boleto?.vencimento || null, forma: 'Boleto Bancário', pago_em: d.taxa_paga?.pago_em || null, valor_pago: d.taxa_paga?.valor_pago ?? null },
+            `Cessão de direitos nº ${String(c.numero).padStart(4, '0')}`]);
+        await cadastraPessoas(d, c.contrato, c.numero);
+        await q(`update carteira.cessoes set status='concluida', datas=datas || $2, evento_id=$3 where id=$1`, [c.id, { concluida: hoje }, ev.id]);
+        await log(real, 'cessao_concluida', { numero: c.numero, contrato: c.contrato, novos: nomes });
+        return { ok: true, evento: ev.id };
+      }
+  async function concluirPorPagamento(id) {
+    await garante();
+    const [c] = await q(`select * from carteira.cessoes where id=$1`, [id]);
+    if (!c || c.status === 'concluida') return null;
+    return concluir(c, null, 'asaas');
+  }
+  const rotas = async function rotasCessoes(p, m, body, real) {
     if (p[0] !== 'cessoes') return null;
     await garante();
     try {
@@ -125,22 +148,11 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
       }
       if (p[2] === 'concluir' && m === 'POST') {
         if (c.status === 'concluida') return json({ erro: 'Já concluída' }, 400);
-        const d = c.dados || {}, hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
-        const data = body.data || d.data || hoje;
-        /* troca de titulares a partir da 1ª parcela em aberto */
-        const [t0] = await q(`select t.id from carteira.titulos t where t.contrato=$1 and t.grupo<>'acordo'
-                               and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id) order by t.vencimento limit 1`, [c.contrato]);
-        const nomes = (d.cessionarios || []).map(x => x.nome).filter(Boolean);
-        const [ev] = await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','cessao',null,$2,$3,$4,$5) returning id`,
-          [c.contrato, t0?.id || null, data, { novos_titulares: nomes.join(' e '), antes: (d.cedentes || []).map(x => x.nome).join(' e '), taxa_cessao: d.taxa ?? null, documento: String(c.numero).padStart(4, '0'),
-            fatura: d.boleto?.fatura || null, vencimento: d.boleto?.vencimento || null, forma: 'Boleto Bancário', pago_em: d.taxa_paga?.pago_em || null, valor_pago: d.taxa_paga?.valor_pago ?? null },
-            `Cessão de direitos nº ${String(c.numero).padStart(4, '0')}`]);
-        await cadastraPessoas(d, c.contrato, c.numero);
-        await q(`update carteira.cessoes set status='concluida', datas=datas || $2, evento_id=$3 where id=$1`, [c.id, { concluida: hoje }, ev.id]);
-        await log(real, 'cessao_concluida', { numero: c.numero, contrato: c.contrato, novos: nomes });
-        return json({ ok: true, evento: ev.id });
+        return json(await concluir(c, body.data, real));
       }
       return json({ erro: 'Rota não encontrada' }, 404);
     } catch (e) { return json({ erro: e.message }, 500); }
   };
+  rotas.concluirPorPagamento = concluirPorPagamento;
+  return rotas;
 }
