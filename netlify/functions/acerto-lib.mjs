@@ -124,9 +124,7 @@ export function criaAcerto({ q, asaas, json, log }) {
   }
 
 
-  /* custo de cobrança: o mesmo que está lançado na parcela.
-     Parcela comum: o "custo de cobrança pago" do pagamento. Parcela de acordo: a parte dos honorários do acordo que cabe a essa parcela
-     (+ custo de cobrança lançado nela, se houver). Sem pagamento lançado no sistema: valor ÷ 1,10. */
+  /* custo de cobrança = o "custo de cobrança pago" registrado no pagamento da parcela (o que o cliente pagou). */
   async function custoDaParcela(L) {
     if (!L.length) return;
     const ids = L.map(x => x.payment).filter(Boolean), fs = L.map(x => x.fatura).filter(Boolean);
@@ -141,7 +139,6 @@ export function criaAcerto({ q, asaas, json, log }) {
       let h = 0;
       for (const r of P) {
         h += +r.honorarios_pago || 0;
-        if (r.grupo === 'acordo' && +r.a_hon > 0 && +r.a_val > 0) h += +r.valor_face * +r.a_hon / +r.a_val;
       }
       h = h < 0.05 ? 0 : h; x.hon = R2(Math.min(h, x.valor)); x.fca = R2(x.valor - x.hon);
     }
