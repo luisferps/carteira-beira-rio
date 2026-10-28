@@ -4,6 +4,7 @@ import { criaAcerto } from './acerto-lib.mjs';
 import { criaDevolucoes } from './devolucoes-lib.mjs';
 import { criaCessoes } from './cessoes-lib.mjs';
 import { criaPainel } from './painel-lib.mjs';
+import { criaDocumentos } from './documentos-lib.mjs';
 
 pg.types.setTypeParser(1082, v => v);
 
@@ -1240,9 +1241,9 @@ async function rotasPublicas(p, req, url) {
 /* o que o assistente administrativo pode fazer */
 async function permitidoAssistente(p, m, body) {
   const a = p[0], s = p[1];
-  if (m === 'GET') return ['eu', 'contratos', 'contrato', 'clientes', 'print', 'termo-arq', 'relatorios', 'boleto'].includes(a)
+  if (m === 'GET') return ['eu', 'contratos', 'contrato', 'clientes', 'print', 'termo-arq', 'relatorios', 'boleto', 'documentos', 'documento'].includes(a)
     || (a === 'boletos' && ['previa', 'cobranca', 'sem-vinculo', 'sobras'].includes(s));
-  if (a === 'sair' || a === 'cobranca') return true;
+  if (a === 'sair' || a === 'cobranca' || a === 'documentos' || a === 'documento') return true;
   if (a === 'boletos' && m === 'POST') return ['emitir', 'segunda-via', 'cobranca', 'cobranca-sem-boleto', 'ligar-acordo'].includes(s);
   if (a === 'boleto' && (m === 'PUT' || m === 'DELETE')) { const [b] = await q('select status from carteira.boletos where id_asaas=$1', [s]); return !!b && ATIVOS_B.includes(b.status); }
   if (a === 'proposta') return true;
@@ -1519,6 +1520,7 @@ async function garanteEsquema() {
   } catch (e) { console.error('garanteEsquema', e.message); }
 }
 
+const rotasDocumentos = criaDocumentos({ q, json, log: (...a) => log(...a) });
 const rotasPainel = criaPainel({ q, json, log: (...a) => log(...a) });
 const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a) });
 const DEV = criaDevolucoes({ q, asaas, json, log: (...a) => log(...a) });
@@ -1557,6 +1559,7 @@ export default async (req) => {
   { const rd = await DEV.rotas(p, m, body, real); if (rd) return rd; }
   { const rc2 = await rotasCessoes(p, m, body, real); if (rc2) return rc2; }
   { const rp = await rotasPainel(p, m, body, real); if (rp) return rp; }
+  { const rdc = await rotasDocumentos(p, m, body, real, url); if (rdc) return rdc; }
 
   try {
     if (p[0] === 'eu') return json({ conferente: real, nome: usuario?.nome || null });
