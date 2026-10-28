@@ -1746,7 +1746,8 @@ async function modalCessaoDoc(){if(!C)return;const hoje=new Date(Date.now()-3*36
   const atuais=(C.clientes||[]).filter(c=>(c.contratos||[]).some(k=>k.numero===C.contrato.numero&&k.atual));
   let todos=[];try{todos=await api('clientes')}catch(e){}
   const V=valoresCessao(hoje);let prox=43;try{prox=(await api('cessoes')).proximo}catch(e){}
-  CES={numero:prox,data:hoje,cedentes:atuais.map(pessoaDoCliente),cessionarios:[],taxa:2178,modo:V.atraso>0.01?'parcelado':'sem',n:10,primeira:'',pu:true,V,todos};
+  const ced=[];for(const p of atuais.map(pessoaDoCliente)){const k=norm(p.nome),j=ced.findIndex(x=>norm(x.nome)===k);const nC=x=>Object.values(x).filter(Boolean).length;if(j<0)ced.push(p);else if(nC(p)>nC(ced[j]))ced[j]=p}
+  CES={numero:prox,data:hoje,cedentes:ced,cessionarios:[],taxa:2178,modo:V.atraso>0.01?'parcelado':'sem',n:10,primeira:'',pu:true,V,todos};
   desenhaCesDoc()}
 function campoPessoa(tipo,i,p){const k=(c,l,w)=>`<div style="${w?'grid-column:span '+w:''}"><label>${l}</label><input value="${esc(p[c]||'')}" oninput="CES.${tipo}[${i}].${c}=this.value"></div>`;
   return `<div style="border:1px solid var(--ln);border-radius:8px;padding:8px;margin-bottom:8px"><div class="bt" style="align-items:center"><b style="flex:1">${tipo==='cedentes'?'Cedente':'Cessionário'} ${i+1}</b><button onclick="CES.${tipo}.splice(${i},1);desenhaCesDoc()">Tirar</button></div>
