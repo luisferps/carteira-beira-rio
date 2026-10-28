@@ -705,7 +705,25 @@ function rotuloBoleto(t) {
 function descricaoBoleto(ct, linha, aviso = true) {
   return [`Condomínio Beira Rio - ${ct.numero}`, `Q${ct.quadra} L${ct.lote}`, linha, '', FCA_RODAPE, ...(aviso ? ['', AVISO_30] : [])].join('\r\n');
 }
+const semAc = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+/* depois de uma cessão, o boleto sai no nome do novo titular (cliente do Asaas achado pelo nome ou pelo CPF do cadastro) */
+async function clienteCessionario(n) {
+  const [e] = await q(`select dados->>'novos_titulares' t from carteira.eventos where contrato=$1 and tipo='cessao' and coalesce(dados->>'novos_titulares','')<>''
+                       order by data desc nulls last, id desc limit 1`, [n]).catch(() => []);
+  if (!e) return { tem: false };
+  const nomes = String(e.t).split(/\s+e\s+|,|;/i).map(x => x.trim()).filter(x => x.length > 5);
+  for (const nome of nomes) {
+    const r = await asaas('/customers?name=' + encodeURIComponent(nome) + '&limit=20').catch(() => null);
+    const c = (r?.data || []).find(x => !x.deleted && semAc(x.name) === semAc(nome)); if (c) return { tem: true, id: c.id, nome };
+    const cs = (await q(`select cpf, nome from carteira.clientes where cpf is not null and nome is not null`).catch(() => [])).filter(x => semAc(x.nome) === semAc(nome));
+    for (const k of cs) { const d = String(k.cpf).replace(/\D/g, ''); if (d.length < 11) continue;
+      const r2 = await asaas('/customers?cpfCnpj=' + d).catch(() => null); const c2 = (r2?.data || []).find(x => !x.deleted); if (c2) return { tem: true, id: c2.id, nome }; }
+  }
+  return { tem: true, id: null, nome: nomes.join(' e ') };
+}
 async function clienteDoContrato(n) {
+  const cs = await clienteCessionario(n);
+  if (cs.tem) return cs.id;
   const [b] = await q(`select dados->>'customer' c from carteira.boletos where contrato=$1 and dados->>'customer' like 'cus_%' order by vencimento desc nulls last limit 1`, [n]);
   if (b?.c) return b.c;
   const [p] = await q(`select g.id_cliente_asaas c from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
@@ -822,7 +840,7 @@ async function emitirBoleto(tituloId, conf) {
   let venc = t.vencimento;
   if (venc < hojeBR()) { if (t.grupo === 'acordo') venc = hojeBR(); else return { titulo_id: tituloId, erro: 'O vencimento dessa parcela já passou — está em atraso' }; }
   const cliente = await clienteDoContrato(t.contrato);
-  if (!cliente) return { titulo_id: tituloId, erro: 'Não achei o cliente deste contrato no Asaas' };
+  if (!cliente) return { titulo_id: tituloId, erro: 'Não achei o cliente deste contrato no Asaas (se houve cessão, o novo titular precisa estar cadastrado no Asaas)' };
   const ex = await asaas(`/payments?customer=${cliente}&dueDate[ge]=${t.vencimento}&dueDate[le]=${venc}&limit=50`);
   const linha = rotuloBoleto(t);
   const dup = (ex?.data || []).find(g => !g.deleted && ATIVOS_B.concat(PAGO_A).includes(g.status) && (g.externalReference === 'cbr-titulo-' + t.id ||
@@ -1619,6 +1637,36 @@ export default async (req) => {
           try { out.push(await emitirBoleto(id, real)); } catch (e) { out.push({ titulo_id: id, erro: e.message }); }
         }
         return json(out);
+      }
+      if (p[1] === 'titular-errado' && (m === 'GET' || m === 'POST')) {
+        /* boletos ativos de contratos com cessão que saíram no nome do titular antigo; POST {ids} refaz no nome do novo titular */
+        const bs = await q(`select b.id_asaas, b.contrato, b.titulo_id, b.tipo, b.composicao, b.valor, b.vencimento::text vencimento, b.dados->>'customer' cust
+                            from carteira.boletos b where b.status = any($1) and exists (select 1 from carteira.eventos e where e.contrato=b.contrato and e.tipo='cessao' and coalesce(e.dados->>'novos_titulares','')<>'')
+                            order by b.contrato, b.vencimento`, [ATIVOS_B]);
+        const cache = {}, out = [];
+        for (const b of bs) {
+          const cs = cache[b.contrato] || (cache[b.contrato] = await clienteCessionario(b.contrato));
+          let cust = b.cust; if (!cust) { const g = await asaas('/payments/' + b.id_asaas).catch(() => null); cust = g?.customer; }
+          if (cust && cs.id && cust === cs.id) continue;
+          out.push({ ...b, cust, novo_cliente: cs.id, novo_titular: cs.nome });
+        }
+        if (m === 'GET') return json(out);
+        const ids = new Set(body.ids || []), feitos = [];
+        for (const b of out.filter(x => ids.has(x.id_asaas))) {
+          if (!b.novo_cliente) { feitos.push({ id: b.id_asaas, erro: 'Novo titular não está cadastrado no Asaas' }); continue; }
+          try {
+            const g0 = await asaas('/payments/' + b.id_asaas);
+            const venc = g0.dueDate < hojeBR() ? hojeBR() : g0.dueDate;
+            const g = await asaasReq('POST', '/payments', { customer: b.novo_cliente, billingType: g0.billingType || 'BOLETO', value: g0.value, dueDate: venc, description: g0.description,
+              externalReference: g0.externalReference || undefined, fine: g0.fine?.value ? { value: g0.fine.value, type: g0.fine.type || 'PERCENTAGE' } : { value: 2, type: 'PERCENTAGE' }, interest: { value: g0.interest?.value ?? 1 } });
+            await asaasReq('DELETE', '/payments/' + b.id_asaas);
+            await q(`update carteira.boletos set status='DELETED', motivo='Refeito no nome do novo titular (cessão)', atualizado_em=now() where id_asaas=$1`, [b.id_asaas]);
+            await gravaBoleto(g, { contrato: b.contrato, titulo_id: b.titulo_id, tipo: b.tipo, composicao: b.composicao, origem: 'sistema', motivo: 'Refeito no nome do novo titular (cessão)' });
+            await log(real, 'boleto_titular_corrigido', { contrato: b.contrato, antigo: b.id_asaas, novo: g.id, cliente: b.novo_cliente });
+            feitos.push({ id: b.id_asaas, novo: g.id, contrato: b.contrato, valor: g.value, vencimento: g.dueDate, link: g.bankSlipUrl || g.invoiceUrl });
+          } catch (e) { feitos.push({ id: b.id_asaas, erro: e.message }); }
+        }
+        return json(feitos);
       }
       if (p[1] === 'sync' && m === 'POST') {
         if (body.reimportar) {
