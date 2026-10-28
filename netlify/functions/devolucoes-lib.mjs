@@ -107,6 +107,21 @@ export function criaDevolucoes({ q, asaas, json, log }) {
         const r = await buscaAsaas(body.desde || '2025-01-01', body.ate || hojeBR(), Date.now() + 7000);
         return json(r);
       }
+      if (p[1] === 'procurar' && m === 'POST') {
+        /* procura no extrato do Asaas saídas com os valores pedidos (qualquer nome), mês a mês */
+        const vals = (body.valores || []).map(Number), prazo = Date.now() + 8000, achados = [];
+        let ini = body.desde || '2023-07-01'; const ate = body.ate || hojeBR();
+        while (ini <= ate && Date.now() < prazo) {
+          const d = new Date(addMes(ini.slice(0, 7) + '-01', 1) + 'T12:00:00Z'); d.setUTCDate(0); const fim = d.toISOString().slice(0, 10);
+          let off = 0, tot = 1;
+          while (off < tot) { const pg = await asaas(`/financialTransactions?startDate=${ini}&finishDate=${fim}&limit=100&offset=${off}`); tot = pg?.totalCount || 0;
+            for (const x of pg?.data || []) if (+x.value < 0 && vals.some(v => Math.abs(-x.value - v) < 0.015)) achados.push({ id: x.id, data: x.date, valor: -x.value, descricao: x.description, tipo: x.type });
+            off += 100; if (!pg?.hasMore) break; }
+          ini = addMes(ini.slice(0, 7) + '-01', 1);
+        }
+        const ja = new Set((await q(`select dados->>'documento' d from carteira.eventos where tipo='devolucao'`)).map(x => x.d));
+        return json({ achados: achados.map(a => ({ ...a, ja_lancado: ja.has(a.id) })), proximo: ini <= ate ? ini : null });
+      }
       if (p[1] === 'importar' && m === 'POST') {
         /* linhas da planilha "Devoluções" (Contratos.xlsx): cria o crédito a devolver de quem ainda não tem */
         const tem = new Set((await q(`select distinct contrato from carteira.eventos where tipo='credito' and conferente='luis'`)).map(x => x.contrato));
