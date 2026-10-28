@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import pg from 'pg';
 import { criaAcerto } from './acerto-lib.mjs';
+import { criaDevolucoes } from './devolucoes-lib.mjs';
 
 pg.types.setTypeParser(1082, v => v);
 
@@ -1504,7 +1505,8 @@ async function garanteEsquema() {
   } catch (e) { console.error('garanteEsquema', e.message); }
 }
 
-const rotasAcerto = criaAcerto({ q, asaas, json, log: (...a) => log(...a) });
+const DEV = criaDevolucoes({ q, asaas, json, log: (...a) => log(...a) });
+const rotasAcerto = criaAcerto({ q, asaas, json, log: (...a) => log(...a), dev: DEV });
 export default async (req) => {
   await garanteEsquema();
   const url = new URL(req.url);
@@ -1536,6 +1538,7 @@ export default async (req) => {
   { const ru = await rotasUsuarios(p, m, body, real); if (ru) return ru; }
   { const rc = await rotasCobranca(p, m, body, url, real); if (rc) return rc; }
   { const ra = await rotasAcerto(p, m, body, real); if (ra) return ra; }
+  { const rd = await DEV.rotas(p, m, body, real); if (rd) return rd; }
 
   try {
     if (p[0] === 'eu') return json({ conferente: real, nome: usuario?.nome || null });

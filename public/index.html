@@ -147,7 +147,7 @@ function route(){const h=location.hash.slice(1);COMO='';document.body.classList.
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
-  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='destrinchar'&&EU==='luis')telaDestrinchar();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
+  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='destrinchar'&&EU==='luis')telaDestrinchar();else if(h==='devolucoes'&&EU==='luis')telaDevolucoes();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function novaPend(){const t=prompt('Descreva a pendência deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
 async function novaObs(){const t=prompt('Observação deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'observacao',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
@@ -160,7 +160,7 @@ function telaModulos(){
    <div class="mod" style="border-left-color:#2e9e4f" onclick="location.hash='clientes'"><b>Clientes</b><span>Cadastro dos clientes: telefones, e-mails, endereço, documentos e os contratos de cada um.</span></div>
    ${EU==='luis'||EU==='assistente'?`<div class="mod" style="border-left-color:#dc2626" onclick="location.hash='cobranca'"><b>Cobrança</b><span>Campanha de cobrança: funil, agenda de contatos, promessas e mensagens prontas de WhatsApp.</span></div>`:''}
    ${EU==='assistente'?`<div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar boletos, 2ª via, cobrança e relatórios de cobrança.</span></div>`:''}
-   ${EU==='luis'?`<div class="mod" style="border-left-color:#64748b" onclick="location.hash='usuarios'"><b>Usuários</b><span>Liberar ou bloquear o acesso da equipe.</span></div><div class="mod" style="border-left-color:#1b9fd0" onclick="location.hash='acerto'"><b>Acerto mensal</b><span>Fechamento do mês com a FCA: entradas pela data de crédito, saídas, serviços da Inerente, saldo que passa para o mês seguinte, planilha e relatório em PDF.</span></div><div class="mod" style="border-left-color:#0d9488" onclick="location.hash='correcao'"><b>Correção anual</b><span>Prévia e aplicação da correção de janeiro (IGP-M + 2% para quem atrasou), contrato por contrato.</span></div><div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar os boletos do mês, cobrança dos 60 dias e boletos feitos direto no Asaas.</span></div><div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
+   ${EU==='luis'?`<div class="mod" style="border-left-color:#64748b" onclick="location.hash='usuarios'"><b>Usuários</b><span>Liberar ou bloquear o acesso da equipe.</span></div><div class="mod" style="border-left-color:#0f766e" onclick="location.hash='devolucoes'"><b>Devoluções</b><span>Quem tem a receber de volta: crédito, parcelas do dia 15, o que já foi pago (Pix do Asaas reconhecido sozinho), saldo e atrasadas.</span></div><div class="mod" style="border-left-color:#1b9fd0" onclick="location.hash='acerto'"><b>Acerto mensal</b><span>Fechamento do mês com a FCA: entradas pela data de crédito, saídas, serviços da Inerente, saldo que passa para o mês seguinte, planilha e relatório em PDF.</span></div><div class="mod" style="border-left-color:#0d9488" onclick="location.hash='correcao'"><b>Correção anual</b><span>Prévia e aplicação da correção de janeiro (IGP-M + 2% para quem atrasou), contrato por contrato.</span></div><div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar os boletos do mês, cobrança dos 60 dias e boletos feitos direto no Asaas.</span></div><div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
   </div>`}
 
 
@@ -1317,6 +1317,12 @@ function calcDevolucao(D){const multa=r2(D.pago*D.pm/100),base=r2(D.pago-multa-D
   const n=Math.max(1,D.n|0),b=r2(Math.floor(dev/n*100)/100),ps=[];const [y,m]=String(D.venc).split('-').map(Number);
   for(let i=0;i<n;i++){const dt=new Date(Date.UTC(y,m-1+i,1)),dd=String(D.venc).slice(8,10)||'15';ps.push({n:i+1,venc:dt.toISOString().slice(0,7)+'-'+dd,v:i<n-1?b:r2(dev-b*(n-1))})}
   return{multa,base,ret,dev,ps}}
+async function gravaCreditoDev(){const D=window._DEV;if(!D||!D.dev)return alert('Nada a devolver.');
+  if(C.eventos.some(e=>e.tipo==='credito')&&!confirm('Este contrato já tem crédito a devolver lançado. Lançar outro crédito somando a ele?'))return;
+  const enc=C.eventos.find(x=>x.tipo==='encerramento');
+  await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'credito',motivo:'Distrato (devolução)',a_partir_titulo:enc?.a_partir_titulo||null,data:D.data||null,
+    dados:{valor:D.dev,origem:'Distrato (devolução)',pago_cliente:D.pago,multa:D.multa,comissao:D.corr,retido:D.ret,prazo:D.ps.length,primeira:D.ps[0].venc,valor_parcela:D.ps[0].v,data_distrato:D.data},obs:'Calculado em "Valores para devolução"'}});
+  fechaModal();recarrega();alert('Crédito a devolver gravado. Ele aparece no módulo Devoluções, com o cronograma.')}
 function modalDevolucao(){const ls=pagoDevolucao(),pago=r2(ls.reduce((a,x)=>a+x.v,0)),meses=new Set(ls.map(x=>x.d.slice(0,7))).size;
   const enc=C.eventos.filter(e=>e.tipo==='encerramento').sort((a,b)=>String(b.data).localeCompare(String(a.data)))[0];
   const h=new Date(C.hoje+'T12:00:00');h.setMonth(h.getMonth()+1);const venc=h.toISOString().slice(0,7)+'-15';
@@ -1332,7 +1338,7 @@ function modalDevolucao(){const ls=pagoDevolucao(),pago=r2(ls.reduce((a,x)=>a+x.
   <div><label>1º vencimento da devolução</label><input id="dv_vc" type="date" value="${venc}"></div></div>
   <div class="mut" style="margin-top:4px">Sugestão de parcelas: ${meses} (meses em que o cliente pagou).</div>
   <div id="dv_res" style="margin-top:10px"></div>
-  <div class="bt"><button class="pri" onclick="relatorio('devolucao')">Imprimir / salvar em PDF</button></div>`);
+  <div class="bt"><button class="pri" onclick="relatorio('devolucao')">Imprimir / salvar em PDF</button>${EU==='luis'&&!COMO?`<button onclick="gravaCreditoDev()">Gravar como crédito a devolver</button>`:''}</div>`);
   const le=()=>({pago:numBR($('#dv_pg').value)||0,corr:numBR($('#dv_co').value)||0,pm:numBR($('#dv_pm').value)||0,pr:numBR($('#dv_pr').value)||0,modo:$('#dv_md').value,data:$('#dv_dt').value,n:Number($('#dv_n').value)||1,venc:$('#dv_vc').value||venc,ls});
   const at=()=>{const D=le(),R=calcDevolucao(D);window._DEV={...D,...R};
     $('#dv_res').innerHTML=`<table><tbody><tr><td>Valor pago</td><td class="n">${brl(D.pago)}</td></tr><tr><td>(−) Multa de ${D.pm}%</td><td class="n">${brl(R.multa)}</td></tr><tr><td>(−) Corretagem</td><td class="n">${brl(D.corr)}</td></tr><tr><td>(−) Retenção de ${D.pr}%</td><td class="n">${brl(R.ret)}</td></tr><tr><td><b>Valor a devolver</b></td><td class="n"><b>${brl(R.dev)}</b></td></tr><tr><td>Total descontado</td><td class="n">${brl(r2(D.pago-R.dev))}</td></tr></tbody></table>
@@ -1636,6 +1642,53 @@ async function telaDestrinchar(){app.innerHTML='<div class="card">Carregando…<
    ${por[c].sort((a,b)=>String(a.pago_em).localeCompare(String(b.pago_em))).map(x=>`<tr><td>${dbr(x.pago_em)}</td><td>${esc(x.origem||'')}</td><td class="mut">${esc(x.parcela)}</td><td class="r">${n2b(x.pago)}</td>
     ${['cobranca','multa','juros','custo'].map(k=>`<td class="r">${n2b(x.depois[k])}<div class="mut">antes ${n2b(x.antes[k])}</div></td>`).join('')}</tr>`).join('')}</table></details>`).join('')}`}
 async function aplicaDestrinchar(n){if(!confirm(`Gravar a separação em ${n} pagamentos? Fica registrado no histórico.`))return;const r=await api('boletos/ressepara',{method:'POST',body:{aplicar:true}});alert(r.mudam+' pagamento(s) destrinchados.');telaDestrinchar()}
+/* ===== Devoluções ===== */
+let DEVL=null,DEVF='abertas';
+async function telaDevolucoes(){app.innerHTML='<div class="card">Carregando…</div>';DEVL=await api('devolucoes');desenhaDev()}
+function desenhaDev(){const L=DEVL.lista,h=DEVL.hoje,mes=h.slice(0,7);
+  const ab=L.filter(x=>x.situacao!=='quitada'),sal=ab.reduce((s,x)=>s+x.saldo,0),atr=ab.filter(x=>x.situacao==='atrasada');
+  const doMes=ab.map(x=>({x,ps:x.cronograma.filter(p=>p.situacao!=='paga'&&p.venc.slice(0,7)<=mes)})).filter(o=>o.ps.length);
+  const vMes=doMes.reduce((s,o)=>s+o.ps.reduce((a,p)=>a+p.valor-p.pago,0),0);
+  const F={abertas:ab,atrasadas:atr,quitadas:L.filter(x=>x.situacao==='quitada'),todas:L}[DEVF]||ab;
+  const sit=x=>x.situacao==='quitada'?'<span class="tag ok">Quitada</span>':x.situacao==='atrasada'?`<span class="tag al">Atrasada ${brl(x.atraso)}</span>`:x.cronograma.length?'<span class="tag">Em dia</span>':'<span class="tag al">Sem cronograma</span>';
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button><span style="flex:1"></span><button onclick="buscaDevAsaas()">Buscar Pix de devolução no Asaas</button><button class="pri" onclick="listaDia15()">Lista para pagar (dia 15)</button></div>
+  <div class="card"><h3 style="margin-top:0">Devoluções</h3><div class="tot">
+   <div><span class="mut">Saldo a devolver (${ab.length} contratos)</span><b>${brl(sal)}</b></div>
+   <div><span class="mut">A pagar até este mês (com atrasadas)</span><b>${brl(vMes)}</b></div>
+   <div class="${atr.length?'neg':''}"><span class="mut">Atrasadas</span><b>${atr.length} · ${brl(atr.reduce((s,x)=>s+x.atraso,0))}</b></div>
+   <div><span class="mut">Já devolvido</span><b>${brl(L.reduce((s,x)=>s+x.devolvido,0))}</b></div></div>
+   <div class="filtros" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">${[['abertas','A devolver'],['atrasadas','Atrasadas'],['quitadas','Quitadas'],['todas','Todas']].map(([k,t])=>`<button class="${DEVF===k?'on':''}" onclick="DEVF='${k}';desenhaDev()">${t}</button>`).join('')}</div></div>
+  <div class="card">${F.length?`<table><tr><th>Contrato</th><th>Favorecido</th><th class="r">Crédito</th><th class="r">Devolvido</th><th class="r">Saldo</th><th>Parcelas</th><th>Próxima</th><th>Situação</th></tr>
+   ${F.map(x=>`<tr class="lk" onclick="detDev('${x.contrato}')"><td><b>${x.contrato}</b> <span class="mut">Q${x.quadra||''} L${x.lote||''}</span></td><td>${esc(nome(x.nomes[0]||''))}</td><td class="r">${n2b(x.credito)}</td><td class="r">${n2b(x.devolvido)}</td><td class="r"><b>${n2b(x.saldo)}</b></td><td>${x.prazo?x.parcelas_pagas+'/'+x.prazo+' de '+n2b(x.valor_parcela):'—'}</td><td>${x.proxima?dbr(x.proxima.venc)+' · '+n2b(x.proxima.falta):'—'}</td><td>${sit(x)}</td></tr>`).join('')}</table>`:'<div class="mut">Nenhuma.</div>'}</div>`}
+function detDev(n){const x=DEVL.lista.find(z=>z.contrato===n),d=x.dados||{};
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Devolução — contrato ${n}</h3><button onclick="fechaModal();location.hash='c/${n}'">Abrir o contrato</button><button onclick="fechaModal()">Fechar</button></div>
+  <div class="tot"><div><span class="mut">Crédito a devolver</span><b>${brl(x.credito)}</b></div><div><span class="mut">Devolvido</span><b>${brl(x.devolvido)}</b></div><div><span class="mut">Saldo</span><b>${brl(x.saldo)}</b></div></div>
+  ${d.pago_cliente?`<div class="mut" style="margin-top:6px">Pago pelo cliente ${brl(d.pago_cliente)} · multa ${brl(d.multa||0)} · retenção ${brl(d.retido||0)}${d.data_distrato?' · distrato em '+dbr(d.data_distrato):''}</div>`:''}
+  <div class="f2" style="margin-top:10px">
+   <div><label>Nº de parcelas</label><input id="dd_n" inputmode="numeric" value="${d.prazo||''}"></div>
+   <div><label>1ª parcela (data)</label><input id="dd_p" type="date" value="${d.primeira||''}"></div>
+   <div><label>Valor da parcela</label><input id="dd_v" inputmode="decimal" value="${d.valor_parcela?brl(d.valor_parcela):''}"></div>
+   <div><label>Tipo da chave Pix</label><input id="dd_pt" value="${esc(d.pix_tipo||'')}"></div>
+   <div><label>Chave Pix</label><input id="dd_px" value="${esc(d.pix||'')}"></div>
+   <div><label>Banco / conta</label><input id="dd_b" value="${esc([d.banco,d.conta].filter(Boolean).join(' · '))}"></div></div>
+  <label style="margin-top:8px">Quem recebe o Pix (nomes, um por linha) — é por esses nomes que o sistema reconhece o Pix no Asaas</label><textarea id="dd_f">${esc(x.nomes.join('\n'))}</textarea>
+  <div class="bt" style="margin-top:8px"><button class="pri" onclick="salvaDev('${n}')">Salvar</button></div>
+  <h4>Cronograma</h4>${x.cronograma.length?`<table><tr><th>Parcela</th><th>Vencimento</th><th class="r">Valor</th><th class="r">Pago</th><th>Situação</th></tr>${x.cronograma.map(p=>`<tr><td>${p.n}/${x.prazo}</td><td>${dbr(p.venc)}</td><td class="r">${n2b(p.valor)}</td><td class="r">${n2b(p.pago)}</td><td>${p.situacao==='paga'?'<span class="tag ok">Paga</span>':p.situacao==='atrasada'?'<span class="tag al">Atrasada</span>':'A vencer'}</td></tr>`).join('')}</table>`:'<div class="mut">Sem cronograma: informe o nº de parcelas e a 1ª parcela.</div>'}
+  <h4>Pagamentos feitos</h4>${x.pagos.length?`<table><tr><th>Data</th><th class="r">Valor</th><th>Forma</th><th>Obs.</th></tr>${x.pagos.map(p=>`<tr><td>${dbr(p.data)}</td><td class="r">${n2b(p.valor)}</td><td>${esc(p.forma||'')}${p.destino?' → '+esc(p.destino):''}</td><td class="mut">${esc(p.obs||'')}</td></tr>`).join('')}</table>`:'<div class="mut">Nenhum pagamento lançado.</div>'}`);
+  const m=document.querySelector('#modal .card');if(m)m.style.maxWidth='980px'}
+async function salvaDev(n){const x=DEVL.lista.find(z=>z.contrato===n);const bc=$('#dd_b').value.split('·').map(s=>s.trim());
+  const dados={prazo:Number($('#dd_n').value)||null,primeira:$('#dd_p').value||null,valor_parcela:numBR($('#dd_v').value)||null,pix_tipo:$('#dd_pt').value.trim()||null,pix:$('#dd_px').value.trim()||null,banco:bc[0]||null,conta:bc[1]||null,favorecidos:$('#dd_f').value.split('\n').map(s=>s.trim()).filter(Boolean)};
+  await api('devolucoes/credito/'+x.credito_ids[0],{method:'PUT',body:{dados}});fechaModal();telaDevolucoes()}
+async function buscaDevAsaas(){const b=event.target;b.disabled=true;let desde=prompt('Buscar Pix de devolução no Asaas a partir de qual data? (AAAA-MM-DD)','2025-01-01');if(!desde){b.disabled=false;return}
+  let tot=[],r;try{do{b.textContent='Buscando a partir de '+dbr(desde)+'…';r=await api('devolucoes/buscar-asaas',{method:'POST',body:{desde}});tot=tot.concat(r.novos);desde=r.proximo}while(desde)}finally{b.disabled=false;b.textContent='Buscar Pix de devolução no Asaas'}
+  alert(tot.length?tot.length+' Pix lançados como devolução:\n'+tot.slice(0,40).map(x=>`${x.contrato} · ${dbr(x.data)} · ${brl(x.valor)} · ${x.favorecido}`).join('\n'):'Nenhum Pix novo de devolução.');telaDevolucoes()}
+function listaDia15(){const h=DEVL.hoje,mes=h.slice(0,7);const L=DEVL.lista.filter(x=>x.situacao!=='quitada').map(x=>({x,ps:x.cronograma.filter(p=>p.situacao!=='paga'&&p.venc.slice(0,7)<=mes)})).filter(o=>o.ps.length);
+  const tot=L.reduce((s,o)=>s+o.ps.reduce((a,p)=>a+p.valor-p.pago,0),0);
+  const w=window.open('','_blank');if(!w)return alert('Libere pop-ups para este site.');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Devoluções a pagar ${mes.split('-').reverse().join('-')}</title><style>body{font:12px Arial;margin:24px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:4px 8px;text-align:left}.r{text-align:right}h1{font-size:17px}tfoot td{font-weight:bold}@media print{button{display:none}}</style></head><body><button onclick="print()">Imprimir / salvar em PDF</button>
+  <h1>Devoluções a pagar — até ${dbr(mes+'-15')}</h1><table><thead><tr><th>Contrato</th><th>Favorecido</th><th>Parcela(s)</th><th class="r">Valor</th><th>Pix</th><th>Banco</th></tr></thead><tbody>
+  ${L.map(({x,ps})=>`<tr><td>${x.contrato}</td><td>${esc(x.nomes[0]||'')}</td><td>${ps.map(p=>p.n+'/'+x.prazo+(p.situacao==='atrasada'?' (atrasada)':'')).join(', ')}</td><td class="r">${n2b(ps.reduce((a,p)=>a+p.valor-p.pago,0))}</td><td>${esc([x.dados.pix_tipo,x.dados.pix].filter(Boolean).join(': '))}</td><td>${esc([x.dados.banco,x.dados.conta].filter(Boolean).join(' · '))}</td></tr>`).join('')}
+  </tbody><tfoot><tr><td colspan="3">Total (${L.length})</td><td class="r">${n2b(tot)}</td><td colspan="2"></td></tr></tfoot></table></body></html>`);w.document.close()}
 </script>
 </body>
 </html>

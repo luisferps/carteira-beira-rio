@@ -51,7 +51,7 @@ function vencRef(g) {
 }
 const dias = (a, b) => a && b ? Math.round((new Date(b + 'T12:00:00Z') - new Date(a + 'T12:00:00Z')) / 864e5) : 0;
 
-export function criaAcerto({ q, asaas, json, log }) {
+export function criaAcerto({ q, asaas, json, log, dev }) {
   let ok = false;
   async function garante() {
     if (ok) return;
@@ -173,6 +173,8 @@ export function criaAcerto({ q, asaas, json, log }) {
     const cls = {}; for (const c of await q(`select c.id, c.cat from carteira.acerto_cls c join carteira.acerto_extrato e on e.id=c.id and e.mes=$1`, [mes])) cls[c.id] = c.cat;
     const regras = {}; for (const r of await q(`select nome, cat from carteira.acerto_regras`)) regras[r.nome] = r.cat;
     const acordos = new Set((await q(`select distinct contrato from carteira.acordos`).catch(() => [])).map(x => x.contrato));
+    const DL = dev ? await dev.carrega().catch(() => []) : [];
+    const docDev = {}; for (const r of await q(`select contrato, dados->>'documento' d from carteira.eventos where tipo='devolucao' and coalesce(dados->>'documento','') like 'ftn_%'`)) docDev[r.d] = r.contrato;
     const ent = [], sai = [];
     for (const e of ext) {
       const v = +e.valor;
@@ -194,7 +196,9 @@ export function criaAcerto({ q, asaas, json, log }) {
         const ben = beneficiario(e.descricao), n = nm(ben);
         let cat, como = '';
         if (/FEE/.test(e.tipo || '') || /^taxa/i.test(e.descricao || '')) { cat = 'taxas'; como = 'taxa do Asaas'; }
+        else if (docDev[e.id]) { cat = 'devolucao'; como = 'devolução do contrato ' + docDev[e.id]; }
         else if (regras[n]) { cat = regras[n]; como = 'nome já classificado antes'; }
+        else if (dev && dev.contratoDoFavorecido(DL, ben)) { cat = 'devolucao'; como = 'devolução do contrato ' + dev.contratoDoFavorecido(DL, ben).contrato; }
         else { const r = REGRAS_FIXAS.find(([re]) => re.test(n)); cat = r ? r[1] : 'revisar'; como = r ? 'regra fixa' : DUVIDA.test(n) ? 'imposto da folha (Inerente) ou conta a pedido do André (FCA)?' : 'nome novo'; }
         const auto = cat;
         if (cls[e.id]) { cat = cls[e.id]; como = 'classificado por você'; }
@@ -322,6 +326,7 @@ export function criaAcerto({ q, asaas, json, log }) {
         let n = E.n;
         if (body.recomecar || !n) n = await carregaExtrato(mes);
         const falta = await carregaPagamentos(mes, prazo);
+        if (dev) { const it = await q(`select id, data::text data, valor, tipo, descricao from carteira.acerto_extrato where mes=$1 and valor < 0`, [mes]); await dev.registraDoExtrato(it).catch(e => console.error('dev', e.message)); }
         return json({ lancamentos: n, falta });
       }
       if (p[2] === 'cls' && m === 'POST') {
