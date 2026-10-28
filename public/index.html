@@ -1256,7 +1256,9 @@ function modalEvento(tipo,eid,modo){
 async function salvaEvento(tipo,eid){const old=eid?C.eventos.find(x=>x.id==eid)?.dados||{}:{};
   const dados=tipo==='cessao'?{...old,novos_titulares:$('#e_n')?.value||null,taxa_cessao:numBR($('#e_tx').value),fatura:$('#e_fat').value.trim()||null,vencimento:$('#e_venc').value||null,forma:$('#e_forma').value,pago_em:$('#e_pg').value||null,valor_pago:numBR($('#e_vp').value)}:tipo==='repactuacao'?{...old,boletos:Number($('#e_nb').value)||null}:{...old};
   const body={contrato:C.contrato.numero,tipo,motivo:$('#e_m')?.value,a_partir_titulo:Number($('#e_t').value),data:$('#e_d').value,dados,obs:$('#e_o').value};
-  await api(eid?'evento/'+eid:'evento',{method:eid?'PUT':'POST',body});fechaModal();recarrega()}
+  await api(eid?'evento/'+eid:'evento',{method:eid?'PUT':'POST',body});fechaModal();await recarrega();
+  if(!eid&&tipo==='encerramento'&&['Distrato','Retomada'].includes(body.motivo)&&!C.eventos.some(e=>e.tipo==='credito')){/* distrato/retomada já abre a conta da devolução para gravar o crédito e o cronograma */
+    setTimeout(()=>{if(confirm('Contrato encerrado por '+body.motivo.toLowerCase()+'. Calcular agora o valor a devolver e gerar as parcelas da devolução?'))modalDevolucao()},300)}}
 
 
 /* relatórios (abrem em nova aba, prontos para imprimir/salvar em PDF) */
