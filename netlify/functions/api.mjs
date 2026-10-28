@@ -551,23 +551,29 @@ async function efetivaPropostaPaga(pid, g) {
   return { titulo_id: t1.id, contrato: pr.contrato };
 }
 /* boleto da taxa de cessão pago: dá baixa sozinho na cessão (e no evento de cessão, se já concluída) */
-async function taxaCessaoPaga(id, g) {
+async function taxaCessaoPaga(id, k, g) {
   await garanteBoletos(); await gravaBoleto(g, {});
   const pago = g.paymentDate || g.clientPaymentDate || g.confirmedDate || null;
-  const info = { pago_em: pago, valor_pago: +g.value, fatura: g.invoiceNumber ? String(g.invoiceNumber) : null, forma: FORMA_A[g.billingType] || g.billingType };
-  const [c] = await q('select id, contrato, numero, evento_id from carteira.cessoes where id=$1', [id]).catch(() => []);
+  const forma = FORMA_A[g.billingType] || g.billingType;
+  const [c] = await q('select id, contrato, numero, evento_id, dados from carteira.cessoes where id=$1', [id]).catch(() => []);
   if (!c) return registraAuto(g, { resultado: 'pendente', motivo: 'Boleto de taxa de cessão, mas a cessão não está no sistema' });
-  await q(`update carteira.cessoes set dados = dados || $2::jsonb where id=$1`, [c.id, JSON.stringify({ taxa_paga: info })]);
-  if (c.evento_id) await q(`update carteira.eventos set dados = coalesce(dados,'{}'::jsonb) || $2::jsonb where id=$1`, [c.evento_id, JSON.stringify(info)]);
-  await log('asaas', 'taxa_cessao_paga', { cessao: c.numero, contrato: c.contrato, valor: g.value });
-  /* taxa paga = cessão reconhecida: troca os titulares do contrato (os próximos boletos saem no nome do cessionário) */
+  const d = c.dados || {};
+  const L = (d.boletos_taxa || (d.boleto ? [{ ...d.boleto, k: 1, total: 1 }] : [])).map(b => (b.id === g.id || (!b.id && b.k === k)) ? { ...b, pago_em: pago, valor_pago: +g.value, forma } : b);
+  const todos = L.length > 0 && L.every(b => b.pago_em);
+  const upd = { boletos_taxa: L };
+  if (todos) upd.taxa_paga = { pago_em: L.map(b => b.pago_em).sort().pop(), valor_pago: R2(L.reduce((a, b) => a + (+b.valor_pago || 0), 0)), fatura: L.map(b => b.fatura).filter(Boolean).join(', ') || null, forma };
+  await q(`update carteira.cessoes set dados = dados || $2::jsonb where id=$1`, [c.id, JSON.stringify(upd)]);
+  if (todos && c.evento_id) await q(`update carteira.eventos set dados = coalesce(dados,'{}'::jsonb) || $2::jsonb where id=$1`, [c.evento_id, JSON.stringify(upd.taxa_paga)]);
+  await log('asaas', 'taxa_cessao_paga', { cessao: c.numero, contrato: c.contrato, valor: g.value, parcela: k, todas_pagas: todos });
+  /* taxa paga (o 1º boleto, se dividida) = cessão reconhecida: troca os titulares do contrato e os próximos boletos saem no nome do cessionário */
   let nota = '';
   try { const r = await rotasCessoes.concluirPorPagamento(c.id); if (r?.ok) nota = ' — titulares trocados'; } catch (e) { nota = ' — não consegui trocar os titulares: ' + e.message; }
-  return registraAuto(g, { resultado: 'lancado', contrato: c.contrato, motivo: 'Taxa de cessão nº ' + String(c.numero).padStart(4, '0') + nota });
+  const tot = L.length > 1 ? ` (${L.find(b => b.id === g.id)?.k || k}/${L.length})` : '';
+  return registraAuto(g, { resultado: 'lancado', contrato: c.contrato, motivo: 'Taxa de cessão nº ' + String(c.numero).padStart(4, '0') + tot + nota });
 }
 async function processaPagamentoAsaas(g, X, opc = {}) {
   if (!g || g.deleted || !PAGO_A.includes(g.status)) return { resultado: 'ignorado' };
-  { const cm = String(g.externalReference || '').match(/^cbr-cessao-(\d+)$/); if (cm) return taxaCessaoPaga(+cm[1], g); }
+  { const cm = String(g.externalReference || '').match(/^cbr-cessao-(\d+)(?:-(\d+))?$/); if (cm) return taxaCessaoPaga(+cm[1], +(cm[2] || 1), g); }
   const [ja] = await q(`select resultado from carteira.asaas_auto where id_asaas=$1`, [g.id]);
   if (ja && !opc.forcar && ja.resultado !== 'erro') return { resultado: 'ja_visto' };
   const lan = await jaLancado(g);

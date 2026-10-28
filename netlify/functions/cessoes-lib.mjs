@@ -52,24 +52,39 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
     const n = await asaasReq('POST', '/customers', { name: p.nome, cpfCnpj: cpf, ...(fone.length >= 10 ? { mobilePhone: fone } : {}), ...(p.email ? { email: p.email } : {}) });
     return n.id;
   }
+  const listaTaxa = d => d.boletos_taxa || (d.boleto ? [{ ...d.boleto, k: 1, total: 1 }] : []);
+  const somaMeses = (d0, n) => { const [y, m, dd] = d0.split('-').map(Number); const ult = new Date(Date.UTC(y, m - 1 + n + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(y, m - 1 + n, Math.min(dd, ult))).toISOString().slice(0, 10); };
+  /* taxa em 1 ou mais boletos mensais, sempre no nome do 1º cessionário; 1º vencimento padrão = 7 dias após a emissão */
   async function emiteBoletoTaxa(c) {
     const d = c.dados || {};
-    if (d.boleto?.id) { const g = await asaas('/payments/' + d.boleto.id).catch(() => null); if (g && !g.deleted) return d.boleto; }
+    const ex = listaTaxa(d);
+    if (ex.length) {
+      let vivos = 0; for (const b of ex) { const g = await asaas('/payments/' + b.id).catch(() => null); if (g && !g.deleted) vivos++; }
+      if (vivos === ex.length) return { boleto: ex[0], boletos: ex };
+      if (vivos) throw new Error('Parte dos boletos da taxa foi excluída no Asaas — confira no Asaas antes de gerar de novo');
+    }
     const taxa = R2(+d.taxa || 0); if (!(taxa > 0)) throw new Error('Taxa de cessão sem valor');
+    const n = Math.max(1, Math.min(24, parseInt(d.taxa_parcelas, 10) || 1));
+    const parc = R2(Math.round(taxa / n * 100) / 100), ult = R2(taxa - parc * (n - 1));
     const p1 = (d.cessionarios || [])[0]; if (!p1?.nome) throw new Error('Cessão sem cessionário');
     const cliente = await clienteAsaas(p1);
-    const venc = d.venc_taxa && d.venc_taxa >= hojeBR() ? d.venc_taxa : somaDias(hojeBR(), 3);
+    const venc1 = d.venc_taxa && d.venc_taxa >= hojeBR() ? d.venc_taxa : somaDias(hojeBR(), 7);
     const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [c.contrato]);
-    const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: taxa, dueDate: venc,
-      description: [`Condomínio Beira Rio - ${c.contrato}`, `Q${ct?.quadra || ''} L${ct?.lote || ''}`, `Taxa de cessão de direitos - Documento nº ${pad4(c.numero)}`, '', FCA_RODAPE].join('\r\n'),
-      externalReference: 'cbr-cessao-' + c.id });
-    await garanteBoletos();
-    await gravaBoleto(g, { contrato: c.contrato, tipo: 'cessao', origem: 'sistema', motivo: 'Taxa de cessão nº ' + pad4(c.numero) });
-    const boleto = { id: g.id, fatura: g.invoiceNumber ? String(g.invoiceNumber) : null, link: g.bankSlipUrl || g.invoiceUrl || null, valor: g.value, vencimento: g.dueDate, cliente: p1.nome };
-    await q(`update carteira.cessoes set dados = dados || $2::jsonb where id=$1`, [c.id, JSON.stringify({ boleto })]);
-    await log('luis', 'boleto_taxa_cessao', { numero: c.numero, contrato: c.contrato, id: g.id, valor: g.value });
-    return boleto;
+    const L = [];
+    for (let k = 1; k <= n; k++) {
+      const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: k === n ? ult : parc, dueDate: somaMeses(venc1, k - 1),
+        description: [`Condomínio Beira Rio - ${c.contrato}`, `Q${ct?.quadra || ''} L${ct?.lote || ''}`, `Taxa de cessão de direitos${n > 1 ? ` ${String(k).padStart(2, '0')}/${String(n).padStart(2, '0')}` : ''} - Documento nº ${pad4(c.numero)}`, '', FCA_RODAPE].join('\r\n'),
+        externalReference: 'cbr-cessao-' + c.id + (n > 1 ? '-' + k : '') });
+      await garanteBoletos();
+      await gravaBoleto(g, { contrato: c.contrato, tipo: 'cessao', origem: 'sistema', motivo: `Taxa de cessão nº ${pad4(c.numero)}${n > 1 ? ` (${k}/${n})` : ''}` });
+      L.push({ k, total: n, id: g.id, fatura: g.invoiceNumber ? String(g.invoiceNumber) : null, link: g.bankSlipUrl || g.invoiceUrl || null, valor: g.value, vencimento: g.dueDate, cliente: p1.nome });
+    }
+    await q(`update carteira.cessoes set dados = dados || $2::jsonb where id=$1`, [c.id, JSON.stringify({ boletos_taxa: L, boleto: L[0], taxa_parcelas: n })]);
+    await log('luis', 'boleto_taxa_cessao', { numero: c.numero, contrato: c.contrato, boletos: L.map(b => b.id), valor: taxa });
+    return { boleto: L[0], boletos: L };
   }
+
   let ok = false;
   async function garante() {
     if (ok) return;
@@ -87,7 +102,7 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
         const nomes = (d.cessionarios || []).map(x => x.nome).filter(Boolean);
         const [ev] = await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','cessao',null,$2,$3,$4,$5) returning id`,
           [c.contrato, t0?.id || null, data, { novos_titulares: nomes.join(' e '), antes: (d.cedentes || []).map(x => x.nome).join(' e '), taxa_cessao: d.taxa ?? null, documento: String(c.numero).padStart(4, '0'),
-            fatura: d.boleto?.fatura || null, vencimento: d.boleto?.vencimento || null, forma: 'Boleto Bancário', pago_em: d.taxa_paga?.pago_em || null, valor_pago: d.taxa_paga?.valor_pago ?? null },
+            fatura: listaTaxa(d).map(b => b.fatura).filter(Boolean).join(', ') || null, vencimento: d.boleto?.vencimento || null, forma: 'Boleto Bancário', pago_em: d.taxa_paga?.pago_em || null, valor_pago: d.taxa_paga?.valor_pago ?? null },
             `Cessão de direitos nº ${String(c.numero).padStart(4, '0')}`]);
         await cadastraPessoas(d, c.contrato, c.numero);
         await q(`update carteira.cessoes set status='concluida', datas=datas || $2, evento_id=$3 where id=$1`, [c.id, { concluida: hoje }, ev.id]);
@@ -119,19 +134,19 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
         await log(real, 'cessao_emitida', { numero, contrato: b.contrato });
         try { r.cadastro = await cadastraPessoas(b.dados, b.contrato, numero); } catch (e) { r.cadastro_erro = e.message; }
         if (b.dados.gerar_boleto !== false && +b.dados.taxa > 0) {
-          try { r.boleto = await emiteBoletoTaxa(r); } catch (e) { r.boleto_erro = e.message; }
+          try { Object.assign(r, await emiteBoletoTaxa(r)); } catch (e) { r.boleto_erro = e.message; }
         }
         return json(r);
       }
       const [c] = p[1] ? await q(`select * from carteira.cessoes where id=$1`, [p[1]]) : [];
       if (!c) return json({ erro: 'Cessão não encontrada' }, 404);
       if (p[2] === 'boleto' && m === 'POST') {
-        if (body.taxa != null || body.venc_taxa) {
-          const extra = { ...(body.taxa != null ? { taxa: +body.taxa } : {}), ...(body.venc_taxa ? { venc_taxa: body.venc_taxa } : {}) };
+        if (body.taxa != null || body.venc_taxa || body.taxa_parcelas) {
+          const extra = { ...(body.taxa != null ? { taxa: +body.taxa } : {}), ...(body.venc_taxa ? { venc_taxa: body.venc_taxa } : {}), ...(body.taxa_parcelas ? { taxa_parcelas: +body.taxa_parcelas } : {}) };
           await q(`update carteira.cessoes set dados = dados || $2::jsonb where id=$1`, [c.id, JSON.stringify(extra)]); c.dados = { ...c.dados, ...extra };
         }
         const cadastro = await cadastraPessoas(c.dados || {}, c.contrato, c.numero);
-        return json({ ok: true, cadastro, boleto: await emiteBoletoTaxa(c) });
+        return json({ ok: true, cadastro, ...(await emiteBoletoTaxa(c)) });
       }
       if (!p[2] && m === 'PUT') {
         if (c.status === 'concluida' && body.dados) return json({ erro: 'Cessão já concluída' }, 400);
