@@ -143,7 +143,7 @@ export function criaAcerto({ q, asaas, json, log }) {
         h += +r.honorarios_pago || 0;
         if (r.grupo === 'acordo' && +r.a_hon > 0 && +r.a_val > 0) h += +r.valor_face * +r.a_hon / +r.a_val;
       }
-      x.hon = R2(Math.min(h, x.valor)); x.fca = R2(x.valor - x.hon);
+      h = h < 0.05 ? 0 : h; x.hon = R2(Math.min(h, x.valor)); x.fca = R2(x.valor - x.hon);
     }
   }
   async function calcula(mes) {
@@ -184,7 +184,7 @@ export function criaAcerto({ q, asaas, json, log }) {
     }
     await custoDaParcela(ent.filter(x => ['mensal', 'anual', 'cobranca'].includes(x.cat)));
     for (const x of ent) {
-      if ((x.cat === 'mensal' || x.cat === 'anual') && !x.manual && x.hon > 0) { x.cat = x.auto = 'cobranca'; x.obs = (x.obs ? x.obs + ' · ' : '') + 'Tem custo de cobrança lançado na parcela'; }
+      if ((x.cat === 'mensal' || x.cat === 'anual') && !x.manual && x.hon > 0.5) { x.cat = x.auto = 'cobranca'; x.obs = (x.obs ? x.obs + ' · ' : '') + 'Tem custo de cobrança lançado na parcela'; }
       if (x.cat !== 'cobranca') { delete x.hon; delete x.fca; }
       else if (x.sem_lancamento || x.hon == null) { x.fca = R2(x.valor / 1.1); x.hon = R2(x.valor - x.fca); x.provisorio = true; x.obs = (x.obs ? x.obs + ' · ' : '') + 'Pagamento ainda não lançado na parcela (valor ÷ 1,10 provisório)'; }
     }
