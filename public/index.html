@@ -147,7 +147,7 @@ function route(){const h=location.hash.slice(1);COMO='';document.body.classList.
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
-  else if(h.startsWith('c/'))abrirContrato(h.slice(2));else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='destrinchar'&&EU==='luis')telaDestrinchar();else if(h==='devolucoes'&&EU==='luis')telaDevolucoes();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
+  else if(h.startsWith('c/')){const pp=h.slice(2).split('/');window._ABRE_DEV=pp[1]==='dev';abrirContrato(pp[0])}else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='destrinchar'&&EU==='luis')telaDestrinchar();else if(h==='devolucoes'&&EU==='luis')telaDevolucoes();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function novaPend(){const t=prompt('Descreva a pendência deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
 async function novaObs(){const t=prompt('Observação deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'observacao',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
@@ -165,7 +165,7 @@ function telaModulos(){
 
 
 /* ---------- COBRANÇA ---------- */
-const ETAPAS=[['fila','Na fila'],['contato1','Contato 1'],['contato2','Contato 2'],['contato3','Contato 3'],['negociando','Negociando'],['promessa','Promessa de pagamento'],['proposta','Proposta de pagamento'],['acordo','Acordo feito (pagou)'],['sem_retorno','Sem retorno'],['notificacao','Notificação / jurídico']];
+const ETAPAS=[['fila','Na fila'],['contato1','Contato 1'],['contato2','Contato 2'],['contato3','Contato 3'],['negociando','Negociando'],['promessa','Promessa de pagamento'],['proposta','Proposta de pagamento'],['acordo','Acordo feito (pagou)'],['sem_retorno','Sem retorno'],['notificacao','Notificação / jurídico'],['retomada','Retomada do lote']];
 const podeSR=e=>!['fila','contato1','contato2'].includes(e);
 const ETN=Object.fromEntries(ETAPAS);
 const TIPOS_REG={whatsapp:'WhatsApp',ligacao:'Ligação',email:'E-mail',visita:'Visita / presencial',nota:'Anotação',etapa:'Mudou de etapa',sistema:'Sistema',pagamento:'Pagamento',acordo:'Acordo'};
@@ -216,6 +216,7 @@ async function telaCaso(id){app.innerHTML='<div class="card">Carregando…</div>
    ${enc?'':`<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button onclick="relCaso()">Relatório de atraso (para print)</button><button class="pri" onclick="modalMsg()">Mandar WhatsApp</button><button onclick="modalReg()">Registrar contato / histórico</button><button class="per" onclick="encerraCaso()">Encerrar caso</button></div>`}${EU==='luis'?`<button class="per" style="margin-left:6px" onclick="excluiCaso()">Excluir (lançado por engano)</button>`:''}</div>
    <div class="tot" style="margin-top:10px"><div class="neg"><span class="mut">Dívida hoje</span><b>${brl(d.total)}</b></div><div><span class="mut">Parcelas em atraso</span><b>${d.parcelas.length}</b></div><div><span class="mut">Maior atraso</span><b>${d.dias} dias</b></div><div><span class="mut">Recebido desde que entrou</span><b>${brl(X.pagamentos.reduce((s,p)=>s+(+p.valor_pago),0))}</b></div></div>
    ${negocCaso(X)}
+   ${['notificacao','retomada'].includes(c.etapa)||Object.keys(c.retomada||{}).length?cardRetomada(X):''}
    ${enc?'':`<div class="f2" style="margin-top:10px"><div><label>Etapa</label><select id="cs_et" onchange="mudaCaso({etapa:this.value})">${ETAPAS.map(([k,l])=>`<option value="${k}" ${c.etapa===k?'selected':''} ${k==='sem_retorno'&&!podeSR(c.etapa)?'disabled':''}>${l}${k==='sem_retorno'&&!podeSR(c.etapa)?' (só depois do contato 3)':''}</option>`).join('')}</select></div>
    <div><label>Próximo contato</label><input type="date" id="cs_px" value="${c.proximo_contato?String(c.proximo_contato).slice(0,10):''}" onchange="mudaCaso({proximo_contato:this.value})"></div>
    <div><label>Responsável</label><input id="cs_rs" value="${esc(c.responsavel||'')}" onchange="mudaCaso({responsavel:this.value})"></div><div><label>Observação do caso</label><input id="cs_ob" value="${esc(c.obs||'')}" onchange="mudaCaso({obs:this.value})"></div></div>`}</div>
@@ -721,7 +722,7 @@ async function abrirContrato(n){
   const pcl=api('clientes?contrato='+n).catch(()=>[]);
   C=await api('contrato/'+n);SEL.clear();SELMODO=false;C.clientes=await pcl;
   try{if(await acertaAcordos())C=await api('contrato/'+n)}catch(e){console.warn('acertaAcordos',e)}
-  desenhaContrato();
+  desenhaContrato();if(window._ABRE_DEV){window._ABRE_DEV=false;setTimeout(()=>{if(typeof modalDevolucao==='function')modalDevolucao()},200)}
 }
 /* composição do acordo pela regra de hoje (mesma conta do relatório de atraso, na data do acordo, com as correções lançadas).
    Se o valor acordado ficou abaixo, a diferença sai em cascata: custo de cobrança -> juros -> multa -> principal (nunca vira desconto). */
@@ -1691,6 +1692,35 @@ function listaDia15(){const h=DEVL.hoje,mes=h.slice(0,7);const L=DEVL.lista.filt
   <h1>Devoluções a pagar — até ${dbr(mes+'-15')}</h1><table><thead><tr><th>Contrato</th><th>Favorecido</th><th>Parcela(s)</th><th class="r">Valor</th><th>Pix</th><th>Banco</th></tr></thead><tbody>
   ${L.map(({x,ps})=>`<tr><td>${x.contrato}</td><td>${esc(x.nomes[0]||'')}</td><td>${ps.map(p=>p.n+'/'+x.prazo+(p.situacao==='atrasada'?' (atrasada)':'')).join(', ')}</td><td class="r">${n2b(ps.reduce((a,p)=>a+p.valor-p.pago,0))}</td><td>${esc([x.dados.pix_tipo,x.dados.pix].filter(Boolean).join(': '))}</td><td>${esc([x.dados.banco,x.dados.conta].filter(Boolean).join(' · '))}</td></tr>`).join('')}
   </tbody><tfoot><tr><td colspan="3">Total (${L.length})</td><td class="r">${n2b(tot)}</td><td colspan="2"></td></tr></tfoot></table></body></html>`);w.document.close()}
+
+/* ===== Retomada do lote (dentro do caso de cobrança) ===== */
+const PASSOS_RET=[['debito','Débito levantado (relatório de atraso)'],['comunicado','Comunicado de retomada enviado'],['prazo','Prazo final para quitar'],['distrato','Termo de distrato feito'],['assinatura','Distrato assinado'],['encerrado','Contrato encerrado (lote retomado)']];
+function cardRetomada(X){const c=X.caso,R=c.retomada||{},enc=!!c.encerrado_em,feito=R.encerrado;
+  return `<div style="margin-top:12px;border:1px solid #fecaca;background:#fff7f7;border-radius:10px;padding:10px 12px"><div class="bt" style="align-items:center"><b style="flex:1;color:#991b1b">Retomada do lote</b>
+   ${enc||feito?'':`<button onclick="relCaso();marcaRet('debito')">Relatório de débito</button><button onclick="comunicadoRet()">Comunicado de retomada (WhatsApp)</button><button class="per" onclick="concluiRetomada()">Concluir: lote retomado</button>`}</div>
+   <table style="margin-top:6px">${PASSOS_RET.map(([k,l])=>`<tr><td>${R[k]?'✅':'⬜'} ${l}</td><td style="width:170px">${enc||k==='encerrado'?(R[k]?dbr(R[k]):'—'):`<input type="date" value="${R[k]||''}" onchange="marcaRet('${k}',this.value)" style="padding:3px 6px">`}</td></tr>`).join('')}</table>
+   <div class="mut">Se o cliente quitar, encerre o caso como "Regularizado". Ao concluir a retomada, o contrato é encerrado por retomada e abre a conta da devolução.</div></div>`}
+async function marcaRet(k,v){const hoje=new Date().toISOString().slice(0,10);if(v===undefined)v=CASO.caso.retomada?.[k]||hoje;await api('cobranca/caso/'+CASO.caso.id+'/retomada',{method:'PUT',body:{passos:{[k]:v}}});telaCaso(CASO.caso.id)}
+function comunicadoRet(){const F=CASO.fones;if(!F.length)return alert('Este cliente não tem telefone no cadastro.');const R=CASO.caso.retomada||{};
+  const d=new Date();d.setDate(d.getDate()+15);const pz=R.prazo||d.toISOString().slice(0,10);
+  const txt=p=>`*CONDOMÍNIO DE CHÁCARAS BEIRA RIO* - _Comunicado Importante_\n\nOlá, meu nome é Luis Fernando, sou responsável pelas cobranças do Condomínio de Chácaras Beira Rio.\n\nApós diversas tentativas de recebimento ou acordo relacionado ao débito que você tem conosco, venho informar que a FCA Construtora solicitou que lhe informasse que a partir de ${dbr(p)} o contrato firmado entre vocês para a compra e venda de lote no *Condomínio de Chácaras Beira Rio* será considerado rescindido e encerrado, de acordo com a cláusula nona do mesmo, que trata da rescisão do mesmo por motivo de inadimplência.\n\nDevo salientar que já foram feitas várias tentativas anteriores de acordo sem sucesso, e também, seu contrato já se encontra em atraso há ${CASO.divida.dias} dias.\n\nSendo assim, a continuidade do contrato de compra e venda somente será possível com a quitação integral dos valores devidos.\n\nCaso tenha interesse em continuar com o contrato, entre em contato comigo em horário comercial (08 às 12, e 14 às 18h) de segunda à sexta, pelo telefone ou WhatsApp.`;
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Comunicado de retomada</h3><button onclick="fechaModal()">Fechar</button></div>
+   <div class="f2"><div><label>Rescindido a partir de</label><input type="date" id="rt_pz" value="${pz}" onchange="$('#rt_tx').value=window._RTX(this.value)"></div><div><label>Telefone</label><select id="rt_f">${F.map((t,i)=>`<option value="${i}">${esc(t.v)} · ${esc(t.nome.split(' ')[0])}</option>`).join('')}</select></div></div>
+   <label style="margin-top:8px">Mensagem</label><textarea id="rt_tx" style="min-height:260px">${esc(txt(pz))}</textarea>
+   <div class="bt" style="margin-top:8px;align-items:center">${seletorWA()}<span style="flex:1"></span><button onclick="enviaRet(true)">Só registrar (já enviei)</button><button class="pri" onclick="enviaRet(false)">Abrir no WhatsApp</button></div>`);window._RTX=txt}
+async function enviaRet(so){const t=CASO.fones[+$('#rt_f').value],x=$('#rt_tx').value,pz=$('#rt_pz').value,hoje=new Date().toISOString().slice(0,10);if(!so)abreWA(t.v,x);
+  await api('cobranca/caso/'+CASO.caso.id+'/registro',{method:'POST',body:{data:hoje,tipo:'whatsapp',resultado:'Mensagem enviada',texto:`[Comunicado de retomada] para ${t.v}\n\n${x}`,proximo_contato:pz}});
+  await api('cobranca/caso/'+CASO.caso.id+'/retomada',{method:'PUT',body:{passos:{comunicado:hoje,prazo:pz}}});fechaModal();telaCaso(CASO.caso.id)}
+async function concluiRetomada(){const cc=CASO.cc,n=CASO.caso.contrato,hoje=new Date().toISOString().slice(0,10);if(!cc)return alert('Não consegui carregar o contrato.');
+  if(cc.eventos.some(e=>e.tipo==='encerramento'))return alert('Este contrato já está encerrado.');
+  const ab=CASO.divida.parcelas.slice().sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)))[0];
+  const t0=ab?cc.titulos.find(t=>t.id==ab.id):cc.titulos.filter(t=>t.grupo!=='acordo'&&!cc.pagamentos.some(p=>p.titulo_id==t.id)).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)))[0];
+  if(!t0)return alert('Não achei a parcela a partir da qual encerrar.');
+  if(!confirm(`Concluir a retomada do contrato ${n}?\n\n• O contrato é encerrado por RETOMADA a partir da parcela ${t0.rotulo}.\n• O caso de cobrança é encerrado.\n• Em seguida abre a conta da devolução (valor a devolver e parcelas).`))return;
+  await api('evento',{method:'POST',body:{contrato:n,tipo:'encerramento',motivo:'Retomada',a_partir_titulo:t0.id,data:hoje,dados:{},obs:'Lote retomado pela cobrança (cláusula nona)'}});
+  await api('cobranca/caso/'+CASO.caso.id+'/retomada',{method:'PUT',body:{passos:{encerrado:hoje}}});
+  await api('cobranca/caso/'+CASO.caso.id+'/encerrar',{method:'POST',body:{motivo:'Retomada (lote retomado)'}});
+  location.hash='c/'+n+'/dev'}
 </script>
 </body>
 </html>

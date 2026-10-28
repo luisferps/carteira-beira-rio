@@ -1294,7 +1294,7 @@ async function rotasUsuarios(p, m, body, real) {
 }
 
 /* ---------- módulo de cobrança (campanha, funil, contatos, mensagens) ---------- */
-const ETAPAS_COB = ['fila', 'contato1', 'contato2', 'contato3', 'negociando', 'promessa', 'proposta', 'acordo', 'sem_retorno', 'notificacao'];
+const ETAPAS_COB = ['fila', 'contato1', 'contato2', 'contato3', 'negociando', 'promessa', 'proposta', 'acordo', 'sem_retorno', 'notificacao', 'retomada'];
 const PROX_CONTATO = { fila: 'contato1', contato1: 'contato2', contato2: 'contato3' };
 const podeSemRetorno = e => !['fila', 'contato1', 'contato2'].includes(e);
 const MODELOS_VERSAO = 4;
@@ -1315,6 +1315,7 @@ async function garanteCobranca() {
   await q(`create table if not exists carteira.cobranca_casos(id serial primary key, contrato text not null, etapa text not null default 'fila', responsavel text,
            proximo_contato date, prioridade int default 0, obs text, criado_em timestamptz default now(), criado_por text, atualizado_em timestamptz default now(),
            encerrado_em timestamptz, motivo_encerramento text)`);
+  await q(`alter table carteira.cobranca_casos add column if not exists retomada jsonb default '{}'`);
   await q(`create unique index if not exists cobranca_caso_ativo on carteira.cobranca_casos(contrato) where encerrado_em is null`);
   await q(`create table if not exists carteira.cobranca_registros(id serial primary key, caso_id int not null, contrato text not null, tipo text not null, resultado text,
            texto text, data_promessa date, valor_promessa numeric, por text, em timestamptz default now())`);
@@ -1425,6 +1426,17 @@ async function rotasCobranca(p, m, body, url, real) {
     await q(`update carteira.cobranca_casos set etapa=coalesce($2, etapa), proximo_contato=case when $3::text = '' then null else coalesce($3::date, proximo_contato) end, responsavel=coalesce($4, responsavel), obs=coalesce($5, obs), prioridade=coalesce($6, prioridade), atualizado_em=now() where id=$1`,
       [c.id, b.etapa || null, b.proximo_contato === '' ? '' : (b.proximo_contato || null), b.responsavel ?? null, b.obs ?? null, b.prioridade ?? null]);
     return json({ ok: true });
+  }
+  if (p[1] === 'caso' && p[2] && p[3] === 'retomada' && m === 'PUT') {
+    /* passos da retomada do lote: debito, comunicado, prazo, distrato, assinatura, encerrado */
+    const [c] = await q(`select * from carteira.cobranca_casos where id=$1`, [p[2]]);
+    if (!c) return json({ erro: 'Caso não encontrado' }, 404);
+    const R = { ...(c.retomada || {}) };
+    for (const [k, v] of Object.entries(body.passos || {})) { if (v == null || v === '') delete R[k]; else R[k] = v; }
+    await q(`update carteira.cobranca_casos set retomada=$2, etapa=case when etapa in ('acordo') then etapa else 'retomada' end, atualizado_em=now() where id=$1`, [c.id, R]);
+    const txt = Object.entries(body.passos || {}).map(([k, v]) => `${k}: ${v || 'desmarcado'}`).join(' · ');
+    if (txt) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,$4)`, [c.id, c.contrato, 'Retomada — ' + txt, quem]);
+    return json({ ok: true, retomada: R });
   }
   if (p[1] === 'caso' && p[2] && p[3] === 'encerrar' && m === 'POST') {
     const [c] = await q(`update carteira.cobranca_casos set encerrado_em=now(), motivo_encerramento=$2, atualizado_em=now() where id=$1 and encerrado_em is null returning *`, [p[2], body.motivo || 'Encerrado']);
