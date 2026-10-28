@@ -124,18 +124,26 @@ export function criaAcerto({ q, asaas, json, log }) {
   }
 
 
-  /* custo de cobrança: vem do pagamento lançado na parcela (mesmo número das duas telas) */
+  /* custo de cobrança: o mesmo que está lançado na parcela.
+     Parcela comum: o "custo de cobrança pago" do pagamento. Parcela de acordo: a parte dos honorários do acordo que cabe a essa parcela
+     (+ custo de cobrança lançado nela, se houver). Sem pagamento lançado no sistema: valor ÷ 1,10. */
   async function custoDaParcela(L) {
     if (!L.length) return;
     const ids = L.map(x => x.payment).filter(Boolean), fs = L.map(x => x.fatura).filter(Boolean);
-    const rs = await q(`select g.id_asaas, regexp_replace(coalesce(g.fatura,''),'\\D','','g') fat, g.valor_pago, g.honorarios_pago, t.contrato, t.rotulo
-                        from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
+    const rs = await q(`select g.id_asaas, regexp_replace(coalesce(g.fatura,''),'\\D','','g') fat, g.valor_pago, g.honorarios_pago, t.contrato, t.rotulo, t.grupo, t.valor_face,
+                          a.honorarios a_hon, a.valor_acordado a_val
+                        from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id left join carteira.acordos a on a.id=t.acordo_id
                         where g.conferente='luis' and (g.id_asaas = any($1) or regexp_replace(coalesce(g.fatura,''),'\\D','','g') = any($2))`, [ids, fs]).catch(() => []);
     for (const x of L) {
       const P = rs.filter(r => (x.payment && r.id_asaas === x.payment) || (x.fatura && r.fat === x.fatura));
-      x.lancado = P.length > 0;
-      x.hon_sis = P.length ? R2(P.reduce((s, r) => s + (+r.honorarios_pago || 0), 0)) : null;
       x.parcelas_sis = P.map(r => r.rotulo).join(', ');
+      if (!P.length) { x.sem_lancamento = true; continue; }
+      let h = 0;
+      for (const r of P) {
+        h += +r.honorarios_pago || 0;
+        if (r.grupo === 'acordo' && +r.a_hon > 0 && +r.a_val > 0) h += +r.valor_face * +r.a_hon / +r.a_val;
+      }
+      x.hon = R2(Math.min(h, x.valor)); x.fca = R2(x.valor - x.hon);
     }
   }
   async function calcula(mes) {
