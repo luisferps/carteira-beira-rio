@@ -3,6 +3,7 @@ import pg from 'pg';
 import { criaAcerto } from './acerto-lib.mjs';
 import { criaDevolucoes } from './devolucoes-lib.mjs';
 import { criaCessoes } from './cessoes-lib.mjs';
+import { criaPainel } from './painel-lib.mjs';
 
 pg.types.setTypeParser(1082, v => v);
 
@@ -1518,6 +1519,7 @@ async function garanteEsquema() {
   } catch (e) { console.error('garanteEsquema', e.message); }
 }
 
+const rotasPainel = criaPainel({ q, json, log: (...a) => log(...a) });
 const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a) });
 const DEV = criaDevolucoes({ q, asaas, json, log: (...a) => log(...a) });
 const rotasAcerto = criaAcerto({ q, asaas, json, log: (...a) => log(...a), dev: DEV });
@@ -1554,6 +1556,7 @@ export default async (req) => {
   { const ra = await rotasAcerto(p, m, body, real); if (ra) return ra; }
   { const rd = await DEV.rotas(p, m, body, real); if (rd) return rd; }
   { const rc2 = await rotasCessoes(p, m, body, real); if (rc2) return rc2; }
+  { const rp = await rotasPainel(p, m, body, real); if (rp) return rp; }
 
   try {
     if (p[0] === 'eu') return json({ conferente: real, nome: usuario?.nome || null });
