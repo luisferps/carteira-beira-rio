@@ -1906,6 +1906,7 @@ function desenhaDocs(){const D=DOCS,n=C.contrato.numero;const ck=k=>D.check.find
     return `<tr><td>${okk?'✅':disp?'➖':'⬜'} ${esc(l)}</td><td>${A.map(a=>`<a href="#" onclick="abreDoc(${a.id});return false">${esc(a.nome||'arquivo')}</a> <span class="mut">${dbr(a.enviado_em)}</span> <button style="padding:1px 6px" onclick="apagaDoc(${a.id})">×</button>`).join('<br>')||'<span class="mut">—</span>'}</td>
      <td style="white-space:nowrap"><button onclick="enviaDoc('${k}')">Anexar</button><select style="width:auto;padding:4px" onchange="marcaDoc('${k}',this.value)"><option value="" ${!c?'selected':''}>${A.length?'Tem arquivo':'Falta'}</option><option value="ok" ${c?.status==='ok'?'selected':''}>Tem (físico / em outra pasta)</option><option value="dispensado" ${disp?'selected':''}>Não precisa</option></select></td></tr>`};
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Documentos — contrato ${n}</h3><button onclick="fechaModal()">Fechar</button></div>
+  ${ck('obs_planilha')?`<div class="aviso">Nota da planilha de documentos: ${esc(ck('obs_planilha').obs)}</div>`:''}
   <table><tr><th colspan="3">Do contrato</th></tr>${D.itens_contrato.map(([k,l])=>linha(k,l)).join('')}
   ${D.pessoas.map(p=>`<tr><th colspan="3">${esc(nome(p.nome))}</th></tr>${D.itens_pessoa.map(([k,l])=>linha('p'+p.i+'_'+k,l)).join('')}`).join('')}</table>
   ${D.pessoas.length?'':'<div class="mut">Os compradores deste contrato não estão no cadastro do contrato — só os itens do contrato aparecem.</div>'}

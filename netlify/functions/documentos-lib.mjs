@@ -36,6 +36,21 @@ export function criaDocumentos({ q, json, log }) {
           check: await q(`select chave, status, obs, por, em from carteira.doc_check where contrato=$1`, [n]),
           arquivos: await q(`select id, chave, nome, mime, tamanho, por, enviado_em from carteira.documentos where contrato=$1 order by enviado_em`, [n]) });
       }
+      if (p[0] === 'documentos' && p[1] === 'importar' && m === 'POST') {
+        /* planilha "Controle de Documentos": linhas por quadra e lote; marca só o que ainda não tem marcação */
+        if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+        const cts = await q(`select c.numero, c.quadra, c.lote from carteira.contratos c where not exists (select 1 from carteira.eventos e where e.contrato=c.numero and e.tipo='encerramento' and e.conferente='luis')`);
+        const porLote = {}; for (const c of cts) (porLote[(+c.quadra) + '-' + (+c.lote)] = porLote[(+c.quadra) + '-' + (+c.lote)] || []).push(c.numero);
+        let marcados = 0; const sem = [];
+        for (const r of body.linhas || []) {
+          const ns = porLote[(+r.quadra) + '-' + (+r.lote)] || []; if (ns.length !== 1) { sem.push(r.quadra + '/' + r.lote); continue; }
+          for (const k of r.ok || []) { if (body.previa) { marcados++; continue; }
+            const x = await q(`insert into carteira.doc_check(contrato, chave, status, obs, por) values ($1,$2,'ok','planilha Controle de Documentos',$3) on conflict do nothing returning chave`, [ns[0], k, real]); marcados += x.length; }
+          if (r.obs && !body.previa) await q(`insert into carteira.doc_check(contrato, chave, status, obs, por) values ($1,'obs_planilha','nota',$2,$3) on conflict (contrato, chave) do update set obs=excluded.obs`, [ns[0], r.obs, real]);
+        }
+        if (!body.previa) await log(real, 'documentos_importados', { marcados, sem });
+        return json({ marcados, sem_contrato_unico: sem });
+      }
       if (p[0] === 'documentos' && p[1] === 'check' && m === 'PUT') {
         const b = body;
         if (!b.status) await q(`delete from carteira.doc_check where contrato=$1 and chave=$2`, [b.contrato, b.chave]);
