@@ -2233,7 +2233,7 @@ export default async (req) => {
 
     /* boletos no nome de outra pessoa: exceção só do administrador */
     if (real !== 'luis' && body && typeof body === 'object' && ['acordo', 'proposta'].includes(p[0])) { delete body.pagador; if (body.dados && typeof body.dados === 'object') delete body.dados.pagador; }
-    if (p[0] === 'proposta' && m === 'POST') {
+    if (p[0] === 'proposta' && !p[1] && m === 'POST') {
       const ids = (body.dados?.titulos_origem || []).map(Number);
       const ja = await q(`select t.rotulo from carteira.acordos a join carteira.titulos t on t.id = any(a.titulos_origem) where a.contrato=$1 and a.conferente=$2 and t.id = any($3)`, [body.contrato, conf, ids]);
       const jp = (await q(`select dados from carteira.propostas where contrato=$1 and conferente=$2`, [body.contrato, conf])).filter(x => (x.dados?.titulos_origem || []).map(Number).some(i => ids.includes(i)));
