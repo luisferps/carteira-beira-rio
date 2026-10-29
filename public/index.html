@@ -100,7 +100,7 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const r2=v=>Math.round(v*100)/100;
 async function api(path,opt={}){
   const r=await fetch('/api/'+path,{method:opt.method||'GET',headers:{'x-pin':PIN,'x-como':COMO,'content-type':'application/json'},body:opt.body?JSON.stringify(opt.body):undefined});
-  const d=await r.json().catch(()=>({erro:'Resposta inválida'}));
+  const d=(await r.json().catch(()=>({erro:'Resposta inválida'})))??(r.ok?{}:{erro:'Resposta vazia do servidor'});
   if(r.status===401){PIN='';try{localStorage.removeItem('cbr_pin')}catch(e){}telaLogin(d.erro||'Senha inválida');throw new Error('401')}
   if(!r.ok||d.erro){alert(d.erro||'Erro');throw new Error(d.erro)}
   return d;
