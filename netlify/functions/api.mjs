@@ -505,10 +505,10 @@ async function criaAcordo(b, conf) {
       if (ja.length) return ({ erro: 'Já existe negociação para: ' + ja.map(x => x.rotulo + ' (acordo de ' + x.d.split('-').reverse().join('/') + ')').join(', ') + '. Não é possível negociar a mesma parcela duas vezes.' });
       for (const id of b.titulos_origem || []) { const [tt] = await q('select * from carteira.titulos where id=$1', [id]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return { erro: b0 }; }
       const [a] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios,
-                           valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo, termo)
-                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) returning id`,
+                           valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo, termo, pagador)
+                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) returning id`,
         [b.contrato, conf, b.data_acordo, b.titulos_origem, b.principal, b.multa, b.juros, b.honorarios, b.valor_calculado,
-          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), b.tipo === 'repactuacao' ? 'repactuacao' : 'acordo', limpa(b.termo)]);
+          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), b.tipo === 'repactuacao' ? 'repactuacao' : 'acordo', limpa(b.termo), b.pagador?.cpf ? b.pagador : null]);
       let i = 0;
       for (const par of b.parcelas) {
         i++;
@@ -744,7 +744,22 @@ async function clienteCessionario(n) {
   }
   return { tem: true, id: null, nome: nomes.join(' e ') };
 }
-async function clienteDoContrato(n) {
+/* exceção: boletos no nome de outra pessoa (ex.: futuro titular de uma cessão ainda não concluída). Acha no Asaas pelo CPF ou cadastra. */
+async function clientePagador(p) {
+  const cpf = String(p?.cpf || '').replace(/\D/g, ''); if (cpf.length < 11) throw new Error('Pagador sem CPF');
+  const r = await asaas('/customers?cpfCnpj=' + cpf).catch(() => null);
+  const c = (r?.data || []).find(x => !x.deleted); if (c) return c.id;
+  const fone = String(p.fone || '').replace(/\D/g, '');
+  const nv = await asaasReq('POST', '/customers', { name: p.nome, cpfCnpj: cpf, ...(fone.length >= 10 ? { mobilePhone: fone } : {}), ...(p.email ? { email: p.email } : {}) });
+  return nv.id;
+}
+async function pagadorDoTitulo(id) {
+  const [a] = await q(`select a.pagador from carteira.titulos t join carteira.acordos a on a.id=t.acordo_id where t.id=$1`, [id]).catch(() => []);
+  return a?.pagador?.cpf ? a.pagador : null;
+}
+async function clienteDoContrato(n, opc = {}) {
+  const pg = opc.pagador?.cpf ? opc.pagador : opc.tituloId ? await pagadorDoTitulo(opc.tituloId) : null;
+  if (pg) return clientePagador(pg);
   const cs = await clienteCessionario(n);
   if (cs.tem) return cs.id;
   const [b] = await q(`select dados->>'customer' c from carteira.boletos where contrato=$1 and dados->>'customer' like 'cus_%' order by vencimento desc nulls last limit 1`, [n]);
@@ -862,7 +877,7 @@ async function emitirBoleto(tituloId, conf) {
   if (t.boleto) return { titulo_id: tituloId, erro: 'Essa parcela já tem boleto ativo', id_asaas: t.boleto };
   let venc = t.vencimento;
   if (venc < hojeBR()) { if (t.grupo === 'acordo') venc = hojeBR(); else return { titulo_id: tituloId, erro: 'O vencimento dessa parcela já passou — está em atraso' }; }
-  const cliente = await clienteDoContrato(t.contrato);
+  const cliente = await clienteDoContrato(t.contrato, { tituloId: t.id });
   if (!cliente) return { titulo_id: tituloId, erro: 'Não achei o cliente deste contrato no Asaas (se houve cessão, o novo titular precisa estar cadastrado no Asaas)' };
   const ex = await asaas(`/payments?customer=${cliente}&dueDate[ge]=${t.vencimento}&dueDate[le]=${venc}&limit=50`);
   const linha = rotuloBoleto(t);
@@ -954,7 +969,7 @@ async function segundaVia(tituloId, data, conf, opts = {}) {
   c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca);
   c.data = data; c.emitido_em = hoje; c.vencimento_original = t.vencimento;
   if (opts.previa) return { previa: true, rotulo: t.rotulo, ...c };
-  const cliente = await clienteDoContrato(t.contrato);
+  const cliente = await clienteDoContrato(t.contrato, { tituloId: t.id });
   if (!cliente) return { titulo_id: tituloId, erro: 'Não achei o cliente deste contrato no Asaas' };
   const rot = ehAcordo ? rotuloBoleto(t) : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ');
   const linha = `${c.cobranca ? 'Renegociação' : '2ª via'} ${rot} (original vencido em ${t.vencimento.split('-').reverse().join('/')})`;
@@ -1552,6 +1567,7 @@ async function garanteEsquema() {
     await q(`alter table carteira.acordos add column if not exists tipo text not null default 'acordo'`);
     await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
     await q(`alter table carteira.acordos add column if not exists termo text`);
+    await q(`alter table carteira.acordos add column if not exists pagador jsonb`);
     await q(`create table if not exists carteira.propostas(id serial primary key, contrato text not null, conferente text not null, dados jsonb not null, criado_em timestamptz default now())`);
     await q(`create table if not exists carteira.termos_arq(termo text primary key, contrato text not null, nome text, b64 text not null, conferente text, enviado_em timestamptz default now())`);
     await q(`alter table carteira.termos_arq add column if not exists html text`);
@@ -1738,7 +1754,7 @@ export default async (req) => {
         const [ac] = await q(`select * from carteira.acordos where id=$1 and conferente='luis'`, [body.acordo_id]);
         if (!ac) return json({ erro: 'Acordo não encontrado' }, 404);
         const ts = await q(`select id, numero, total, vencimento::text vencimento from carteira.titulos where acordo_id=$1 order by numero`, [ac.id]);
-        const cli = await clienteDoContrato(ac.contrato);
+        const cli = await clienteDoContrato(ac.contrato, { pagador: ac.pagador });
         const desde = somaDias(dstr(ac.data_acordo), -20);
         const r = cli ? await asaas(`/payments?customer=${cli}&dateCreated[ge]=${desde}&limit=100`) : null;
         let ligados = 0, pago = false; const X = await contextoAuto();
@@ -2212,7 +2228,7 @@ export default async (req) => {
       if (!ps.length) return json({ erro: 'A proposta não tem parcelas' }, 400);
       const [ja] = await q(`select id_asaas, link from carteira.boletos where dados->>'externalReference'=$1 and status = any($2)`, ['cbr-proposta-' + pr.id, ATIVOS_B]);
       if (ja) return json({ erro: 'O boleto desta proposta já foi emitido', link: ja.link }, 409);
-      const cliente = await clienteDoContrato(pr.contrato);
+      const cliente = await clienteDoContrato(pr.contrato, { pagador: pr.dados?.pagador });
       if (!cliente) return json({ erro: 'Não achei o cliente deste contrato no Asaas' }, 400);
       const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [pr.contrato]);
       const venc = ps[0].vencimento < hojeBR() ? (body.vencimento || hojeBR()) : (body.vencimento || ps[0].vencimento);
@@ -2254,10 +2270,10 @@ export default async (req) => {
                           where a.contrato=$1 and a.conferente=$2 and t.id = any($3) and a.id<>$4`, [b.contrato, conf, (b.titulos_origem || []).map(Number), p[1]]);
       if (ja.length) return json({ erro: 'Já existe outra negociação para: ' + ja.map(x => x.rotulo).join(', ') + '.' }, 409);
       await q(`update carteira.acordos set data_acordo=$3, titulos_origem=$4, principal=$5, multa=$6, juros=$7, honorarios=$8,
-               valor_calculado=$9, valor_acordado=$10, desconto_encargos=$11, qtd_parcelas=$12, obs=$13, termo=$14, salvo_em=now()
+               valor_calculado=$9, valor_acordado=$10, desconto_encargos=$11, qtd_parcelas=$12, obs=$13, termo=$14, pagador=case when $15::boolean then $16::jsonb else pagador end, salvo_em=now()
                where id=$1 and conferente=$2`,
         [p[1], conf, b.data_acordo, b.titulos_origem, b.principal, b.multa, b.juros, b.honorarios, b.valor_calculado,
-          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), limpa(b.termo)]);
+          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), limpa(b.termo), 'pagador' in b, b.pagador?.cpf ? JSON.stringify(b.pagador) : null]);
       const atuais = await q('select * from carteira.titulos where acordo_id=$1 and conferente=$2 order by numero', [p[1], conf]);
       for (let i = 0; i < b.parcelas.length; i++) {
         const par = b.parcelas[i], rot = `Acordo ${b.data_acordo.split('-').reverse().join('/')} — ${i + 1}/${b.parcelas.length}`;

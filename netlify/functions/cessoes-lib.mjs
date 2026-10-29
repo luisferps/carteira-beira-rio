@@ -158,8 +158,21 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
       }
       if (!p[2] && m === 'DELETE') {
         if (c.status === 'concluida') return json({ erro: 'Cessão concluída não pode ser apagada' }, 400);
-        await q(`delete from carteira.cessoes where id=$1`, [c.id]); await log(real, 'cessao_apagada', { numero: c.numero, contrato: c.contrato });
-        return json({ ok: true });
+        /* excluir a cessão exclui junto os boletos da taxa que ela gerou (os já pagos não são tocados e impedem a exclusão) */
+        const L = listaTaxa(c.dados || {}), pagos = [], excluidos = [];
+        for (const b of L) {
+          const g = await asaas('/payments/' + b.id).catch(() => null);
+          if (g && !g.deleted && ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'].includes(g.status)) pagos.push(b);
+        }
+        if (pagos.length) return json({ erro: `A taxa desta cessão já foi paga (fatura ${pagos.map(b => b.fatura).join(', ')}). Não dá para excluir: estorne no Asaas antes.` }, 400);
+        for (const b of L) {
+          const g = await asaas('/payments/' + b.id).catch(() => null);
+          if (g && !g.deleted) await asaasReq('DELETE', '/payments/' + b.id);
+          await q(`update carteira.boletos set status='DELETED', motivo='Cessão nº ' || $2 || ' excluída', atualizado_em=now() where id_asaas=$1`, [b.id, pad4(c.numero)]).catch(() => {});
+          excluidos.push(b.fatura || b.id);
+        }
+        await q(`delete from carteira.cessoes where id=$1`, [c.id]); await log(real, 'cessao_apagada', { numero: c.numero, contrato: c.contrato, boletos_excluidos: excluidos });
+        return json({ ok: true, boletos_excluidos: excluidos });
       }
       if (p[2] === 'concluir' && m === 'POST') {
         if (c.status === 'concluida') return json({ erro: 'Já concluída' }, 400);
