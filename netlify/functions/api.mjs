@@ -2273,14 +2273,37 @@ export default async (req) => {
       const jp = (await q(`select dados from carteira.propostas where contrato=$1 and conferente=$2 and id<>$3`, [pr.contrato, conf, p[1]])).filter(x => (x.dados?.titulos_origem || []).map(Number).some(i => ids.includes(i)));
       if (ja.length || jp.length) return json({ erro: 'Já existe negociação para essa(s) parcela(s): ' + [...ja.map(x => x.rotulo + ' (acordo)'), ...jp.map(x => 'proposta ' + (x.dados?.termo || ''))].join(', ') + '.' }, 409);
       if (real !== 'luis' && pr.dados?.pagador) body.dados = { ...body.dados, pagador: pr.dados.pagador };
+      /* boleto já emitido: continua ligado à proposta e acompanha a 1ª parcela (valor e vencimento) */
+      const bo = pr.dados?.boleto, aviso = [];
+      if (bo) {
+        const p1 = (body.dados?.parcelas || [])[0];
+        body.dados = { ...body.dados, boleto: bo };
+        if (p1 && (Math.abs(+p1.valor - +bo.valor) > 0.009 || p1.vencimento !== bo.vencimento)) {
+          try { const e = await editarBoleto(bo.id_asaas, { valor: p1.valor, vencimento: p1.vencimento < hojeBR() ? undefined : p1.vencimento }, conf); body.dados.boleto = { ...bo, valor: e.valor, vencimento: e.vencimento }; }
+          catch (e) { aviso.push('Não consegui alterar o boleto no Asaas: ' + e.message); }
+        }
+      }
       await q('update carteira.propostas set dados=$2 where id=$1', [p[1], body.dados]);
       await log(conf, 'proposta_alterada', { id: p[1], antes: pr.dados, depois: body.dados });
-      return json({ ok: true });
+      return json({ ok: true, avisos: aviso });
     }
     if (p[0] === 'proposta' && p[1] && m === 'DELETE') {
+      /* desfazer: cancela no Asaas o boleto da 1ª parcela (se não foi pago) e apaga a proposta; as parcelas voltam a ficar como antes */
+      const [pr] = await q('select * from carteira.propostas where id=$1 and conferente=$2', [p[1], conf]);
+      if (!pr) return json({ erro: 'Proposta não encontrada' }, 404);
+      await garanteBoletos();
+      const bs = await q(`select id_asaas from carteira.boletos where dados->>'externalReference'=$1 and status <> 'DELETED'`, ['cbr-proposta-' + pr.id]);
+      if (pr.dados?.boleto?.id_asaas && !bs.some(b => b.id_asaas === pr.dados.boleto.id_asaas)) bs.push({ id_asaas: pr.dados.boleto.id_asaas });
+      const cancelados = [];
+      for (const b of bs) {
+        const g = await asaas('/payments/' + b.id_asaas).catch(() => null);
+        if (g && !g.deleted && PAGO_A.includes(g.status)) return json({ erro: 'O boleto desta proposta já foi pago — ela vai virar acordo, não dá para desfazer.' }, 400);
+        if (g && !g.deleted) { await excluirBoleto(b.id_asaas, conf, 'Proposta ' + (pr.dados?.termo || pr.id) + ' desfeita'); cancelados.push(g.invoiceNumber || b.id_asaas); }
+      }
       await q('delete from carteira.propostas where id=$1 and conferente=$2', [p[1], conf]);
-      await log(conf, 'proposta_apagada', { id: p[1] });
-      return json({ ok: true });
+      await log(conf, 'proposta_apagada', { id: p[1], termo: pr.dados?.termo, boletos_cancelados: cancelados });
+      if (pr.dados?.termo) await anotaCobranca(pr.contrato, 'acordo', `Proposta ${pr.dados.termo} desfeita${cancelados.length ? ' (boleto cancelado no Asaas)' : ''}.`, 'acordo').catch(() => {});
+      return json({ ok: true, boletos_cancelados: cancelados });
     }
 
     if (p[0] === 'acordo' && m === 'POST') {
