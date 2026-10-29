@@ -1756,6 +1756,7 @@ function valoresCessao(ate){const atr=C.titulos.filter(t=>t.vencimento&&t.vencim
   const vf=r2(fut.reduce((a,t)=>a+valorAno(t),0)),nm=fut.filter(t=>t.grupo==='mensal').length,na=fut.filter(t=>t.grupo==='anual').length,nr=fut.filter(t=>t.grupo==='acordo').length;
   const tr=[...new Set(fut.filter(t=>t.grupo==='acordo').map(t=>C.acordos.find(a=>a.id==t.acordo_id)?.termo).filter(Boolean))].join(', ');
   return {atraso:tot,desc,avencer:vf,nm,na,nr,tr,qtd_atraso:atr.length}}
+const ruaComp=r=>{r=String(r||'').trim();return !r||/^(rua|avenida|av\.|alameda|travessa|estrada|rodovia|via)\b/i.test(r)?r:'Rua '+r};
 let CES=null;
 async function modalCessaoDoc(){if(!C)return;const hoje=new Date(Date.now()-3*36e5).toISOString().slice(0,10);
   const atuais=(C.clientes||[]).filter(c=>(c.contratos||[]).some(k=>k.numero===C.contrato.numero&&k.atual));
@@ -1798,7 +1799,7 @@ function textosCessao(){const X=CES,V=X.V,U=s=>String(s||'').toUpperCase();
   const pu=V.atraso>0.01&&X.pu&&X.modo!=='cedentes';
   const pu_texto=X.modo==='parcelado'?'A anuência do INTERVENIENTE ANUENTE a esta cessão, e a consequente assinatura deste instrumento por ele, ficam condicionadas ao pagamento da 1ª (primeira) parcela do acordo de renegociação acima. O atraso de qualquer parcela do acordo sujeita os CESSIONÁRIOS aos encargos e às medidas previstas no contrato ora cedido.':'A anuência do INTERVENIENTE ANUENTE a esta cessão, e a consequente assinatura deste instrumento por ele, ficam condicionadas ao pagamento integral dos valores em atraso acima.';
   const pes=(L)=>L.map((p,i)=>({n:i+1,nome:U(p.nome),cpf:p.cpf||'',rg:U(p.rg),profissao:U(p.profissao),estado_civil:U(p.estado_civil),nacionalidade:U(p.nacionalidade),endereco:U(p.endereco)}));
-  return {numero:String(X.numero).padStart(4,'0'),cedentes:pes(X.cedentes),cessionarios:pes(X.cessionarios),quadra:C.contrato.quadra,lote:C.contrato.lote,rua:C.contrato.rua||'',atraso,
+  return {numero:String(X.numero).padStart(4,'0'),cedentes:pes(X.cedentes),cessionarios:pes(X.cessionarios),quadra:C.contrato.quadra,lote:C.contrato.lote,rua:ruaComp(C.contrato.rua),atraso,
     avencer:`${brl(V.avencer)} (em mais ${[String(V.nm).padStart(2,'0')+' mensais',V.na?String(V.na).padStart(2,'0')+' anuais':'',V.nr?String(V.nr).padStart(2,'0')+' parcelas da renegociação'+(V.tr?' nº '+V.tr:''):''].filter(Boolean).join(V.nr&&V.na?', ':' e ').replace(/, ([^,]*)$/,' e $1')})`,pu,pu_texto,data_extenso:dataExt(X.data)}}
 function htmlCessao(T){const b=s=>`<b>${s}</b>`;const pessoa=(r,p)=>`<p style="margin:0 0 0 30px">${r} ${p.n}: ${b(esc(p.nome))}<br>CPF: ${b(esc(p.cpf))}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Identidade: ${b(esc(p.rg))}<br>Profissão: ${b(esc(p.profissao))}<br>Estado Civil: ${b(esc(p.estado_civil))}<br>Nacionalidade: ${b(esc(p.nacionalidade))}<br>Endereço: ${b(esc(p.endereco))}</p><br>`;
   const ass=(p,r)=>`<div style="margin-top:34px;text-align:center">______________________________________________<br>${b(esc(p.nome))}<br>${r} ${p.n}</div>`;
@@ -2045,7 +2046,7 @@ function modalContratoDev(){const D=window._DEV;if(!D||!D.dev)return alert('Calc
   const ls=D.ls||[],pg=g=>new Set(ls.filter(x=>x.t.grupo===g).map(x=>x.t.id)).size,np=new Set(ls.map(x=>x.t.id)).size;
   const cr=C.eventos.find(e=>e.tipo==='credito')?.dados||{};
   const hoje=new Date(Date.now()-3*36e5).toISOString().slice(0,10);
-  CDEV={numero:n,data:hoje,compradores:ps.map(p=>({nome:p.nome.toUpperCase(),qualificacao:qualifPessoa(p)})),rua:c.rua||'',local:'Condomínio de Chácaras Beira Rio',
+  CDEV={numero:n,data:hoje,compradores:ps.map(p=>({nome:p.nome.toUpperCase(),qualificacao:qualifPessoa(p)})),rua:ruaComp(c.rua),local:'Condomínio de Chácaras Beira Rio',
     data_contrato:c.data_assinatura?dataExt(String(c.data_assinatura).slice(0,10)):'',
     plano:`em ${nE(tot,true)} parcelas, sendo ${[cnt('entrada')?nE(cnt('entrada'),true)+' referentes à entrada':'',cnt('anual')?nE(cnt('anual'),true)+' parcelas anuais':'',cnt('mensal')?'as demais ('+nE(cnt('mensal'),true)+') destinadas ao pagamento mensal do restante do saldo':''].filter(Boolean).join(', ')}, reajustadas anualmente conforme contrato de compra e venda`,
     pagas:`${nE(np,true)} parcelas, sendo ${[pg('entrada')?nE(pg('entrada'),true)+' referentes à entrada':'',pg('anual')?nE(pg('anual'),true)+' referentes às parcelas anuais':'',pg('mensal')?nE(pg('mensal'),true)+' referentes às parcelas mensais':''].filter(Boolean).join(', ')}`,
