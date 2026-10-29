@@ -14,7 +14,7 @@ async function igpmMeses(desde) {
   const L = await r.json();
   return (Array.isArray(L) ? L : []).map(x => ({ mes: x.data.split('/').reverse().join('-').slice(0, 7), pct: +String(x.valor).replace(',', '.') }));
 }
-export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garanteBoletos }) {
+export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garanteBoletos, refazBoletoPara }) {
   /* taxa de cessão = 2% do valor total do contrato, corrigido pelo IGP-M desde o mês da assinatura (cláusula 10.1 dos contratos FCA) */
   async function calculaTaxa(contrato) {
     const [ct] = await q(`select numero, valor_imovel, data_assinatura::text data_assinatura from carteira.contratos where numero=$1`, [contrato]);
@@ -105,9 +105,22 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
             fatura: listaTaxa(d).map(b => b.fatura).filter(Boolean).join(', ') || null, vencimento: d.boleto?.vencimento || null, forma: 'Boleto Bancário', pago_em: d.taxa_paga?.pago_em || null, valor_pago: d.taxa_paga?.valor_pago ?? null },
             `Cessão de direitos nº ${String(c.numero).padStart(4, '0')}`]);
         await cadastraPessoas(d, c.contrato, c.numero);
+        /* boletos em aberto do contrato saem do nome do cedente e passam para o do 1º cessionário */
+        const movidos = [], erros = [];
+        try {
+          const p1 = (d.cessionarios || [])[0];
+          if (p1?.cpf && refazBoletoPara) {
+            const cli = await clienteAsaas(p1);
+            const bs = await q(`select * from carteira.boletos where contrato=$1 and status = any($2) and coalesce(tipo,'')<>'cessao' order by vencimento`, [c.contrato, ['PENDING', 'OVERDUE', 'AWAITING_RISK_ANALYSIS']]);
+            for (const b of bs) {
+              try { const r = await refazBoletoPara(b, cli, real, `Cessão nº ${pad4(c.numero)}: boleto passado do cedente para o cessionário`); if (!r.mesmo) movidos.push(r.novo); }
+              catch (e) { erros.push(b.id_asaas + ': ' + e.message); }
+            }
+          }
+        } catch (e) { erros.push(e.message); }
         await q(`update carteira.cessoes set status='concluida', datas=datas || $2, evento_id=$3 where id=$1`, [c.id, { concluida: hoje }, ev.id]);
-        await log(real, 'cessao_concluida', { numero: c.numero, contrato: c.contrato, novos: nomes });
-        return { ok: true, evento: ev.id };
+        await log(real, 'cessao_concluida', { numero: c.numero, contrato: c.contrato, novos: nomes, boletos_passados: movidos, erros });
+        return { ok: true, evento: ev.id, boletos_passados: movidos.length, erros };
       }
   async function concluirPorPagamento(id) {
     await garante();

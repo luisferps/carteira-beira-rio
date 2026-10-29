@@ -757,6 +757,19 @@ async function pagadorDoTitulo(id) {
   const [a] = await q(`select a.pagador from carteira.titulos t join carteira.acordos a on a.id=t.acordo_id where t.id=$1`, [id]).catch(() => []);
   return a?.pagador?.cpf ? a.pagador : null;
 }
+/* recria um boleto em aberto no nome de outro cliente do Asaas (mesmo valor, vencimento e descrição) e exclui o antigo */
+async function refazBoletoPara(b, cliente, conf, motivo) {
+  const g0 = await asaas('/payments/' + b.id_asaas);
+  if (g0.customer === cliente) return { ok: true, id: b.id_asaas, mesmo: true };
+  const venc = g0.dueDate < hojeBR() ? hojeBR() : g0.dueDate;
+  const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: g0.billingType || 'BOLETO', value: g0.value, dueDate: venc, description: g0.description,
+    externalReference: g0.externalReference || undefined, fine: g0.fine?.value ? { value: g0.fine.value, type: g0.fine.type || 'PERCENTAGE' } : { value: 2, type: 'PERCENTAGE' }, interest: { value: g0.interest?.value ?? 1 } });
+  await asaasReq('DELETE', '/payments/' + b.id_asaas);
+  await q(`update carteira.boletos set status='DELETED', motivo=$2, atualizado_em=now() where id_asaas=$1`, [b.id_asaas, motivo]);
+  await gravaBoleto(g, { contrato: b.contrato, titulo_id: b.titulo_id, tipo: b.tipo, composicao: b.composicao, origem: 'sistema', motivo });
+  await log(conf, 'boleto_refeito_outro_nome', { contrato: b.contrato, antigo: b.id_asaas, novo: g.id, cliente });
+  return { ok: true, antigo: b.id_asaas, novo: g.id, fatura: g.invoiceNumber, valor: g.value, vencimento: g.dueDate };
+}
 async function clienteDoContrato(n, opc = {}) {
   const pg = opc.pagador?.cpf ? opc.pagador : opc.tituloId ? await pagadorDoTitulo(opc.tituloId) : null;
   if (pg) return clientePagador(pg);
@@ -1579,7 +1592,7 @@ async function garanteEsquema() {
 
 const rotasDocumentos = criaDocumentos({ q, json, log: (...a) => log(...a) });
 const rotasPainel = criaPainel({ q, json, log: (...a) => log(...a) });
-const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a), asaas, asaasReq, gravaBoleto, garanteBoletos });
+const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a), asaas, asaasReq, gravaBoleto, garanteBoletos, refazBoletoPara });
 const DEV = criaDevolucoes({ q, asaas, json, log: (...a) => log(...a) });
 const rotasAcerto = criaAcerto({ q, asaas, json, log: (...a) => log(...a), dev: DEV });
 export default async (req) => {
@@ -1676,6 +1689,14 @@ export default async (req) => {
           try { out.push(await emitirBoleto(id, real)); } catch (e) { out.push({ titulo_id: id, erro: e.message }); }
         }
         return json(out);
+      }
+      if (p[1] === 'trocar-pagador' && m === 'POST') {
+        /* refaz um boleto em aberto no nome de outra pessoa (só administrador) */
+        if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+        const [b] = await q(`select * from carteira.boletos where id_asaas=$1 and status = any($2)`, [body.id, ATIVOS_B]);
+        if (!b) return json({ erro: 'Boleto não está em aberto' }, 400);
+        const cli = await clientePagador(body.pagador);
+        return json(await refazBoletoPara(b, cli, real, body.motivo || 'Refeito no nome de ' + (body.pagador?.nome || 'outra pessoa')));
       }
       if (p[1] === 'titular-errado' && (m === 'GET' || m === 'POST')) {
         /* boletos ativos de contratos com cessão que saíram no nome do titular antigo; POST {ids} refaz no nome do novo titular */
@@ -2210,6 +2231,8 @@ export default async (req) => {
       return json({ ok: true });
     }
 
+    /* boletos no nome de outra pessoa: exceção só do administrador */
+    if (real !== 'luis' && body && typeof body === 'object' && ['acordo', 'proposta'].includes(p[0])) { delete body.pagador; if (body.dados && typeof body.dados === 'object') delete body.dados.pagador; }
     if (p[0] === 'proposta' && m === 'POST') {
       const ids = (body.dados?.titulos_origem || []).map(Number);
       const ja = await q(`select t.rotulo from carteira.acordos a join carteira.titulos t on t.id = any(a.titulos_origem) where a.contrato=$1 and a.conferente=$2 and t.id = any($3)`, [body.contrato, conf, ids]);
@@ -2249,6 +2272,7 @@ export default async (req) => {
       const ja = await q(`select t.rotulo from carteira.acordos a join carteira.titulos t on t.id = any(a.titulos_origem) where a.contrato=$1 and a.conferente=$2 and t.id = any($3)`, [pr.contrato, conf, ids]);
       const jp = (await q(`select dados from carteira.propostas where contrato=$1 and conferente=$2 and id<>$3`, [pr.contrato, conf, p[1]])).filter(x => (x.dados?.titulos_origem || []).map(Number).some(i => ids.includes(i)));
       if (ja.length || jp.length) return json({ erro: 'Já existe negociação para essa(s) parcela(s): ' + [...ja.map(x => x.rotulo + ' (acordo)'), ...jp.map(x => 'proposta ' + (x.dados?.termo || ''))].join(', ') + '.' }, 409);
+      if (real !== 'luis' && pr.dados?.pagador) body.dados = { ...body.dados, pagador: pr.dados.pagador };
       await q('update carteira.propostas set dados=$2 where id=$1', [p[1], body.dados]);
       await log(conf, 'proposta_alterada', { id: p[1], antes: pr.dados, depois: body.dados });
       return json({ ok: true });
