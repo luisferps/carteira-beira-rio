@@ -97,8 +97,10 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
         const d = c.dados || {}, hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
         const data = dataBody || d.data || hoje;
         /* troca de titulares a partir da 1ª parcela em aberto */
-        const [t0] = await q(`select t.id from carteira.titulos t where t.contrato=$1 and t.grupo<>'acordo'
-                               and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id) order by t.vencimento limit 1`, [c.contrato]);
+        /* novo titular a partir da 1ª parcela (fora renegociações) que vence na data da cessão ou depois */
+        const dataCes = d.data || data;
+        const [t0] = await q(`select t.id from carteira.titulos t where t.contrato=$1 and t.grupo<>'acordo' and t.vencimento >= $2
+                               and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id) order by t.vencimento limit 1`, [c.contrato, dataCes]);
         const nomes = (d.cessionarios || []).map(x => x.nome).filter(Boolean);
         const [ev] = await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','cessao',null,$2,$3,$4,$5) returning id`,
           [c.contrato, t0?.id || null, data, { novos_titulares: nomes.join(' e '), antes: (d.cedentes || []).map(x => x.nome).join(' e '), taxa_cessao: d.taxa ?? null, documento: String(c.numero).padStart(4, '0'),
@@ -111,8 +113,14 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
           const p1 = (d.cessionarios || [])[0];
           if (p1?.cpf && refazBoletoPara) {
             const cli = await clienteAsaas(p1);
-            const bs = await q(`select * from carteira.boletos where contrato=$1 and status = any($2) and coalesce(tipo,'')<>'cessao' order by vencimento`, [c.contrato, ['PENDING', 'OVERDUE', 'AWAITING_RISK_ANALYSIS']]);
+            const bs = await q(`select b.*, t.grupo, t.acordo_id from carteira.boletos b left join carteira.titulos t on t.id=b.titulo_id
+                                where b.contrato=$1 and b.status = any($2) and coalesce(b.tipo,'')<>'cessao' order by b.vencimento`, [c.contrato, ['PENDING', 'OVERDUE', 'AWAITING_RISK_ANALYSIS']]);
+            const passa = new Set((d.renegs || []).filter(r => r.quem === 'cessionarios').map(r => r.k));
             for (const b of bs) {
+              /* renegociações (acordo/proposta) ficam com quem foi escolhido; parcelas normais passam se vencem a partir da data da cessão */
+              const ehReneg = b.grupo === 'acordo' || b.tipo === 'proposta';
+              if (ehReneg && !(b.acordo_id ? passa.has('a' + b.acordo_id) : [...passa].some(k => k.startsWith('p')))) continue;
+              if (!ehReneg && String(b.vencimento).slice(0, 10) < String(dataCes).slice(0, 10)) continue;
               try { const r = await refazBoletoPara(b, cli, real, `Cessão nº ${pad4(c.numero)}: boleto passado do cedente para o cessionário`); if (!r.mesmo) movidos.push(r.novo); }
               catch (e) { erros.push(b.id_asaas + ': ' + e.message); }
             }

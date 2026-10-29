@@ -773,6 +773,13 @@ async function refazBoletoPara(b, cliente, conf, motivo) {
 async function clienteDoContrato(n, opc = {}) {
   const pg = opc.pagador?.cpf ? opc.pagador : opc.tituloId ? await pagadorDoTitulo(opc.tituloId) : null;
   if (pg) return clientePagador(pg);
+  /* parcela de renegociação: segue no nome de quem já recebeu os boletos dela (ex.: acordo que ficou com o cedente numa cessão) */
+  if (opc.tituloId) {
+    const [b] = await q(`select b.dados->>'customer' c from carteira.titulos t join carteira.titulos t2 on t2.acordo_id=t.acordo_id
+                         join carteira.boletos b on b.titulo_id=t2.id where t.id=$1 and t.grupo='acordo' and b.dados->>'customer' like 'cus_%'
+                         order by b.status in ('PENDING','OVERDUE','RECEIVED','CONFIRMED','RECEIVED_IN_CASH') desc, b.criado_em desc nulls last limit 1`, [opc.tituloId]).catch(() => []);
+    if (b?.c) return b.c;
+  }
   const cs = await clienteCessionario(n);
   if (cs.tem) return cs.id;
   const [b] = await q(`select dados->>'customer' c from carteira.boletos where contrato=$1 and dados->>'customer' like 'cus_%' order by vencimento desc nulls last limit 1`, [n]);
