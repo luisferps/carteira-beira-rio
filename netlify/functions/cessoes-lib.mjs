@@ -69,11 +69,13 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
     const parc = R2(Math.round(taxa / n * 100) / 100), ult = R2(taxa - parc * (n - 1));
     const p1 = (d.cessionarios || [])[0]; if (!p1?.nome) throw new Error('Cessão sem cessionário');
     const cliente = await clienteAsaas(p1);
-    const venc1 = d.venc_taxa && d.venc_taxa >= hojeBR() ? d.venc_taxa : somaDias(hojeBR(), 7);
+    /* o 1º boleto da taxa vence sempre na data de emissão; os demais nas datas escolhidas (ou mês a mês) */
+    const venc1 = hojeBR(), datas = Array.isArray(d.taxa_datas) ? d.taxa_datas : [];
+    const vencK = k => k === 1 ? venc1 : (datas[k - 1] && datas[k - 1] > venc1 ? datas[k - 1] : somaMeses(venc1, k - 1));
     const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [c.contrato]);
     const L = [];
     for (let k = 1; k <= n; k++) {
-      const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: k === n ? ult : parc, dueDate: somaMeses(venc1, k - 1),
+      const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: k === n ? ult : parc, dueDate: vencK(k),
         description: [`Condomínio Beira Rio - ${c.contrato}`, `Q${ct?.quadra || ''} L${ct?.lote || ''}`, `Taxa de cessão de direitos${n > 1 ? ` ${String(k).padStart(2, '0')}/${String(n).padStart(2, '0')}` : ''} - Documento nº ${pad4(c.numero)}`, '', FCA_RODAPE].join('\r\n'),
         externalReference: 'cbr-cessao-' + c.id + (n > 1 ? '-' + k : '') });
       await garanteBoletos();
@@ -163,7 +165,7 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
       if (!c) return json({ erro: 'Cessão não encontrada' }, 404);
       if (p[2] === 'boleto' && m === 'POST') {
         if (body.taxa != null || body.venc_taxa || body.taxa_parcelas) {
-          const extra = { ...(body.taxa != null ? { taxa: +body.taxa } : {}), ...(body.venc_taxa ? { venc_taxa: body.venc_taxa } : {}), ...(body.taxa_parcelas ? { taxa_parcelas: +body.taxa_parcelas } : {}) };
+          const extra = { ...(body.taxa != null ? { taxa: +body.taxa } : {}), ...(body.venc_taxa ? { venc_taxa: body.venc_taxa } : {}), ...(body.taxa_parcelas ? { taxa_parcelas: +body.taxa_parcelas } : {}), ...('taxa_datas' in body ? { taxa_datas: body.taxa_datas } : {}) };
           await q(`update carteira.cessoes set dados = dados || $2::jsonb where id=$1`, [c.id, JSON.stringify(extra)]); c.dados = { ...c.dados, ...extra };
         }
         const cadastro = await cadastraPessoas(c.dados || {}, c.contrato, c.numero);
