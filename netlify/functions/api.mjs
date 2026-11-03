@@ -622,7 +622,7 @@ async function processaPagamentoAsaas(g, X, opc = {}) {
     Object.assign(body, separaPagamento(bol.composicao, +g.value), { obs: 'Lançado automaticamente pela integração com o Asaas — ' + (+bol.composicao.cobranca ? 'pago em cobrança (boleto com os 10%)' : '2ª via atualizada') + (opc.nota ? ' — ' + opc.nota : '') });
   }
   { const ac = t.grupo === 'acordo' ? D.acordos.find(a => a.id == t.acordo_id) : null;
-    if (ac) Object.assign(body, destrinchaAcordo(ac, body)); }
+    if (ac) Object.assign(body, destrinchaAcordo({ ...ac, soma_parcelas: D.titulos.filter(x => x.acordo_id == ac.id).reduce((s0, x) => s0 + (+x.valor_face || 0), 0) }, body)); }
 
   const [pg] = await q(`insert into carteira.pagamentos(conferente, titulo_id, ${CAMPOS_PAG.join(',')}, tem_print)
                         values ('luis',$1,${CAMPOS_PAG.map((_, i) => '$' + (i + 2)).join(',')}, false) returning id`, [t.id, ...CAMPOS_PAG.map(c => limpa(body[c]))]);
@@ -1030,7 +1030,8 @@ function destrinchaAcordo(a, s) {
   const pr = +a.principal || 0, mu = +a.multa || 0, ju = +a.juros || 0, ho = +a.honorarios || 0, S = pr + mu + ju + ho;
   const face = +s.valor_cobranca || 0;
   if (!(S > 0) || !(face > 0) || !(mu + ju + ho > 0)) return s;
-  const f = face / S, m2 = R2(mu * f), j2 = R2(ju * f), h2 = R2(ho * f), p2 = R2(face - m2 - j2 - h2);
+  /* encargos repartidos pelo total das parcelas do acordo (com juros de financiamento, a soma das parcelas passa do valor acordado; os juros de financiamento ficam com a FCA) */
+  const f = face / Math.max(S, +a.soma_parcelas || 0), m2 = R2(mu * f), j2 = R2(ju * f), h2 = R2(ho * f), p2 = R2(face - m2 - j2 - h2);
   return { ...s, valor_cobranca: p2, multa_paga: R2((+s.multa_paga || 0) + m2), juros_pago: R2((+s.juros_pago || 0) + j2), honorarios_pago: R2((+s.honorarios_pago || 0) + h2) };
 }
 function separaPagamento(c, pago) {
@@ -1804,7 +1805,7 @@ export default async (req) => {
         if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
         /* pagamento em parcela de acordo (ou em parcela com 2ª via de 1 parcela) que ainda está com o valor inteiro, sem destrinchar */
         const L = await q(`select g.id, g.valor_pago, g.valor_cobranca, g.multa_paga, g.juros_pago, g.honorarios_pago, g.desconto_dado, t.contrato, t.rotulo, t.grupo, t.valor_face,
-                             a.id a_id, a.principal, a.multa, a.juros, a.honorarios, a.valor_acordado, g.confirmada_em::text pago_em, g.fatura,
+                             a.id a_id, a.principal, a.multa, a.juros, a.honorarios, a.valor_acordado, (select sum(x.valor_face) from carteira.titulos x where x.acordo_id=a.id) soma_parcelas, g.confirmada_em::text pago_em, g.fatura,
                              (select string_agg(o.rotulo, ', ' order by o.vencimento) from carteira.titulos o where o.id = any(a.titulos_origem)) origem
                            from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
                            join carteira.acordos a on (t.grupo='acordo' and a.id=t.acordo_id)
