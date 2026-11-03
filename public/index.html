@@ -1100,9 +1100,8 @@ async function verPrint(id){const d=await api('print/'+id);const w=window.open('
 /* acordo */
 function calcAcordo(ids,data){
   let pr=0,mu=0,ju=0,ho=0;
-  /* regra do Luis: renegociação em pacote com alguma parcela acima de 60 dias leva 10% de custo de cobrança sobre TODAS as parcelas do pacote (pagas avulsas, as de menos de 60 dias não levam) */
-  const ks=ids.map(id=>C.titulos.find(x=>x.id==id)).filter(Boolean).map(t=>atrasoDe(t,data)),pacote=ks.length>1&&ks.some(k=>k.dias>60);
-  for(const k of ks){pr+=k.v+k.co;mu+=k.mu;ju+=k.ju;ho+=k.ho||(pacote&&k.dias>0?(k.v+k.co+k.mu+k.ju)*.10:0)}
+  /* regra do Luis: custo de cobrança (10%) só nas parcelas com mais de 60 dias de atraso, qualquer que seja a forma de pagar (avulsa ou renegociada) */
+  for(const id of ids){const t=C.titulos.find(x=>x.id==id);if(!t)continue;const k=atrasoDe(t,data);pr+=k.v+k.co;mu+=k.mu;ju+=k.ju;ho+=k.ho}
   return {principal:r2(pr),multa:r2(mu),juros:r2(ju),honorarios:r2(ho),total:r2(pr+mu+ju+ho)};
 }
 function modalAcordo(aid,pid){
