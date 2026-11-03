@@ -1030,8 +1030,11 @@ function destrinchaAcordo(a, s) {
   const pr = +a.principal || 0, mu = +a.multa || 0, ju = +a.juros || 0, ho = +a.honorarios || 0, S = pr + mu + ju + ho;
   const face = +s.valor_cobranca || 0;
   if (!(S > 0) || !(face > 0) || !(mu + ju + ho > 0)) return s;
-  /* encargos repartidos pelo total das parcelas do acordo (com juros de financiamento, a soma das parcelas passa do valor acordado; os juros de financiamento ficam com a FCA) */
-  const f = face / Math.max(S, +a.soma_parcelas || 0), m2 = R2(mu * f), j2 = R2(ju * f), h2 = R2(ho * f), p2 = R2(face - m2 - j2 - h2);
+  /* encargos repartidos pelo total das parcelas do acordo (com juros de financiamento, a soma das parcelas passa do valor acordado) */
+  const T = Math.max(S, +a.soma_parcelas || 0), f = face / T;
+  /* regra do Luis: sobre os juros de financiamento a Inerente também leva 10% de custo de cobrança */
+  const hoT = ho + (T > S + 0.01 ? (T - S) * 0.10 : 0);
+  const m2 = R2(mu * f), j2 = R2(ju * f), h2 = R2(hoT * f), p2 = R2(face - m2 - j2 - h2);
   return { ...s, valor_cobranca: p2, multa_paga: R2((+s.multa_paga || 0) + m2), juros_pago: R2((+s.juros_pago || 0) + j2), honorarios_pago: R2((+s.honorarios_pago || 0) + h2) };
 }
 function separaPagamento(c, pago) {
