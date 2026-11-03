@@ -1044,7 +1044,7 @@ function modalTitulo(id,editId,novo){
   <div class="drop" id="drop">Aperte <b>Ctrl+V</b> com o print copiado — a leitura começa sozinha. Depois cole a descrição (Ctrl+V de novo).<div id="pv"></div></div>
    <div class="bt" style="margin:8px 0;align-items:center"><span id="iast" class="mut"></span><span style="flex:1"></span><button id="bia" onclick="lerIA()" style="font-size:12px;padding:4px 10px">Ler de novo</button></div>
   ${formPag(ed||{forma:'Boleto Bancário',vencimento_original:t.vencimento,valor_cobranca:r2(valorAno(t))},t)}
-  <div class="bt" style="margin-top:12px"><button onclick="conferePag(${id},${ed?ed.id:'null'})">Conferir de novo</button><span id="confBox" style="flex-basis:100%"></span>
+  <div class="bt" style="margin-top:12px"><button class="pri" onclick="conferePag(${id},${ed?ed.id:'null'})">Conferir e salvar</button><span id="confBox" style="flex-basis:100%"></span>
    <span style="flex:1"></span><button onclick="marca(${id},'cancelada')">Marcar cancelada</button>
    ${sit&&sit.situacao!=='paga'?`<button onclick="marca(${id},null)">Limpar marcação</button>`:''}</div>`);
   window._TIT=t;window._IA=null;window._CONF=()=>conferePag(id,ed?ed.id:null);
