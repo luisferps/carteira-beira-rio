@@ -1592,6 +1592,8 @@ async function garanteEsquema() {
     await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
     await q(`alter table carteira.acordos add column if not exists termo text`);
     await q(`alter table carteira.acordos add column if not exists pagador jsonb`);
+    await q(`alter table carteira.acordos add column if not exists nota_interna text`);
+    await q(`alter table carteira.pagamentos add column if not exists nota_interna text`);
     await q(`create table if not exists carteira.propostas(id serial primary key, contrato text not null, conferente text not null, dados jsonb not null, criado_em timestamptz default now())`);
     await q(`create table if not exists carteira.termos_arq(termo text primary key, contrato text not null, nome text, b64 text not null, conferente text, enviado_em timestamptz default now())`);
     await q(`alter table carteira.termos_arq add column if not exists html text`);
@@ -2244,6 +2246,21 @@ export default async (req) => {
 
     /* boletos no nome de outra pessoa: exceção só do administrador */
     if (real !== 'luis' && body && typeof body === 'object' && ['acordo', 'proposta'].includes(p[0])) { delete body.pagador; if (body.dados && typeof body.dados === 'object') delete body.dados.pagador; }
+    /* anotações internas (exceções, correções do Luis) ficam só no banco, fora da tela: tira da observação e guarda em nota_interna */
+    if (p[0] === 'manutencao' && p[1] === 'notas-internas' && m === 'POST' && real === 'luis') {
+      const RX = /\s*(?:\|\s*|\.\s+)?((?:Exceção do Luis \(|Custo de cobrança (?:corrigido|da entrada recalculado) em )[^|]*)/g;
+      const feito = {};
+      for (const tb of ['pagamentos', 'acordos']) {
+        const L = await q(`select id, obs, nota_interna from carteira.${tb} where obs ~ '(Exceção do Luis \\(|Custo de cobrança (corrigido|da entrada recalculado) em )'`);
+        for (const r of L) {
+          const notas = []; const novo = String(r.obs).replace(RX, (m0, g1) => { notas.push(g1.trim()); return ''; }).trim().replace(/[|.\s]+$/, '');
+          await q(`update carteira.${tb} set obs=$2, nota_interna=$3 where id=$1`, [r.id, novo || null, [r.nota_interna, ...notas].filter(Boolean).join(' | ')]);
+        }
+        feito[tb] = L.length;
+      }
+      await log(real, 'notas_internas_movidas', feito);
+      return json({ ok: true, ...feito });
+    }
     if (p[0] === 'proposta' && !p[1] && m === 'POST') {
       const ids = (body.dados?.titulos_origem || []).map(Number);
       const ja = await q(`select t.rotulo from carteira.acordos a join carteira.titulos t on t.id = any(a.titulos_origem) where a.contrato=$1 and a.conferente=$2 and t.id = any($3)`, [body.contrato, conf, ids]);
