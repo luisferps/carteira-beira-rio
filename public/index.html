@@ -1496,7 +1496,9 @@ function mesPadraoAc(){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-1
 async function telaAcerto(mes){
   mes=mes||mesPadraoAc();app.innerHTML='<div class="card">Carregando…</div>';
   AC=await api('acerto/'+mes);
-  if(!AC.fechado&&!AC.carregado_em)return carregaAc(mes,false);
+  /* mês aberto: busca de novo no Asaas sozinho se nunca carregou, se carregou antes do mês terminar ou se a última busca tem mais de 1 hora */
+  if(!AC.fechado){const c=AC.carregado_em?new Date(AC.carregado_em).getTime():0,[y,m]=mes.split('-').map(Number),fim=Date.UTC(y,m,1,3)+2*864e5;
+    if(!c||c<fim&&Date.now()>c+10*6e4||Date.now()-c>36e5)return carregaAc(mes,!!c)}
   desenhaAc();
 }
 async function carregaAc(mes,recomecar){
