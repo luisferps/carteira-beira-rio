@@ -186,7 +186,8 @@ export function criaAcerto({ q, asaas, json, log, dev }) {
         let cat = e.tipo === 'PAYMENT_RECEIVED' && e.pg ? catDaLinha(linha) : 'revisar';
         const venc = vencRef(g), pago = g.clientPaymentDate || g.paymentDate || null, d = dias(venc, pago);
         let obs = '';
-        if ((cat === 'mensal' || cat === 'anual') && d > 60) { cat = 'cobranca'; obs = `Paga com ${d} dias de atraso (acima de 60 dias)`; }
+        /* regra do Luis: só vai para Cobrança o que teve custo de cobrança; atrasada paga sem custo fica nas mensais/anuais */
+        if ((cat === 'mensal' || cat === 'anual') && d > 60) obs = `Paga com ${d} dias de atraso, sem custo de cobrança`;
         const auto = cat;
         if (cls[e.id]) cat = cls[e.id];
         const fat = (String(e.descricao).match(/fatura nr\.?\s*(\d+)/i) || [])[1] || (g.invoiceNumber ? String(g.invoiceNumber) : null);
@@ -208,7 +209,8 @@ export function criaAcerto({ q, asaas, json, log, dev }) {
     await ligaParcelas(ent.filter(x => x.cat !== 'contrato'));
     const comis = await comissoes(ent);
     for (const x of ent) {
-      if ((x.cat === 'mensal' || x.cat === 'anual') && !x.manual && x.hon > 0.5) { x.cat = x.auto = 'cobranca'; x.obs = (x.obs ? x.obs + ' · ' : '') + 'Tem custo de cobrança lançado na parcela'; }
+      if ((x.cat === 'mensal' || x.cat === 'anual') && !x.manual && x.hon > 0.5) { x.cat = x.auto = 'cobranca'; x.obs = 'Tem custo de cobrança lançado na parcela'; }
+      else if (x.cat === 'cobranca' && !x.manual && !x.sem_lancamento && x.hon != null && x.hon <= 0.5) { x.cat = x.auto = /anual/i.test(x.linha || '') ? 'anual' : 'mensal'; x.obs = (x.obs ? x.obs + ' · ' : '') + 'Sem custo de cobrança'; }
       delete x.lanc;
       if (x.cat !== 'cobranca') { delete x.hon; delete x.fca; }
       else if (x.sem_lancamento || x.hon == null) { x.fca = R2(x.valor / 1.1); x.hon = R2(x.valor - x.fca); x.provisorio = true; x.obs = (x.obs ? x.obs + ' · ' : '') + 'Pagamento ainda não lançado na parcela (valor ÷ 1,10 provisório)'; }
@@ -253,7 +255,7 @@ export function criaAcerto({ q, asaas, json, log, dev }) {
     const prov = ent.filter(x => x.provisorio);
     conf.push({ ok: !prov.length, t: 'Cobranças com o pagamento lançado na parcela', d: prov.length ? `Ainda sem lançamento na parcela (o custo de cobrança fica provisório até lançar): ${prov.map(x => `${x.contrato || ''} ${x.linha.slice(0, 50)} ${br(x.valor)}`).join(' · ')}` : 'Todas: o custo de cobrança é o mesmo que está na parcela.' });
     const r42 = ent.filter(x => x.obs && /dias de atraso/.test(x.obs));
-    conf.push({ ok: true, t: 'Pagas com mais de 60 dias de atraso (vão para Cobrança)', d: r42.length ? r42.map(x => `${x.contrato || ''} ${x.linha} — ${x.dias} dias`).join(' · ') : 'Nenhuma.' });
+    conf.push({ ok: true, t: 'Pagas com mais de 60 dias de atraso sem custo de cobrança (ficam nas mensais)', d: r42.length ? r42.map(x => `${x.contrato || ''} ${x.linha} — ${x.dias} dias`).join(' · ') : 'Nenhuma.' });
     const fora = ent.filter(x => x.cat === 'mensal' && !/^\d+\s*\/\s*\d+$/.test(x.linha.trim()));
     conf.push({ ok: true, t: 'Mensais com descrição fora do padrão', d: fora.length ? fora.map(x => `${x.contrato || ''}: ${x.linha}`).join(' · ') : 'Nenhuma.' });
     const ks = {}; const dup = [];
