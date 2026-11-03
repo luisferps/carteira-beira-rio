@@ -1111,6 +1111,7 @@ function modalAcordo(aid,pid){
   const campo=(id,l)=>`<div class="dado"><span>${l}</span><input id="${id}" inputmode="decimal" style="font-weight:700"></div>`;
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${a?'Editar acordo '+numAc(a):pd?'Editar proposta '+esc(pd.termo||''):'Novo acordo'}</h3><button onclick="fechaModal()">Fechar</button></div>
   <div class="info">Parcelas no acordo: <b>${orig.map(codTit).join(' + ')}</b> <span class="mut">(${orig.map(t=>esc(t.rotulo)).join(', ')})</span></div>
+  ${pd&&String(pd.data_acordo).slice(0,10)<C.hoje?`<div class="aviso" style="display:flex;gap:10px;align-items:center">Esta proposta foi calculada em ${dbr(pd.data_acordo)}. <button class="pri" onclick="window._atualizaHoje()">Atualizar valores para hoje</button></div>`:''}
   <div class="f2"><div><label>Data do acordo</label><input type="date" id="a_data" value="${a?a.data_acordo.slice(0,10):pd?String(pd.data_acordo).slice(0,10):C.hoje}"></div>
   <div><label>Valor acordado</label><input id="a_val" inputmode="decimal" style="font-weight:700"></div>
   <div><label>Forma</label><select id="a_forma"><option value="1">Pagamento único</option><option value="n">Parcelado</option></select></div>
@@ -1155,6 +1156,8 @@ function modalAcordo(aid,pid){
   else if(pd){B={pr:Number(pd.principal||0),mu:Number(pd.multa||0),ju:Number(pd.juros||0),ho:Number(pd.honorarios||0),de:Number(pd.desconto_encargos||0)};$('#a_val').value=brl(pd.valor_acordado)}else deCalc();
   $('#a_forma').value=(pars.length>1)?'n':'1';
   $('#a_data').onchange=()=>{const y=+$('#a_data').value.slice(0,4);if(y<2000||y>2099)return;deCalc();mostraB();refazPars()};
+  window._atualizaHoje=()=>{const h=C.hoje;$('#a_data').value=h;if(P.some(p=>p.vencimento<h))P.forEach(p=>p.vfixo=false);else P.forEach(p=>p.vfixo=true);deCalc();mostraB();refazPars();
+    const av=document.querySelector('#modal .aviso');if(av)av.innerHTML=`Valores recalculados até hoje (${dbr(h)}): ${brl(num($('#a_val').value))}. Confira as parcelas e clique em Salvar — a mesma proposta ${esc(pd?.termo||'')} é atualizada${pd?.boleto?' (o boleto já emitido é ajustado no Asaas)':''} e o termo é refeito.`};
   $('#a_val').oninput=()=>{peloValor();mostraB();refazPars()};
   for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])$('#'+id).oninput=e=>{B[k]=num(e.target.value);$('#a_val').value=brl(r2(B.pr+B.mu+B.ju+B.ho));mostraB(id);refazPars()};
   $('#a_jf').oninput=()=>{if(!aplicaPrice())refazPars();else desPars()};
@@ -1180,7 +1183,7 @@ function proxTermo(){const n=C.contrato.numero;let m=0;for(const t of [...C.acor
 async function carregaTermo(){if(!window.emitirTermo)await new Promise((ok,er)=>{const x=document.createElement('script');x.src='/ferramentas/termo.js?'+Date.now();x.onload=ok;x.onerror=er;document.head.appendChild(x)})}
 async function emiteTermo(A,modo){try{await carregaTermo();return await window.emitirTermo(A||null,modo||'baixar')}catch(e){console.error(e);alert('Erro ao gerar o termo: '+e.message)}}
 async function salvaPropostaEd(pid){const d=window._salvaAcordoDados();if(!d.parcelas||!d.parcelas.length)return alert('Defina as parcelas.');if(!d.termo)d.termo=pDados(pid)?.termo||proxTermo();
-  await api('proposta/'+pid,{method:'PUT',body:{dados:d}});fechaModal();await recarrega();await guardaTermoAuto(d);desenhaContrato();alert('Proposta '+d.termo+' alterada. Termo atualizado no sistema.')}
+  await api('proposta/'+pid,{method:'PUT',body:{dados:d}});fechaModal();await recarrega();{const x=tArq(d.termo),old=pDados(pid);if(x&&x.nome!=='auto'&&old&&(+old.valor_acordado!==+d.valor_acordado||old.data_acordo!==d.data_acordo)&&confirm('O termo '+d.termo+' tinha sido editado à mão. Refazer o termo com os valores novos? (as edições de texto se perdem)')){await api('termo-arq/'+encodeURIComponent(d.termo),{method:'DELETE'});await recarrega()}}await guardaTermoAuto(d);desenhaContrato();alert('Proposta '+d.termo+' alterada. Termo atualizado no sistema.')}
 async function salvaProposta(){const d=window._salvaAcordoDados();if(!d.parcelas||!d.parcelas.length)return alert('Defina as parcelas.');if(!d.termo)d.termo=proxTermo();
   await api('proposta',{method:'POST',body:{contrato:C.contrato.numero,dados:d}});SEL.clear();SELMODO=false;fechaModal();await recarrega();await guardaTermoAuto(d);desenhaContrato();alert('Proposta '+d.termo+' salva (termo salvo no sistema). As parcelas continuam em atraso até você efetivar (quando o cliente pagar o 1º boleto).')}
 function A0T(aid){return C.acordos.find(a=>a.id==aid)?.termo||''}
