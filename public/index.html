@@ -273,7 +273,7 @@ function timelineCaso(X){const cc=X.cc,ev=[],ini=somaDiasF(new Date().toISOStrin
     const imp=r.por==='importado do WhatsApp'&&r.tipo==='whatsapp'&&r.texto&&!String(r.texto).startsWith('Conversa no WhatsApp');
     const tit=imp?'WhatsApp — '+String(r.texto).split('\n')[0]+(r.resultado?' ('+r.resultado+')':''):r.tipo==='sistema'?String(r.texto||'').split('\n')[0]:r.tipo==='etapa'?'Etapa: '+String(r.texto||'').split(' → ').map(e=>ETN[e]||e).join(' → '):(TIPOS_REG[r.tipo]||r.tipo)+(r.resultado?' — '+r.resultado:'')+(r.data_promessa?` — promessa ${r.valor_promessa?brl(+r.valor_promessa)+' ':''}até ${dbr(r.data_promessa)}`:'');
     const det=r.tipo==='etapa'||r.tipo==='sistema'?'':(r.texto||'');
-    ev.push({d:new Date(r.em),k:r.tipo,t:tit,det,por:r.por,acoes:['whatsapp','ligacao','email','visita','nota'].includes(r.tipo)?`<a href="#" onclick="editaReg(${r.id});return false">editar</a> · <a href="#" onclick="apagaReg(${r.id});return false">apagar</a>`:''})}
+    ev.push({d:new Date(r.em),k:r.tipo,t:tit,det,por:r.por,acoes:['whatsapp','ligacao','email','visita','nota'].includes(r.tipo)?`<a href="#" onclick="editaReg(${r.id});return false">editar</a> · <a href="#" onclick="apagaReg(${r.id});return false">apagar</a>${r.tipo==='whatsapp'&&r.resultado==='Mensagem enviada'&&r.por!=='importado do WhatsApp'?` · <a href="#" style="color:#dc2626" onclick="naoEnviadoHist(${r.id});return false">não foi enviado</a>`:''}`:''})}
   if(cc){const dt=x=>new Date(d10(x)+'T12:00:00');
     for(const p of cc.propostas||[]){const d=p.dados||{},ps=d.parcelas||[];ev.push({d:dt(d.data_acordo||p.criado_em),k:'acordo',t:`Proposta ${d.termo||''}: ${brl(d.valor_acordado)} em ${ps.length}x (não efetivada)`,det:`Parcelas: ${(d.titulos_origem||[]).map(rot).join(', ')}\n${ps.map((x,i)=>`${i+1}ª ${dbr(x.vencimento)} ${brl(x.valor)}`).join('\n')}`})}
     for(const a of cc.acordos||[]){if(d10(a.data_acordo)<ini)continue;const ts=cc.titulos.filter(t=>t.acordo_id==a.id),pg=ts.filter(t=>cc.pagamentos.some(p=>p.titulo_id==t.id)).length,um=ts.length===1&&(a.titulos_origem||[]).length===1;
@@ -314,12 +314,9 @@ const ruimDe=t=>FRU.get(digs(t.v).slice(-8));const ordFones=F=>F.sort((a,b)=>(ru
 const rotFone=t=>{const r=ruimDe(t);return r?` — ⚠ ${r.situacao} (${dbr(r.em)})`:''};
 async function marcaFone(fone,contrato,sit){await api('cobranca/fones',{method:'POST',body:{fone,contrato,situacao:sit||null}});await carregaFru()}
 async function foneVoltou(fone){if(!confirm('Marcar o número '+fone+' como funcionando de novo?'))return;await marcaFone(fone,CASO.caso.contrato,null);telaCaso(CASO.caso.id)}
-/* depois de abrir o WhatsApp: só registra que mandou se a pessoa confirmar */
-function confirmaEnvio(el,o){el.innerHTML=`<div class="info" style="margin-top:8px"><b>Conseguiu mandar a mensagem para ${esc(o.fone)}?</b><div class="bt" style="margin-top:6px"><button class="pri" id="ce_s">Sim, mandei</button><button class="per" id="ce_n">Não — número sem WhatsApp / mudou</button><button id="ce_x">Não mandei agora</button></div></div>`;
-  el.querySelector('#ce_s').onclick=async()=>{await o.sim();};
-  el.querySelector('#ce_n').onclick=async()=>{await marcaFone(o.fone,o.contrato,'sem WhatsApp / número mudou');
-    await api('cobranca/caso/'+o.casoId+'/registro',{method:'POST',body:{tipo:'sistema',resultado:'Número errado',texto:`Tentativa de WhatsApp para ${o.fone}: número sem WhatsApp ou mudou — mensagem NÃO enviada.`}});await o.nao()};
-  el.querySelector('#ce_x').onclick=()=>{el.innerHTML='';o.cancela&&o.cancela()}}
+async function naoEnviado(id,fone,depois){await api('cobranca/caso/'+(CASO?.caso?.id||SEQ.X.caso.id)+'/registro/'+id+'/nao-enviado',{method:'POST',body:{fone}});await carregaFru();if(depois)return depois();telaCaso(CASO.caso.id)}
+async function naoEnviadoHist(id){const r=CASO.registros.find(x=>x.id==id);const fone=(String(r?.texto||'').match(/para ([^\n]+)/)||[])[1]||'';
+  if(!confirm(`Marcar esta mensagem como NÃO enviada${fone?' (número '+fone+' sem WhatsApp / mudou)':''}?\n\nO contato é desfeito, o caso volta para a etapa anterior e o número vai para "Números com problema".`))return;await naoEnviado(id,fone)}
 function abreWA(fone,texto){let n=digs(fone);if(n.length>11&&n.startsWith('55'))n=n.slice(2);const t=encodeURIComponent(texto);
   if(WAMODO()==='app')location.href=`whatsapp://send?phone=55${n}&text=${t}`;else window.open(`https://web.whatsapp.com/send?phone=55${n}&text=${t}`,'cbr_whatsapp')}
 const seletorWA=()=>`<label style="display:inline-flex;gap:6px;align-items:center;font-size:12px;width:auto">Abrir no <select style="width:auto" onchange="try{localStorage.cbr_wa=this.value}catch(e){}"><option value="web" ${WAMODO()==='web'?'selected':''}>WhatsApp Web (mesma aba)</option><option value="app" ${WAMODO()==='app'?'selected':''}>aplicativo do WhatsApp no computador</option></select></label>`;
@@ -331,16 +328,13 @@ async function modalMsg(){MODELOS=MODELOS||await api('cobranca/modelos');const F
   <div><label>Mensagem pronta</label><select id="mg_m">${MODELOS.map((m,i)=>`<option value="${i}">${esc(m.titulo)}</option>`).join('')}</select></div></div>
   <label>Texto (pode editar antes de mandar)</label><textarea id="mg_x" style="min-height:220px"></textarea>
   <div class="info" style="margin-top:8px">Quando a pessoa responder: <button onclick="relCaso()">Abrir relatório de atraso</button> — tire o print, mande na conversa e depois a mensagem "Relatório".</div>
-  <div class="bt" style="margin-top:8px;align-items:center"><button class="pri" onclick="mandaMsg()">Abrir a conversa no WhatsApp</button>${seletorWA()}<span class="mut" style="font-size:12px">Abre a conversa da pessoa com o texto pronto; você confere e aperta enviar. Só fica registrado depois que você confirmar que mandou.</span></div><div id="mg_ok"></div>
+  <div class="bt" style="margin-top:8px;align-items:center"><button class="pri" onclick="mandaMsg()">Abrir a conversa no WhatsApp</button>${seletorWA()}<span class="mut" style="font-size:12px">Abre a conversa da pessoa com o texto pronto; você confere e aperta enviar. Fica registrado como enviado; se não foi, marque no histórico em \"não foi enviado\".</span></div><div id="mg_ok"></div>
   <div class="bt" style="margin-top:8px;align-items:flex-end;border-top:1px solid var(--ln);padding-top:8px"><div><label>Já mandei esta mensagem antes, em</label><input type="date" id="mg_dt" max="${new Date().toISOString().slice(0,10)}" style="width:auto"></div><button onclick="mandaMsg(true)">Só registrar (sem abrir o WhatsApp)</button></div>`);
   $('#mg_m').value=modeloEtapa(CASO.caso.etapa);const pega=()=>$('#mg_x').value=preencheMsg(MODELOS[+$('#mg_m').value].texto,ex);$('#mg_m').onchange=pega;pega()}
 async function mandaMsg(so){const t=CASO.fones[+$('#mg_f').value],x=$('#mg_x').value,md=MODELOS[+$('#mg_m').value],hoje=new Date().toISOString().slice(0,10);
   const dt=so?$('#mg_dt').value:hoje;if(so&&!dt)return alert('Informe a data em que a mensagem foi mandada.');
   const px=somaDiasF(dt,3),reg=async()=>{await api('cobranca/caso/'+CASO.caso.id+'/registro',{method:'POST',body:{data:dt,tipo:'whatsapp',resultado:'Mensagem enviada',texto:`[${md.titulo}] para ${t.v}\n\n${x}`,proximo_contato:px<hoje?hoje:px}});fechaModal();telaCaso(CASO.caso.id)};
-  if(so)return reg();abreWA(t.v,x);
-  confirmaEnvio($('#mg_ok'),{fone:t.v,contrato:CASO.caso.contrato,casoId:CASO.caso.id,sim:reg,nao:async()=>{const nx=CASO.fones.findIndex(f=>!ruimDe(f));
-    [...$('#mg_f').options].forEach((op,i)=>op.textContent=op.textContent.replace(/ — ⚠.*$/,'')+rotFone(CASO.fones[i]));
-    $('#mg_ok').innerHTML=`<div class="aviso" style="margin-top:8px">Número marcado como sem WhatsApp / mudou. A mensagem não foi registrada como enviada.${nx>=0?' Escolha outro número acima e abra de novo.':' Este cliente não tem outro número que funcione — atualize o cadastro.'}</div>`;if(nx>=0)$('#mg_f').value=nx}})}
+  if(!so)abreWA(t.v,x);return reg()}
 /* ---------- envio em sequência ---------- */
 let SEQ=null;
 async function desenhaSeq(el){MODELOS=MODELOS||await api('cobranca/modelos');const K=COB.casos;
@@ -366,10 +360,10 @@ async function passoSeq(){const el=$('#sq_p');if(SEQ.i>=SEQ.ids.length){el.inner
   if(F.length){const ex=extraPromessa(X.registros),pega=()=>$('#sq_x').value=preencheMsg(MODELOS[+$('#sq_mm').value].texto,ex,X);$('#sq_mm').onchange=pega;pega()}}
 function relSeq(){if(!SEQ.X.cc)return alert('Não consegui carregar o contrato.');const sv=C;C=SEQ.X.cc;try{relatorio('atraso')}finally{C=sv}}
 async function abreSeq(){const X=SEQ.X,t=X.fones[+$('#sq_f').value],x=$('#sq_x').value,md=MODELOS[+$('#sq_mm').value];abreWA(t.v,x);
-  confirmaEnvio($('#sq_ok'),{fone:t.v,contrato:X.caso.contrato,casoId:X.caso.id,
-    sim:async()=>{await api('cobranca/caso/'+X.caso.id+'/registro',{method:'POST',body:{tipo:'whatsapp',resultado:'Mensagem enviada',texto:`[${md.titulo}] para ${t.v}\n\n${x}`,proximo_contato:somaDiasF(new Date().toISOString().slice(0,10),3)}});$('#sq_ok').innerHTML='✔ Registrado no caso. Clique em <b>Próximo</b>.'},
-    nao:async()=>{const nx=X.fones.findIndex(f=>!ruimDe(f));[...$('#sq_f').options].forEach((op,i)=>op.textContent=op.textContent.replace(/ — ⚠.*$/,'')+rotFone(X.fones[i]));if(nx>=0)$('#sq_f').value=nx;
-      $('#sq_ok').innerHTML=`<div class="aviso">Número marcado como sem WhatsApp / mudou; não foi registrado como enviado.${nx>=0?' Tente outro número ou vá para o próximo.':' Sem outro número que funcione — atualize o cadastro e vá para o próximo.'}</div>`}})}
+  const rg=await api('cobranca/caso/'+X.caso.id+'/registro',{method:'POST',body:{tipo:'whatsapp',resultado:'Mensagem enviada',texto:`[${md.titulo}] para ${t.v}\n\n${x}`,proximo_contato:somaDiasF(new Date().toISOString().slice(0,10),3)}});
+  $('#sq_ok').innerHTML=`✔ Conversa aberta e registrada como enviada. Depois de enviar no WhatsApp, clique em <b>Próximo</b>. <button class="per" style="padding:2px 8px;font-size:12px" id="sq_ne">Não foi enviado (número sem WhatsApp / mudou)</button>`;
+  $('#sq_ne').onclick=()=>naoEnviado(rg.id,t.v,()=>{const nx=X.fones.findIndex(f=>!ruimDe(f));[...$('#sq_f').options].forEach((op,i)=>op.textContent=op.textContent.replace(/ — ⚠.*$/,'')+rotFone(X.fones[i]));if(nx>=0)$('#sq_f').value=nx;
+    $('#sq_ok').innerHTML=`<div class="aviso">Desfeito: não conta como enviado e o número foi para "Números com problema".${nx>=0?' Tente outro número ou vá para o próximo.':' Sem outro número que funcione — atualize o cadastro e vá para o próximo.'}</div>`})}
 
 /* ---------- USUÁRIOS ---------- */
 const STU={definir_senha:'Aguardando criar a senha',aguardando_email:'Aguardando confirmar o e-mail',aguardando_aprovacao:'Aguardando sua liberação',ativo:'Ativo',bloqueado:'Bloqueado'};
@@ -1760,7 +1754,7 @@ function comunicadoRet(){const F=CASO.fones;if(!F.length)return alert('Este clie
    <label style="margin-top:8px">Mensagem</label><textarea id="rt_tx" style="min-height:260px">${esc(txt(pz))}</textarea>
    <div class="bt" style="margin-top:8px;align-items:center">${seletorWA()}<span style="flex:1"></span><button onclick="enviaRet(true)">Só registrar (já enviei)</button><button class="pri" onclick="enviaRet(false)">Abrir no WhatsApp</button></div><div id="rt_ok"></div>`);window._RTX=txt}
 async function enviaRet(so){const t=CASO.fones[+$('#rt_f').value],x=$('#rt_tx').value,pz=$('#rt_pz').value,hoje=new Date().toISOString().slice(0,10);
-  if(!so){abreWA(t.v,x);return confirmaEnvio($('#rt_ok'),{fone:t.v,contrato:CASO.caso.contrato,casoId:CASO.caso.id,sim:()=>enviaRet(true),nao:async()=>{[...$('#rt_f').options].forEach((op,i)=>op.textContent=op.textContent.replace(/ — ⚠.*$/,'')+rotFone(CASO.fones[i]));$('#rt_ok').innerHTML='<div class="aviso" style="margin-top:8px">Número marcado como sem WhatsApp / mudou; o comunicado não foi registrado. Escolha outro número.</div>'}})}
+  if(!so)abreWA(t.v,x);
   await api('cobranca/caso/'+CASO.caso.id+'/registro',{method:'POST',body:{data:hoje,tipo:'whatsapp',resultado:'Mensagem enviada',texto:`[Comunicado de retomada] para ${t.v}\n\n${x}`,proximo_contato:pz}});
   await api('cobranca/caso/'+CASO.caso.id+'/retomada',{method:'PUT',body:{passos:{comunicado:hoje,prazo:pz}}});fechaModal();telaCaso(CASO.caso.id)}
 async function concluiRetomada(){const cc=CASO.cc,n=CASO.caso.contrato,hoje=new Date().toISOString().slice(0,10);if(!cc)return alert('Não consegui carregar o contrato.');

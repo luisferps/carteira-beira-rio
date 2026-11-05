@@ -1502,6 +1502,26 @@ async function rotasCobranca(p, m, body, url, real) {
     const props = await q(`select id, dados->>'termo' termo, criado_em from carteira.propostas where contrato=$1 and conferente='luis'`, [c.contrato]);
     return json({ caso: c, registros: regs, divida: d, boletos: bol, pagamentos: pags, contrato: ct, acordos: acs, propostas: props });
   }
+  if (p[1] === 'caso' && p[2] && p[3] === 'registro' && p[4] && p[5] === 'nao-enviado' && m === 'POST') {
+    /* WhatsApp registrado como enviado, mas o número não tinha WhatsApp / mudou: desfaz o contato e marca o número */
+    const [r] = await q(`select * from carteira.cobranca_registros where id=$1 and caso_id=$2 and tipo='whatsapp'`, [p[4], p[2]]);
+    if (!r) return json({ erro: 'Registro não encontrado' }, 404);
+    const fone = body.fone || (String(r.texto || '').match(/para ([^\n]+)/) || [])[1] || '';
+    await q(`update carteira.cobranca_registros set tipo='sistema', resultado='Número errado', texto=$2 where id=$1`, [r.id, `NÃO ENVIADO — ${fone || 'número'} sem WhatsApp ou mudou.\n\n` + (r.texto || '')]);
+    const [c] = await q(`select * from carteira.cobranca_casos where id=$1`, [p[2]]);
+    const [et] = await q(`select * from carteira.cobranca_registros where caso_id=$1 and tipo='etapa' and em between $2::timestamptz - interval '10 seconds' and $2::timestamptz + interval '10 seconds' order by id desc limit 1`, [c.id, r.em]);
+    const mm = et && String(et.texto).match(/^(\S+) → (\S+)$/);
+    if (mm && c.etapa === mm[2]) {
+      await q(`update carteira.cobranca_casos set etapa=$2, proximo_contato=current_date, atualizado_em=now() where id=$1`, [c.id, mm[1]]);
+      await q(`delete from carteira.cobranca_registros where id=$1`, [et.id]);
+    } else await q(`update carteira.cobranca_casos set proximo_contato=current_date, atualizado_em=now() where id=$1`, [c.id]);
+    const ch = fone.replace(/\D/g, '').slice(-8);
+    if (ch.length === 8) {
+      await q(`create table if not exists carteira.fones_problema(chave text primary key, fone text, contrato text, situacao text, em timestamptz default now(), por text)`);
+      await q(`insert into carteira.fones_problema(chave, fone, contrato, situacao, por) values ($1,$2,$3,'sem WhatsApp / número mudou',$4) on conflict (chave) do update set fone=$2, contrato=$3, situacao='sem WhatsApp / número mudou', por=$4, em=now()`, [ch, fone, c.contrato, quem]);
+    }
+    return json({ ok: true });
+  }
   if (p[1] === 'caso' && p[2] && p[3] === 'registro' && p[4] && (m === 'PUT' || m === 'DELETE')) {
     const [r] = await q(`select * from carteira.cobranca_registros where id=$1 and caso_id=$2`, [p[4], p[2]]);
     if (!r) return json({ erro: 'Registro não encontrado' }, 404);
@@ -1520,13 +1540,13 @@ async function rotasCobranca(p, m, body, url, real) {
     if (!c) return json({ erro: 'Caso não encontrado ou encerrado' }, 404);
     const b = body;
     const emData = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') && b.data < hojeBR() ? b.data + 'T12:00:00-03:00' : null;
-    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, data_promessa, valor_promessa, por, em) values ($1,$2,$3,$4,$5,$6,$7,$8,coalesce($9::timestamptz, now()))`,
+    const [novo] = await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, data_promessa, valor_promessa, por, em) values ($1,$2,$3,$4,$5,$6,$7,$8,coalesce($9::timestamptz, now())) returning id`,
       [c.id, c.contrato, b.tipo || 'nota', b.resultado || null, b.texto || null, b.data_promessa || null, b.valor_promessa || null, quem, emData]);
     if (b.etapa === 'sem_retorno' && !podeSemRetorno(c.etapa)) return json({ erro: 'Sem retorno só depois do contato 3.' }, 400);
     const novaEtapa = b.etapa || (b.data_promessa ? 'promessa' : (['whatsapp', 'ligacao', 'email', 'visita'].includes(b.tipo) && b.resultado !== 'Número errado' ? PROX_CONTATO[c.etapa] || null : null));
     if (novaEtapa && novaEtapa !== c.etapa) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,$4)`, [c.id, c.contrato, `${c.etapa} → ${novaEtapa}`, quem]);
     await q(`update carteira.cobranca_casos set etapa=coalesce($2, etapa), proximo_contato=coalesce($3::date, proximo_contato), atualizado_em=now() where id=$1`, [c.id, novaEtapa, b.proximo_contato || b.data_promessa || null]);
-    return json({ ok: true });
+    return json({ ok: true, id: novo.id });
   }
   if (p[1] === 'caso' && p[2] && !p[3] && m === 'PUT') {
     const [c] = await q(`select * from carteira.cobranca_casos where id=$1`, [p[2]]);
