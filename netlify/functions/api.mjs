@@ -1427,6 +1427,20 @@ async function dividas(contratos) {
   }
   return out;
 }
+/* como o contrato saiu da campanha: quanto pagou e que acordo fez desde que entrou */
+async function resumoSaidaCobranca(c, tot, ate, manual) {
+  const ini = String(c.criado_em instanceof Date ? c.criado_em.toISOString() : c.criado_em).slice(0, 10);
+  const fim = ate ? String(ate instanceof Date ? ate.toISOString() : ate).slice(0, 10) : hojeBR();
+  const [pg] = await q(`select coalesce(sum(g.valor_pago),0)::numeric v, count(*)::int n from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
+                        where t.contrato=$1 and g.conferente='luis' and g.confirmada_em >= $2::date and g.confirmada_em <= $3::date`, [c.contrato, ini, fim]);
+  const acs = await q(`select termo, data_acordo::text d, valor_acordado, qtd_parcelas, tipo from carteira.acordos where contrato=$1 and conferente='luis' and data_acordo >= $2::date and data_acordo <= $3::date order by data_acordo, id`, [c.contrato, ini, fim]);
+  const R = v => 'R$ ' + (+v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const partes = [];
+  if (+pg.v > 0) partes.push(`pagou ${R(pg.v)} (${pg.n} pagamento${pg.n > 1 ? 's' : ''})`);
+  for (const a of acs) partes.push(`fez ${a.tipo === 'repactuacao' ? 'repactuação' : 'acordo'}${a.termo ? ' ' + a.termo : ''} de ${a.d.split('-').reverse().join('/')} — ${R(a.valor_acordado)} em ${a.qtd_parcelas || 1}x`);
+  const res = acs.length && +pg.v > 0 ? 'Pagou e fez acordo' : acs.length ? 'Fez acordo' : +pg.v > 0 ? 'Pagou' : 'Dívida baixou';
+  return `${res}: ${partes.join(' e ') || 'sem pagamento nem acordo registrado'}. Dívida ao sair: ${R(tot)}${manual ? '' : ' (abaixo de R$ 5 mil) — saiu sozinho da campanha'}`;
+}
 async function rotasCobranca(p, m, body, url, real) {
   if (p[0] !== 'cobranca') return null;
   await garanteCobranca();
@@ -1434,12 +1448,17 @@ async function rotasCobranca(p, m, body, url, real) {
   if (p[1] === 'painel' && m === 'GET') {
     {
       const D0 = await dividas(null);
-      for (const c of await q(`select id, contrato from carteira.cobranca_casos where encerrado_em is null`)) {
+      for (const c of await q(`select id, contrato, criado_em from carteira.cobranca_casos where encerrado_em is null`)) {
         const tot = D0[c.contrato]?.total || 0;
         if (tot >= 5000) continue;
-        const mot = `Dívida caiu para R$ ${tot.toFixed(2).replace('.', ',')} (abaixo de R$ 5 mil) — saiu da campanha automaticamente`;
+        const mot = await resumoSaidaCobranca(c, tot);
         const [x] = await q(`update carteira.cobranca_casos set encerrado_em=now(), motivo_encerramento=$2, atualizado_em=now() where id=$1 and encerrado_em is null returning id`, [c.id, mot]);
-        if (x) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, c.contrato, mot]);
+        if (x) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, c.contrato, 'Saiu da campanha: ' + mot]);
+      }
+      for (const c of await q(`select id, contrato, criado_em, encerrado_em from carteira.cobranca_casos where motivo_encerramento like '%saiu da campanha automaticamente'`)) {
+        const mot = await resumoSaidaCobranca(c, +(String((await q(`select motivo_encerramento m from carteira.cobranca_casos where id=$1`, [c.id]))[0].m).match(/R\$ ([\d.,]+)/)?.[1] || '0').replace(/\./g, '').replace(',', '.'), c.encerrado_em);
+        await q(`update carteira.cobranca_casos set motivo_encerramento=$2 where id=$1`, [c.id, mot]);
+        await q(`update carteira.cobranca_registros set texto=$2 where caso_id=$1 and tipo='sistema' and texto like '%saiu da campanha automaticamente'`, [c.id, 'Saiu da campanha: ' + mot]);
       }
     }
     const casos = await q(`select c.*, (select max(em) from carteira.cobranca_registros r where r.caso_id=c.id and r.tipo not in ('etapa','sistema')) ultimo_contato,
@@ -1532,9 +1551,13 @@ async function rotasCobranca(p, m, body, url, real) {
     return json({ ok: true, retomada: R });
   }
   if (p[1] === 'caso' && p[2] && p[3] === 'encerrar' && m === 'POST') {
-    const [c] = await q(`update carteira.cobranca_casos set encerrado_em=now(), motivo_encerramento=$2, atualizado_em=now() where id=$1 and encerrado_em is null returning *`, [p[2], body.motivo || 'Encerrado']);
+    const [c0] = await q(`select * from carteira.cobranca_casos where id=$1 and encerrado_em is null`, [p[2]]);
+    if (!c0) return json({ erro: 'Caso não encontrado' }, 404);
+    const res = await resumoSaidaCobranca(c0, (await dividas([c0.contrato]))[c0.contrato]?.total || 0, null, true);
+    const mot = (body.motivo || 'Encerrado') + ' · ' + res;
+    const [c] = await q(`update carteira.cobranca_casos set encerrado_em=now(), motivo_encerramento=$2, atualizado_em=now() where id=$1 and encerrado_em is null returning *`, [p[2], mot]);
     if (!c) return json({ erro: 'Caso não encontrado' }, 404);
-    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,$4)`, [c.id, c.contrato, 'Caso encerrado: ' + (body.motivo || ''), quem]);
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,$4)`, [c.id, c.contrato, 'Caso encerrado: ' + mot, quem]);
     await log(real, 'cobranca_encerrada', { caso: c.id, contrato: c.contrato, motivo: body.motivo });
     return json({ ok: true });
   }
