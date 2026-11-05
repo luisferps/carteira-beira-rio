@@ -1432,6 +1432,16 @@ async function rotasCobranca(p, m, body, url, real) {
   await garanteCobranca();
   const quem = ATOR || real;
   if (p[1] === 'painel' && m === 'GET') {
+    {
+      const D0 = await dividas(null);
+      for (const c of await q(`select id, contrato from carteira.cobranca_casos where encerrado_em is null`)) {
+        const tot = D0[c.contrato]?.total || 0;
+        if (tot >= 5000) continue;
+        const mot = `Dívida caiu para R$ ${tot.toFixed(2).replace('.', ',')} (abaixo de R$ 5 mil) — saiu da campanha automaticamente`;
+        const [x] = await q(`update carteira.cobranca_casos set encerrado_em=now(), motivo_encerramento=$2, atualizado_em=now() where id=$1 and encerrado_em is null returning id`, [c.id, mot]);
+        if (x) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, c.contrato, mot]);
+      }
+    }
     const casos = await q(`select c.*, (select max(em) from carteira.cobranca_registros r where r.caso_id=c.id and r.tipo not in ('etapa','sistema')) ultimo_contato,
         (select count(*)::int from carteira.cobranca_registros r where r.caso_id=c.id and r.tipo not in ('etapa','sistema')) contatos,
         (select row_to_json(x) from (select data_promessa, valor_promessa, em from carteira.cobranca_registros r where r.caso_id=c.id and r.data_promessa is not null order by r.em desc limit 1) x) promessa
