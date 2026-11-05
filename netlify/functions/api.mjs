@@ -1523,7 +1523,7 @@ async function rotasCobranca(p, m, body, url, real) {
     await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, data_promessa, valor_promessa, por, em) values ($1,$2,$3,$4,$5,$6,$7,$8,coalesce($9::timestamptz, now()))`,
       [c.id, c.contrato, b.tipo || 'nota', b.resultado || null, b.texto || null, b.data_promessa || null, b.valor_promessa || null, quem, emData]);
     if (b.etapa === 'sem_retorno' && !podeSemRetorno(c.etapa)) return json({ erro: 'Sem retorno só depois do contato 3.' }, 400);
-    const novaEtapa = b.etapa || (b.data_promessa ? 'promessa' : (['whatsapp', 'ligacao', 'email', 'visita'].includes(b.tipo) ? PROX_CONTATO[c.etapa] || null : null));
+    const novaEtapa = b.etapa || (b.data_promessa ? 'promessa' : (['whatsapp', 'ligacao', 'email', 'visita'].includes(b.tipo) && b.resultado !== 'Número errado' ? PROX_CONTATO[c.etapa] || null : null));
     if (novaEtapa && novaEtapa !== c.etapa) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,$4)`, [c.id, c.contrato, `${c.etapa} → ${novaEtapa}`, quem]);
     await q(`update carteira.cobranca_casos set etapa=coalesce($2, etapa), proximo_contato=coalesce($3::date, proximo_contato), atualizado_em=now() where id=$1`, [c.id, novaEtapa, b.proximo_contato || b.data_promessa || null]);
     return json({ ok: true });
@@ -1589,6 +1589,17 @@ async function rotasCobranca(p, m, body, url, real) {
     const [st] = await q(`select valor from carteira.cobranca_cfg where chave='whats_import'`);
     const e = st ? JSON.parse(st.valor) : null; const [n] = await q(`select count(*)::int n from carteira.cobranca_casos where encerrado_em is null`);
     return json(e ? { feitos: e.feitos.length, total: n.n, resumir: (e.resumir || []).length, fim: e.fim || null, log: (e.log || []).slice(-40) } : { naoIniciada: true });
+  }
+  if (p[1] === 'fones') {
+    await q(`create table if not exists carteira.fones_problema(chave text primary key, fone text, contrato text, situacao text, em timestamptz default now(), por text)`);
+    if (m === 'GET') return json(await q(`select * from carteira.fones_problema order by em desc`));
+    if (m === 'POST') {
+      const ch = String(body.fone || '').replace(/\D/g, '').slice(-8);
+      if (ch.length < 8) return json({ erro: 'Telefone inválido' }, 400);
+      if (!body.situacao) await q(`delete from carteira.fones_problema where chave=$1`, [ch]);
+      else await q(`insert into carteira.fones_problema(chave, fone, contrato, situacao, por) values ($1,$2,$3,$4,$5) on conflict (chave) do update set fone=$2, contrato=$3, situacao=$4, por=$5, em=now()`, [ch, body.fone, body.contrato || null, body.situacao, quem]);
+      return json({ ok: true });
+    }
   }
   if (p[1] === 'modelos') {
     if (m === 'GET') return json(await q(`select * from carteira.cobranca_modelos order by ordem, id`));
