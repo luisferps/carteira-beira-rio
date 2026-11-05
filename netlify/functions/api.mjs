@@ -1427,6 +1427,14 @@ async function dividas(contratos) {
   }
   return out;
 }
+/* acordo feito desde que o contrato entrou na campanha e que ainda tem parcela sem pagar */
+async function acordoCorrendo(c) {
+  const ini = String(c.criado_em instanceof Date ? c.criado_em.toISOString() : c.criado_em).slice(0, 10);
+  const [r] = await q(`select count(*)::int n from carteira.titulos t join carteira.acordos a on a.id=t.acordo_id
+                       where a.contrato=$1 and a.conferente='luis' and a.data_acordo >= $2::date and t.conferente='luis'
+                       and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')`, [c.contrato, ini]);
+  return r.n > 0;
+}
 /* como o contrato saiu da campanha: quanto pagou e que acordo fez desde que entrou */
 async function resumoSaidaCobranca(c, tot, ate, manual) {
   const ini = String(c.criado_em instanceof Date ? c.criado_em.toISOString() : c.criado_em).slice(0, 10);
@@ -1448,9 +1456,24 @@ async function rotasCobranca(p, m, body, url, real) {
   if (p[1] === 'painel' && m === 'GET') {
     {
       const D0 = await dividas(null);
-      for (const c of await q(`select id, contrato, criado_em from carteira.cobranca_casos where encerrado_em is null`)) {
+      /* volta para o funil quem saiu sozinho com acordo ainda correndo */
+      for (const c of await q(`select id, contrato, criado_em, encerrado_em from carteira.cobranca_casos x where encerrado_em is not null and motivo_encerramento like '%saiu sozinho da campanha'
+                               and not exists (select 1 from carteira.cobranca_casos y where y.contrato=x.contrato and y.encerrado_em is null)`)) {
+        if (!(await acordoCorrendo(c))) continue;
+        await q(`update carteira.cobranca_casos set encerrado_em=null, motivo_encerramento=null, etapa='acordo', atualizado_em=now() where id=$1`, [c.id]);
+        await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, c.contrato, 'Voltou para o funil em "Acordo feito": o acordo ainda tem parcelas a pagar']);
+      }
+      for (const c of await q(`select id, contrato, criado_em, etapa from carteira.cobranca_casos where encerrado_em is null`)) {
         const tot = D0[c.contrato]?.total || 0;
         if (tot >= 5000) continue;
+        /* fez acordo e ainda tem parcela do acordo para pagar: fica em "Acordo feito" para acompanhar; só sai quando quitar */
+        if (await acordoCorrendo(c)) {
+          if (c.etapa !== 'acordo') {
+            await q(`update carteira.cobranca_casos set etapa='acordo', atualizado_em=now() where id=$1`, [c.id]);
+            await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,'sistema')`, [c.id, c.contrato, `${c.etapa} → acordo`]);
+          }
+          continue;
+        }
         const mot = await resumoSaidaCobranca(c, tot);
         const [x] = await q(`update carteira.cobranca_casos set encerrado_em=now(), motivo_encerramento=$2, atualizado_em=now() where id=$1 and encerrado_em is null returning id`, [c.id, mot]);
         if (x) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, c.contrato, 'Saiu da campanha: ' + mot]);
@@ -1473,6 +1496,13 @@ async function rotasCobranca(p, m, body, url, real) {
     const enc = await q(`select id, contrato, motivo_encerramento, encerrado_em, criado_em from carteira.cobranca_casos where encerrado_em is not null order by encerrado_em desc limit 100`);
     const [rec] = await q(`select coalesce(sum(g.valor_pago),0)::numeric v from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
                            where g.conferente='luis' and g.confirmada_em >= date_trunc('month', current_date) and exists (select 1 from carteira.cobranca_casos c where c.contrato=t.contrato and g.confirmada_em >= c.criado_em::date)`);
+    for (const c of casos.filter(c => c.etapa === 'acordo')) {
+      const ini = String(c.criado_em instanceof Date ? c.criado_em.toISOString() : c.criado_em).slice(0, 10);
+      c.acordo_info = await q(`select a.termo, count(t.id)::int total, count(t.id) filter (where exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis'))::int pagas,
+          count(t.id) filter (where t.vencimento < current_date and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis'))::int atrasadas,
+          min(t.vencimento) filter (where not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis'))::text proxima
+        from carteira.acordos a join carteira.titulos t on t.acordo_id=a.id and t.conferente='luis' where a.contrato=$1 and a.conferente='luis' and a.data_acordo >= $2::date group by a.id, a.termo order by a.id`, [c.contrato, ini]);
+    }
     return json({ hoje: hojeBR(), casos: casos.map(c => ({ ...c, divida: D[c.contrato] || { total: 0, parcelas: [], dias: 0 }, pago_na_campanha: pagos.find(x => x.contrato === c.contrato) || null })),
       sugeridos: graves.sort((a, b) => b.total - a.total), encerrados: enc, recuperado_mes: +rec.v });
   }
