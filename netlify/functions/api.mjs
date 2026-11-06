@@ -1731,6 +1731,7 @@ export default async (req) => {
   const url = new URL(req.url);
   const p = url.pathname.replace(/^\/(\.netlify\/functions\/api|api)/, '').split('/').filter(Boolean);
   if (p[0] === 'asaas-webhook' && req.method === 'POST') return webhookAsaas(req);
+  if (p[0] === 'cobranca-ping' && req.method === 'POST') return pingCobranca(await req.json().catch(() => ({})));
   if (p[0] === 'diag') {
     let teste = 'ok';
     try { await q('select 1'); } catch (e) { teste = e.message; }
@@ -1756,6 +1757,7 @@ export default async (req) => {
   ATOR = usuario ? usuario.email : real;
   { const ru = await rotasUsuarios(p, m, body, real); if (ru) return ru; }
   { const rc = await rotasCobranca(p, m, body, url, real); if (rc) return rc; }
+  { const ri = await rotasIA(p, m, body, url, real); if (ri) return ri; }
   { const ra = await rotasAcerto(p, m, body, real); if (ra) return ra; }
   { const rd = await DEV.rotas(p, m, body, real); if (rd) return rd; }
   { const rc2 = await rotasCessoes(p, m, body, real); if (rc2) return rc2; }
@@ -2603,7 +2605,7 @@ async function fonesDoContrato(n) {
   const out = [], ja = new Set();
   for (const c of meus) {
     const P = c.planilha || {}, A = c.asaas || {}, M = c.manual || {};
-    for (const v of [M.telefone, A.mobilePhone, A.phone, P.fone, P.fone_com, P.fone_ref]) {
+    for (const v of [M.telefone, ...(Array.isArray(M.telefones_extra) ? M.telefones_extra : []), A.mobilePhone, A.phone, P.fone, P.fone_com, P.fone_ref]) {
       let d = dig(v); if (d.length < 10) continue; if (d.length > 11 && d.startsWith('55')) d = d.slice(2);
       if (ja.has(d.slice(-8))) continue; ja.add(d.slice(-8)); out.push(d);
     }
@@ -2680,48 +2682,309 @@ export async function importaWhatsPasso(limiteMs = 20000) {
 
 /* resume as conversas importadas de um caso com a IA: uma linha por dia, resultado e etapa do funil */
 async function resumeCasoWhats(casoId) {
-  const key = (process.env.ANTHROPIC_API_KEY || '').trim().replace(/^["']|["']$/g, '');
-  if (!key) return { erro: 'sem chave da IA' };
+  await garanteIA();
   const [c] = await q(`select * from carteira.cobranca_casos where id=$1`, [casoId]);
   if (!c) return { erro: 'caso não existe' };
-  const regs = await q(`select id, em, texto from carteira.cobranca_registros where caso_id=$1 and por='importado do WhatsApp' and tipo='whatsapp' order by em`, [casoId]);
+  const regs = await q(`select id, em, texto, por, tipo from carteira.cobranca_registros where caso_id=$1 and ((por='importado do WhatsApp' and tipo='whatsapp') or (tipo='nota' and texto like 'Recado para a IA:%')) order by em, id`, [casoId]);
   if (!regs.length) return { erro: 'nada importado' };
   const props = await q(`select dados from carteira.propostas where contrato=$1 and conferente='luis'`, [c.contrato]);
   const temProp = props.length > 0;
-  const conversa = regs.map(r => `### ${diaBR(new Date(r.em).getTime() / 1000)}\n${String(r.texto).split('\n\n').slice(1).join('\n\n').slice(0, 3000)}`).join('\n\n').slice(-14000);
-  const prompt = `Você organiza o histórico de cobrança de um loteamento (Condomínio Beira Rio). "Eu" é o Luis Fernando, responsável pela cobrança; "Cliente" é o comprador do lote (contrato ${c.contrato}). Abaixo estão as conversas de WhatsApp, separadas por dia (### AAAA-MM-DD). Algumas mensagens podem não ser sobre a cobrança: ignore o que não for.
+  const conversa = regs.map(r => r.tipo === 'nota' ? `### ${diaBR(new Date(r.em).getTime() / 1000)}\n[RECADO DO LUIS PARA VOCÊ, vale como informação certa]: ${String(r.texto).replace(/^Recado para a IA:\s*/, '')}`
+    : `### ${diaBR(new Date(r.em).getTime() / 1000)}\n${String(r.texto).split('\n\n').slice(1).join('\n\n').slice(0, 3000)}`).join('\n\n').slice(-14000);
+  const prompt = `Você organiza o histórico de cobrança de um loteamento (Condomínio Beira Rio). "Eu" é o Luis Fernando, responsável pela cobrança; "Cliente" é o comprador do lote (contrato ${c.contrato}). Abaixo estão as conversas de WhatsApp separadas por dia (### AAAA-MM-DD) e recados que o Luis deixou para você. Algumas mensagens podem não ser sobre a cobrança: ignore o que não for. Hoje é ${hojeBR()}. Etapa atual do caso: ${c.etapa}.
 Devolva SOMENTE um JSON, sem texto antes ou depois:
 {"dias": {"AAAA-MM-DD": {"resumo": "uma frase curta e objetiva do que aconteceu nesse dia", "resultado": "um destes: Mensagem enviada, Atendeu, Sem resposta, Número errado, Solicitou valores, Pediu proposta, Prometeu pagar, Recusou, Vai procurar o escritório, Conversou"}},
- "etapa": "um destes: contato1, contato2, contato3, negociando, promessa, proposta, sem_retorno",
+ "etapa": "um destes: contato1, contato2, contato3, negociando, promessa, sem_retorno",
  "promessa": {"data": "AAAA-MM-DD ou null", "valor": número ou null},
+ "proposta": "se o cliente pediu proposta ou disse que aceita alguma condição de acordo, uma frase curta com o que ele pediu/aceitou (só valores escritos literalmente); senão null",
+ "numero_novo": {"numero": "só dígitos com DDD", "de_quem": "nome"} ou null (só se o cliente ou o recado disser que o cliente tem um telefone novo),
  "situacao": "uma frase dizendo em que pé está a negociação hoje, SEM citar valores em dinheiro"}
-Não invente valores: no resumo e na situação, não escreva quantias nem número de parcelas que não estejam escritos literalmente na conversa.${temProp ? `
-Já existe no sistema uma proposta de acordo feita para este cliente (${props.map(p => p.dados?.termo || '').join(', ')}): a etapa é "proposta".` : ''}
-Regras da etapa: só mensagens minhas sem resposta = contato1/contato2/contato3 conforme quantos dias eu tentei (máximo contato3); cliente respondeu e estamos conversando = negociando; cliente prometeu pagar com data = promessa; mandei proposta de acordo = proposta; tentei mais de 3 vezes sem resposta = sem_retorno.
+Não invente valores: no resumo e na situação, não escreva quantias nem número de parcelas que não estejam escritos literalmente na conversa.
+Regras da etapa: só mensagens minhas sem resposta = contato1/contato2/contato3 conforme quantos dias eu tentei (máximo contato3); cliente respondeu e estamos conversando = negociando; cliente prometeu pagar com data = promessa; tentei mais de 3 vezes sem nenhuma resposta = sem_retorno.
 
 ${conversa}`;
+  const r = await chamaIA(prompt, 2000);
+  if (r.erro) return { erro: r.erro };
+  const J = r.J;
+  for (const rg of regs) {
+    if (rg.tipo !== 'whatsapp') continue;
+    const dia = diaBR(new Date(rg.em).getTime() / 1000), x = J.dias?.[dia]; if (!x) continue;
+    const partes = String(rg.texto).split('\n\n'); const cabeca = partes.findIndex(t => t.startsWith('Conversa no WhatsApp'));
+    const corpo = cabeca >= 0 ? partes.slice(cabeca).join('\n\n') : partes.slice(1).join('\n\n');
+    await q(`update carteira.cobranca_registros set resultado=$2, texto=$3 where id=$1`, [rg.id, String(x.resultado || 'Conversou').slice(0, 60), `${x.resumo || ''}\n\n${corpo}`]);
+  }
+  const hoje = hojeBR();
+  let novaPromessa = null;
+  if (J.promessa?.data && /^\d{4}-\d{2}-\d{2}$/.test(J.promessa.data) && J.promessa.data >= somaDias(hoje, -1)) {
+    const [ja] = await q(`select id from carteira.cobranca_registros where caso_id=$1 and data_promessa=$2::date`, [c.id, J.promessa.data]);
+    if (!ja) { novaPromessa = J.promessa.data; await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, data_promessa, valor_promessa, por, em) values ($1,$2,'nota','Prometeu pagar',$3,$4,$5,'importado do WhatsApp',now())`,
+      [c.id, c.contrato, 'Promessa encontrada na conversa do WhatsApp', J.promessa.data, +J.promessa.valor || null]); }
+  }
+  if (J.situacao) await q(`update carteira.cobranca_casos set ia_situacao=$2, ia_em=now() where id=$1`, [c.id, String(J.situacao).slice(0, 300)]);
+  if (J.proposta && String(J.proposta).length > 3) {
+    const [ult] = await q(`select texto from carteira.cobranca_registros where caso_id=$1 and tipo='sistema' and texto like 'IA: cliente%' order by id desc limit 1`, [c.id]);
+    const t = 'IA: cliente pediu/aceitou proposta — ' + String(J.proposta).slice(0, 300) + '. Confira e faça a proposta em Negociar.';
+    if (!ult || ult.texto !== t) { await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'IA')`, [c.id, c.contrato, t]); await q(`update carteira.cobranca_casos set proximo_contato=$2::date where id=$1`, [c.id, hoje]); }
+  }
+  if (J.numero_novo?.numero) {
+    const d = digF(J.numero_novo.numero);
+    const conhecidos = (await clientesDoContrato(c.contrato)).flatMap(fonesDoCliente).map(f => f.slice(-8));
+    if (d.length >= 10 && d.length <= 11 && !conhecidos.includes(d.slice(-8)))
+      await sugereIA(c.contrato, c.id, { tipo: 'adicionar_telefone', contrato: c.contrato, nome: J.numero_novo.de_quem || '', numero: d }, `Incluir o telefone ${d} no cadastro de ${J.numero_novo.de_quem || 'cliente'} (visto na conversa)`, 'conversa', 'IA');
+  }
+  /* a IA só move o card até Promessa; Proposta, Acordo, Notificação e Retomada são do Luis */
+  const [atual] = await q(`select etapa from carteira.cobranca_casos where id=$1`, [c.id]);
+  const de = ['fila', 'contato1', 'contato2', 'contato3', 'negociando', 'promessa', 'sem_retorno'], para = ['contato1', 'contato2', 'contato3', 'negociando', 'promessa', 'sem_retorno'];
+  let et = J.etapa;
+  if (et === 'sem_retorno' && regs.some(x => /Cliente:/.test(x.texto || ''))) et = 'negociando';
+  if (['negociando', 'promessa'].includes(atual.etapa) && /^contato/.test(et)) et = atual.etapa; /* cliente já respondeu: não volta para contato */
+  if (et === 'sem_retorno' && !podeSemRetorno(atual.etapa)) et = atual.etapa;
+  if (!temProp && para.includes(et) && de.includes(atual.etapa) && et !== atual.etapa) {
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,'IA')`, [c.id, c.contrato, `${atual.etapa} → ${et}`]);
+    await q(`update carteira.cobranca_casos set etapa=$2, atualizado_em=now() where id=$1`, [c.id, et]);
+  }
+  if (novaPromessa) await q(`update carteira.cobranca_casos set proximo_contato=$2::date + 1 where id=$1 and etapa='promessa'`, [c.id, novaPromessa]);
+  return { etapa: et, situacao: J.situacao };
+}
+
+/* ================= IA: cobrança em tempo real pelo WhatsApp + assistente com aprovação ================= */
+async function garanteIA() {
+  await q(`create table if not exists carteira.cobranca_whats_pend(caso_id int primary key, ping timestamptz default now())`);
+  await q(`create table if not exists carteira.cobranca_fone_novo(fone text primary key, nome text, caso_id int, contrato text, em timestamptz default now(), qtd int default 1)`);
+  await q(`create table if not exists carteira.ia_sugestoes(id serial primary key, contrato text, caso_id int, acao jsonb not null, descricao text, origem text, status text default 'pendente', por text, em timestamptz default now(), resolvido_em timestamptz, resultado text)`);
+  await q(`alter table carteira.cobranca_casos add column if not exists ia_situacao text`);
+  await q(`alter table carteira.cobranca_casos add column if not exists ia_em timestamptz`);
+}
+const normNome = v => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+const digF = v => { let d = String(v || '').replace(/\D/g, ''); if (d.length > 11 && d.startsWith('55')) d = d.slice(2); return d; };
+const fonesDoCliente = c => { const P = c.planilha || {}, A = c.asaas || {}, M = c.manual || {}; return [M.telefone, ...(Array.isArray(M.telefones_extra) ? M.telefones_extra : []), A.mobilePhone, A.phone, P.fone, P.fone_com, P.fone_ref].map(digF).filter(d => d.length >= 10); };
+async function clientesDoContrato(n, cl) {
+  const [ct] = await q('select compradores from carteira.contratos where numero=$1', [n]);
+  const comp = Array.isArray(ct?.compradores) ? ct.compradores : [];
+  cl = cl || await q(`select id, cpf, nome, planilha, asaas, manual from carteira.clientes`);
+  return cl.filter(c => comp.some(x => (c.cpf && digF(x.cpf) === c.cpf) || (normNome(c.nome) && normNome(x.nome) === normNome(c.nome))));
+}
+let MAPA_CAMP = null;
+async function mapaFonesCampanha() {
+  if (MAPA_CAMP && Date.now() - MAPA_CAMP.t < 120000) return MAPA_CAMP;
+  const casos = await q(`select id, contrato from carteira.cobranca_casos where encerrado_em is null`);
+  const cl = await q(`select id, cpf, nome, planilha, asaas, manual from carteira.clientes`);
+  const fones = {}, nomes = [];
+  for (const c of casos) for (const x of await clientesDoContrato(c.contrato, cl)) { for (const f of fonesDoCliente(x)) fones[f.slice(-8)] = c; nomes.push({ caso: c, nome: normNome(x.nome) }); }
+  return MAPA_CAMP = { t: Date.now(), fones, nomes };
+}
+/* aviso do sistema do WhatsApp: entrou ou saiu mensagem de um telefone (sem conteúdo; a carteira busca a conversa ela mesma) */
+async function pingCobranca(b) {
+  await garanteIA();
+  const fone = digF(b.fone); if (fone.length < 10) return json({ ok: true });
+  const M = await mapaFonesCampanha();
+  const caso = M.fones[fone.slice(-8)];
+  if (caso) { await q(`insert into carteira.cobranca_whats_pend(caso_id, ping) values ($1, now()) on conflict (caso_id) do update set ping=now()`, [caso.id]); return json({ ok: true }); }
+  if (b.de_mim || !b.nome) return json({ ok: true });
+  const tk = normNome(b.nome).split(' ').filter(t => t.length >= 3);
+  if (tk.length >= 2) {
+    const hit = M.nomes.find(x => { const xs = x.nome.split(' '); return xs[0] === tk[0] && tk.slice(1).some(t => xs.includes(t)); });
+    if (hit) await q(`insert into carteira.cobranca_fone_novo(fone, nome, caso_id, contrato) values ($1,$2,$3,$4) on conflict (fone) do update set nome=$2, caso_id=$3, contrato=$4, em=now(), qtd=carteira.cobranca_fone_novo.qtd+1`, [fone, String(b.nome).slice(0, 80), hit.caso.id, hit.caso.contrato]);
+  }
+  return json({ ok: true });
+}
+/* traz as conversas dos últimos dias de um caso e grava um registro por dia (atualiza o do dia se já existir) */
+async function importaConversaCaso(casoId, contrato, dias = 4) {
+  const fones = await fonesDoContrato(contrato); if (!fones.length) return { msgs: 0 };
+  let desde = somaDias(hojeBR(), -dias); if (desde < WHATS_DESDE) desde = WHATS_DESDE;
+  const tok = await tokenSistemaWhats();
+  const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 20000);
+  const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?numeros=${fones.slice(0, 10).join(',')}&desde=${desde}`, { headers: { Authorization: 'CBR tok:' + tok }, signal: ctl.signal }).catch(e => ({ ok: false, status: e.message }));
+  clearTimeout(tm);
+  if (!r.ok) throw new Error('WhatsApp respondeu ' + r.status);
+  const j = await r.json().catch(() => ({}));
+  const vistos = new Set(), msgs = [];
+  for (const [fone, lista] of Object.entries(j.conversas || {})) for (const m of lista) { const k = m.ts + '|' + m.eu + '|' + m.texto; if (vistos.has(k)) continue; vistos.add(k); msgs.push({ ...m, fone }); }
+  msgs.sort((a, b) => a.ts - b.ts);
+  const porDia = {}; for (const m of msgs) (porDia[diaBR(m.ts)] ||= []).push(m);
+  let mudou = 0;
+  for (const [dia, ms] of Object.entries(porDia)) {
+    const eu = ms.some(m => m.eu), ele = ms.some(m => !m.eu);
+    const linhas = ms.map(m => `${new Date(m.ts * 1000 - 3 * 3600e3).toISOString().slice(11, 16)} ${m.eu ? 'Eu' : 'Cliente'}: ${m.tipo === 'audio' ? '[áudio' + (m.seg ? ' ' + m.seg + 's' : '') + '] ' + (m.texto || '(sem transcrição)') : m.tipo !== 'texto' ? '[' + m.tipo + '] ' + (m.texto || '') : m.texto}`).join('\n').slice(0, 20000);
+    const cab = `Conversa no WhatsApp (${[...new Set(ms.map(m => m.fone))].join(', ')})`;
+    const resultado = ele ? (eu ? 'Conversou' : 'Cliente mandou mensagem') : 'Mensagem enviada';
+    const [ja] = await q(`select id, texto from carteira.cobranca_registros where caso_id=$1 and por='importado do WhatsApp' and tipo='whatsapp' and (em at time zone 'America/Sao_Paulo')::date=$2::date order by id limit 1`, [casoId, dia]);
+    if (ja) { if (String(ja.texto || '').endsWith(linhas)) continue; await q(`update carteira.cobranca_registros set texto=$2, resultado=$3 where id=$1`, [ja.id, cab + '\n\n' + linhas, resultado]); }
+    else await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, por, em) values ($1,$2,'whatsapp',$3,$4,'importado do WhatsApp',$5::timestamptz)`, [casoId, contrato, resultado, cab + '\n\n' + linhas, dia + 'T12:00:00-03:00']);
+    mudou++;
+  }
+  return { msgs: msgs.length, dias_mudados: mudou };
+}
+/* roda a cada minuto: casos que tiveram mensagem nova (com 90 segundos de folga para a conversa assentar) */
+export async function processaWhatsPendentes(limiteMs = 20000) {
+  await garanteCobranca(); await garanteIA();
+  await q(`delete from carteira.cobranca_whats_pend p where not exists (select 1 from carteira.cobranca_casos c where c.id=p.caso_id and c.encerrado_em is null)`);
+  const pend = await q(`select p.caso_id, c.contrato from carteira.cobranca_whats_pend p join carteira.cobranca_casos c on c.id=p.caso_id where p.ping < now() - interval '90 seconds' order by p.ping limit 3`);
+  const t0 = Date.now(), out = [];
+  for (const c of pend) {
+    if (Date.now() - t0 > limiteMs) break;
+    await q(`delete from carteira.cobranca_whats_pend where caso_id=$1 and ping < now() - interval '90 seconds'`, [c.caso_id]);
+    try { const r1 = await importaConversaCaso(c.caso_id, c.contrato, 4); const r2 = r1.dias_mudados || r1.recado ? await resumeCasoWhats(c.caso_id) : { etapa: 'sem novidade' }; out.push({ caso: c.caso_id, ...r1, ia: r2.erro || r2.etapa }); }
+    catch (e) { out.push({ caso: c.caso_id, erro: e.message }); }
+  }
+  return out;
+}
+async function chamaIA(prompt, max = 1500) {
+  const key = (process.env.ANTHROPIC_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  if (!key) return { erro: 'sem chave da IA' };
   const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL_RAPIDO || 'claude-haiku-4-5-20251001', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }) });
+    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL_RAPIDO || 'claude-haiku-4-5-20251001', max_tokens: max, messages: [{ role: 'user', content: prompt }] }) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) return { erro: d.error?.message || 'IA respondeu ' + r.status };
-  const txt = (d.content || []).map(x => x.text || '').join(''); let J;
-  try { J = JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1)); } catch { return { erro: 'resposta da IA ilegível' }; }
-  for (const rg of regs) {
-    const dia = diaBR(new Date(rg.em).getTime() / 1000), x = J.dias?.[dia]; if (!x) continue;
-    const corpo = String(rg.texto).split('\n\n').slice(1).join('\n\n');
-    await q(`update carteira.cobranca_registros set resultado=$2, texto=$3 where id=$1`, [rg.id, String(x.resultado || 'Conversou').slice(0, 60), `${x.resumo || ''}\n\n${String(rg.texto).split('\n\n')[0]}\n${corpo}`]);
+  const txt = (d.content || []).map(x => x.text || '').join('');
+  try { return { J: JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1)) }; } catch { return { erro: 'resposta da IA ilegível' }; }
+}
+async function sugereIA(contrato, casoId, acao, descricao, origem, por) {
+  const [ja] = await q(`select id from carteira.ia_sugestoes where contrato=$1 and status='pendente' and acao=$2::jsonb`, [contrato, JSON.stringify(acao)]);
+  if (ja) return ja.id;
+  const [s] = await q(`insert into carteira.ia_sugestoes(contrato, caso_id, acao, descricao, origem, por) values ($1,$2,$3,$4,$5,$6) returning id`, [contrato, casoId || null, JSON.stringify(acao), descricao, origem, por || 'IA']);
+  return s.id;
+}
+/* ações que a IA pode propor: só coisas de quem usa o sistema, nunca estrutura */
+const ACOES_IA = {
+  adicionar_telefone: 'Incluir telefone no cadastro do cliente',
+  alterar_email: 'Trocar o e-mail no cadastro do cliente',
+  alterar_endereco: 'Trocar o endereço no cadastro do cliente',
+  marcar_numero_ruim: 'Marcar número como sem WhatsApp / mudou',
+  registrar_contato: 'Registrar contato no caso de cobrança',
+  registrar_promessa: 'Registrar promessa de pagamento',
+  mudar_etapa: 'Mudar a etapa do caso de cobrança',
+  anotar: 'Anotar no histórico do caso',
+  emitir_boleto: 'Emitir boleto de uma parcela a vencer'
+};
+async function executaAcaoIA(a, quem) {
+  const n = a.contrato;
+  const [caso] = n ? await q(`select * from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [n]) : [];
+  const anota = async t => { if (caso) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,$4)`, [caso.id, n, t, quem]); };
+  const cliente = async () => { const cs = await clientesDoContrato(n); if (!cs.length) throw new Error('Cliente do contrato não encontrado no cadastro'); const k = normNome(a.nome || ''); return cs.find(c => k && normNome(c.nome).split(' ')[0] === k.split(' ')[0]) || cs[0]; };
+  if (a.tipo === 'adicionar_telefone') {
+    const d = digF(a.numero); if (d.length < 10 || d.length > 11) throw new Error('Telefone inválido: ' + a.numero);
+    const c = await cliente(); const M = { ...(c.manual || {}) };
+    if (fonesDoCliente(c).some(f => f.slice(-8) === d.slice(-8))) return 'O telefone já estava no cadastro de ' + c.nome;
+    const ex = Array.isArray(M.telefones_extra) ? M.telefones_extra : []; if (M.telefone) ex.unshift(M.telefone);
+    M.telefone = d; M.telefones_extra = [...new Set(ex.map(digF))].filter(x => x && x !== d);
+    await q(`update carteira.clientes set manual=$2, atualizado_em=now() where id=$1`, [c.id, M]); MAPA_CAMP = null;
+    await log(quem, 'cliente_editado', { id: c.id, telefone_novo: d, via: 'IA' }); await anota(`Telefone novo no cadastro de ${c.nome}: ${d}`);
+    return `Telefone ${d} incluído no cadastro de ${c.nome}`;
   }
-  if (J.promessa?.data && /^\d{4}-\d{2}-\d{2}$/.test(J.promessa.data))
-    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, data_promessa, valor_promessa, por, em) values ($1,$2,'nota','Prometeu pagar',$3,$4,$5,'importado do WhatsApp',now())`,
-      [c.id, c.contrato, 'Promessa encontrada na conversa do WhatsApp', J.promessa.data, +J.promessa.valor || null]);
-  if (J.situacao) await q(`update carteira.cobranca_casos set obs=coalesce(nullif(obs,''), $2) where id=$1`, [c.id, String(J.situacao).slice(0, 300)]);
-  const novas = ['contato1', 'contato2', 'contato3', 'negociando', 'promessa', 'proposta', 'sem_retorno'];
-  const [atual] = await q(`select etapa from carteira.cobranca_casos where id=$1`, [c.id]);
-  if (temProp) J.etapa = 'proposta';
-  if (J.etapa === 'sem_retorno' && regs.some(r => /Cliente:/.test(r.texto))) J.etapa = 'negociando'; /* cliente já respondeu alguma vez: não é sem retorno */
-  if (novas.includes(J.etapa) && ['fila', 'contato1', 'contato2', 'contato3', 'negociando'].includes(atual.etapa) && J.etapa !== atual.etapa && !(c.etapa === 'proposta')) {
-    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,'importado do WhatsApp')`, [c.id, c.contrato, `${atual.etapa} → ${J.etapa}`]);
-    await q(`update carteira.cobranca_casos set etapa=$2, atualizado_em=now() where id=$1`, [c.id, J.etapa]);
+  if (a.tipo === 'alterar_email' || a.tipo === 'alterar_endereco') {
+    const c = await cliente(); const M = { ...(c.manual || {}) }, campo = a.tipo === 'alterar_email' ? 'email' : 'endereco', v = String(a.valor || '').trim();
+    if (!v || (campo === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v))) throw new Error('Valor inválido');
+    M[campo] = v; await q(`update carteira.clientes set manual=$2, atualizado_em=now() where id=$1`, [c.id, M]);
+    await log(quem, 'cliente_editado', { id: c.id, [campo]: v, via: 'IA' }); await anota(`${campo === 'email' ? 'E-mail' : 'Endereço'} de ${c.nome} atualizado: ${v}`);
+    return `${campo === 'email' ? 'E-mail' : 'Endereço'} de ${c.nome} atualizado`;
   }
-  return { etapa: J.etapa, situacao: J.situacao };
+  if (a.tipo === 'marcar_numero_ruim') {
+    const ch = digF(a.numero).slice(-8); if (ch.length < 8) throw new Error('Telefone inválido');
+    await q(`create table if not exists carteira.fones_problema(chave text primary key, fone text, contrato text, situacao text, em timestamptz default now(), por text)`);
+    await q(`insert into carteira.fones_problema(chave, fone, contrato, situacao, por) values ($1,$2,$3,'sem WhatsApp / número mudou',$4) on conflict (chave) do update set situacao='sem WhatsApp / número mudou', em=now(), por=$4`, [ch, a.numero, n || null, quem]);
+    await anota(`Número ${a.numero} marcado como sem WhatsApp / mudou`); return 'Número marcado';
+  }
+  if (!caso && ['registrar_contato', 'registrar_promessa', 'mudar_etapa', 'anotar'].includes(a.tipo)) throw new Error('O contrato não está na campanha de cobrança');
+  if (a.tipo === 'registrar_contato' || a.tipo === 'anotar') {
+    const tipo = a.tipo === 'anotar' ? 'nota' : (['whatsapp', 'ligacao', 'email', 'visita'].includes(a.como) ? a.como : 'ligacao');
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, por) values ($1,$2,$3,$4,$5,$6)`, [caso.id, n, tipo, a.resultado || null, a.texto || null, quem]);
+    return 'Registrado no histórico';
+  }
+  if (a.tipo === 'registrar_promessa') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(a.data || '')) throw new Error('Data da promessa inválida');
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, data_promessa, valor_promessa, por) values ($1,$2,'nota','Prometeu pagar',$3,$4,$5,$6)`, [caso.id, n, a.texto || 'Promessa de pagamento', a.data, +a.valor || null, quem]);
+    if (caso.etapa !== 'promessa') await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,$4)`, [caso.id, n, `${caso.etapa} → promessa`, quem]);
+    await q(`update carteira.cobranca_casos set etapa='promessa', proximo_contato=$2::date + 1, atualizado_em=now() where id=$1`, [caso.id, a.data]);
+    return 'Promessa registrada';
+  }
+  if (a.tipo === 'mudar_etapa') {
+    if (!ETAPAS_COB.includes(a.etapa)) throw new Error('Etapa inválida');
+    if (a.etapa === 'sem_retorno' && !podeSemRetorno(caso.etapa)) throw new Error('Sem retorno só depois do contato 3');
+    if (a.etapa !== caso.etapa) { await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,$4)`, [caso.id, n, `${caso.etapa} → ${a.etapa}`, quem]); await q(`update carteira.cobranca_casos set etapa=$2, atualizado_em=now() where id=$1`, [caso.id, a.etapa]); }
+    return 'Etapa alterada';
+  }
+  if (a.tipo === 'emitir_boleto') {
+    const ts = await q(`select id, rotulo, vencimento::text v from carteira.titulos where contrato=$1 and conferente is null and grupo<>'acordo'`, [n]);
+    const t = ts.find(x => normNome(x.rotulo) === normNome(a.parcela)); if (!t) throw new Error('Parcela não encontrada: ' + a.parcela);
+    if (t.v < hojeBR()) throw new Error('A parcela já venceu: boleto de parcela vencida é pela negociação (2ª via ou cobrança)');
+    const r = await emitirBoleto(t.id, quem); if (r?.erro) throw new Error(r.erro);
+    return 'Boleto emitido: ' + t.rotulo;
+  }
+  throw new Error('Ação não permitida');
+}
+/* resumo da situação de um contrato para a IA */
+async function contextoContratoIA(n) {
+  if (!n) return '';
+  const [ct] = await q(`select numero, quadra, lote, compradores from carteira.contratos where numero=$1`, [n]);
+  if (!ct) return '';
+  const cs = await clientesDoContrato(n);
+  const [caso] = await q(`select etapa, criado_em from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [n]);
+  const d = (await dividas([n]))[n];
+  const fut = await q(`select rotulo, vencimento::text v from carteira.titulos t where contrato=$1 and conferente is null and grupo<>'acordo' and vencimento >= $2::date and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis') order by vencimento limit 3`, [n, hojeBR()]);
+  return `Contrato ${n} (Quadra ${ct.quadra}, Lote ${ct.lote}). Clientes: ${cs.map(c => `${c.nome} (telefones: ${fonesDoCliente(c).join(', ') || 'nenhum'}; e-mail: ${(c.manual || {}).email || (c.asaas || {}).email || '—'})`).join('; ') || (ct.compradores || []).map(x => x.nome).join(', ')}.
+${caso ? `Está na campanha de cobrança, etapa "${caso.etapa}".` : 'Não está na campanha de cobrança.'} Dívida em atraso hoje: R$ ${(d?.total || 0).toFixed(2)} em ${d?.parcelas.length || 0} parcela(s).
+Próximas parcelas a vencer: ${fut.map(t => `${t.rotulo} (${t.v})`).join(', ') || 'nenhuma'}.`;
+}
+async function assistenteIA(texto, contrato, quem) {
+  const ctx = await contextoContratoIA(contrato);
+  const prompt = `Você é o assistente do sistema da carteira de recebíveis do loteamento Beira Rio. O usuário (${quem}) escreve um recado ou pedido. Você NÃO executa nada: só propõe ações para ele aprovar.
+Você só pode propor estas ações (nada além disso; nunca mexa em estrutura, design, regras, cálculos, configurações ou funcionamento do sistema — se pedirem isso, responda que não pode e que isso é com o desenvolvedor):
+- adicionar_telefone: {"tipo":"adicionar_telefone","contrato":"0000","nome":"nome do cliente","numero":"DDD+número só dígitos"}
+- alterar_email: {"tipo":"alterar_email","contrato":"0000","nome":"...","valor":"email"}
+- alterar_endereco: {"tipo":"alterar_endereco","contrato":"0000","nome":"...","valor":"endereço completo"}
+- marcar_numero_ruim: {"tipo":"marcar_numero_ruim","contrato":"0000","numero":"..."}
+- registrar_contato: {"tipo":"registrar_contato","contrato":"0000","como":"ligacao|whatsapp|email|visita","resultado":"Atendeu|Não atendeu|Sem resposta|Número errado|Solicitou valores|Pediu proposta|Prometeu pagar|Recusou|Vai procurar o escritório","texto":"o que aconteceu"}
+- registrar_promessa: {"tipo":"registrar_promessa","contrato":"0000","data":"AAAA-MM-DD","valor":número ou null,"texto":"..."}
+- mudar_etapa: {"tipo":"mudar_etapa","contrato":"0000","etapa":"fila|contato1|contato2|contato3|negociando|promessa|proposta|acordo|sem_retorno|notificacao|retomada"}
+- anotar: {"tipo":"anotar","contrato":"0000","texto":"..."}
+- emitir_boleto: {"tipo":"emitir_boleto","contrato":"0000","parcela":"rótulo exato da parcela a vencer, ex.: Mensal 52/120"}
+Hoje é ${hojeBR()}. Use o contrato do contexto quando o usuário não disser outro. Não invente números, datas ou valores que o usuário não disse.
+${ctx ? 'Contexto:\n' + ctx : 'Nenhum contrato aberto na tela: se o pedido precisar de contrato e ele não disser, pergunte.'}
+Devolva SOMENTE um JSON: {"resposta":"frase curta em português explicando o que você vai fazer ou por que não pode","acoes":[{...,"descricao":"frase curta do que a ação faz"}]}
+
+Pedido do usuário: ${String(texto).slice(0, 2000)}`;
+  const r = await chamaIA(prompt, 1200);
+  if (r.erro) return { erro: r.erro };
+  const acoes = (Array.isArray(r.J.acoes) ? r.J.acoes : []).filter(a => a && ACOES_IA[a.tipo]).slice(0, 6);
+  const ids = [];
+  for (const a of acoes) { a.contrato = String(a.contrato || contrato || '').padStart(4, '0'); ids.push(await sugereIA(a.contrato, null, a, a.descricao || ACOES_IA[a.tipo], 'assistente', quem)); }
+  return { resposta: r.J.resposta || '', sugestoes: ids.length ? await q(`select * from carteira.ia_sugestoes where id = any($1) order by id`, [ids]) : [] };
+}
+async function rotasIA(p, m, body, url, real) {
+  if (p[0] !== 'ia') return null;
+  if (real !== 'luis') return json({ erro: 'Por enquanto a IA é só do administrador' }, 403);
+  await garanteIA();
+  if (p[1] === 'assistente' && m === 'POST') return json(await assistenteIA(body.texto || '', body.contrato || null, ATOR || real));
+  if (p[1] === 'sugestoes' && !p[2] && m === 'GET') {
+    const n = url.searchParams.get('contrato');
+    return json(await q(`select * from carteira.ia_sugestoes where status='pendente' ${n ? 'and contrato=$1' : ''} order by id desc limit 50`, n ? [n] : []));
+  }
+  if (p[1] === 'sugestoes' && p[2] && ['aprovar', 'recusar'].includes(p[3]) && m === 'POST') {
+    const [s] = await q(`select * from carteira.ia_sugestoes where id=$1 and status='pendente'`, [p[2]]);
+    if (!s) return json({ erro: 'Sugestão não encontrada ou já resolvida' }, 404);
+    if (p[3] === 'recusar') { await q(`update carteira.ia_sugestoes set status='recusada', resolvido_em=now() where id=$1`, [s.id]); return json({ ok: true }); }
+    const a = { ...s.acao, ...(body.ajuste || {}) };
+    try { const res = await executaAcaoIA(a, ATOR || real); await q(`update carteira.ia_sugestoes set status='aprovada', resolvido_em=now(), resultado=$2, acao=$3 where id=$1`, [s.id, res, JSON.stringify(a)]); await log(real, 'ia_acao_aprovada', { id: s.id, acao: a }); return json({ ok: true, resultado: res }); }
+    catch (e) { return json({ erro: e.message }, 400); }
+  }
+  if (p[1] === 'fones-novos' && m === 'GET') return json(await q(`select * from carteira.cobranca_fone_novo order by em desc limit 50`));
+  if (p[1] === 'fones-novos' && p[2] && m === 'DELETE') { await q(`delete from carteira.cobranca_fone_novo where fone=$1`, [p[2]]); return json({ ok: true }); }
+  if (p[1] === 'fones-novos' && p[2] && m === 'POST') {
+    const [f] = await q(`select * from carteira.cobranca_fone_novo where fone=$1`, [p[2]]);
+    if (!f) return json({ erro: 'Não encontrado' }, 404);
+    const res = await executaAcaoIA({ tipo: 'adicionar_telefone', contrato: f.contrato, nome: body.nome || '', numero: f.fone }, ATOR || real);
+    await q(`delete from carteira.cobranca_fone_novo where fone=$1`, [f.fone]);
+    return json({ ok: true, resultado: res });
+  }
+  if (p[1] === 'recado' && m === 'POST') {
+    /* recado para a IA dentro de um caso: fica no histórico e a IA relê o caso junto com as conversas */
+    const [c] = await q(`select * from carteira.cobranca_casos where id=$1`, [body.caso_id]);
+    if (!c) return json({ erro: 'Caso não encontrado' }, 404);
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'nota',$3,$4)`, [c.id, c.contrato, 'Recado para a IA: ' + String(body.texto || '').slice(0, 2000), ATOR || real]);
+    if (!body.reler) return json({ ok: true });
+    const r = await resumeCasoWhats(c.id).catch(e => ({ erro: e.message }));
+    return json({ ok: true, ...r });
+  }
+  return json({ erro: 'Rota da IA não existe' }, 404);
 }
