@@ -1588,6 +1588,31 @@ async function rotasCobranca(p, m, body, url, real) {
     await log(real, 'cobranca_caso_excluido', { caso: p[2], contrato: c?.contrato });
     return json({ ok: true });
   }
+  if (p[1] === 'resultado' && m === 'GET') {
+    const casos = await q(`select c.id, c.contrato, c.criado_em, c.encerrado_em, c.motivo_encerramento, c.etapa,
+        (select texto from carteira.cobranca_registros r where r.caso_id=c.id and r.tipo='sistema' and r.texto like 'Enviado para cobrança%' order by r.id limit 1) entrada,
+        (select coalesce(sum(g.valor_pago),0)::numeric from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
+           where t.contrato=c.contrato and g.conferente='luis' and g.confirmada_em >= c.criado_em::date and (c.encerrado_em is null or g.confirmada_em <= c.encerrado_em::date)) recebido
+      from carteira.cobranca_casos c order by c.id`);
+    const prom = await q(`select r.contrato, r.data_promessa::text dp, r.em,
+        exists (select 1 from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato=r.contrato and g.conferente='luis'
+                and g.confirmada_em >= r.em::date and g.confirmada_em <= r.data_promessa + 3) cumprida
+      from carteira.cobranca_registros r where r.data_promessa is not null`);
+    const D = await dividas(null);
+    const fx = [[61, 90], [91, 180], [181, 365], [366, 99999]].map(([a, b]) => ({ faixa: b > 9999 ? 'mais de 1 ano' : `${a} a ${b} dias`, n: 0, valor: 0 }));
+    for (const c of casos.filter(c => !c.encerrado_em)) { const d = D[c.contrato]; if (!d) continue; const f = fx.find((x, i) => d.dias <= [90, 180, 365, 99999][i]); if (f) { f.n++; f.valor = R2(f.valor + d.total); } }
+    const ent = c => +(String(c.entrada || '').match(/R\$ ([\d.,]+)/)?.[1] || '0').replace(/\./g, '').replace(',', '.') || 0;
+    const hoje = hojeBR();
+    return json({
+      entraram: casos.length, ativos: casos.filter(c => !c.encerrado_em).length,
+      sairam_acordo: casos.filter(c => /^(Fez acordo|Pagou e fez acordo)/.test(c.motivo_encerramento || '')).length,
+      sairam_pagou: casos.filter(c => /^Pagou:/.test(c.motivo_encerramento || '')).length,
+      encerrados_outros: casos.filter(c => c.encerrado_em && !/^(Fez acordo|Pagou)/.test(c.motivo_encerramento || '')).length,
+      divida_entrada: R2(casos.reduce((s, c) => s + ent(c), 0)), recebido: R2(casos.reduce((s, c) => s + +c.recebido, 0)),
+      promessas: { feitas: prom.length, cumpridas: prom.filter(x => x.cumprida).length, quebradas: prom.filter(x => !x.cumprida && x.dp < hoje).length, aguardando: prom.filter(x => !x.cumprida && x.dp >= hoje).length },
+      faixas: fx
+    });
+  }
   if (p[1] === 'ativos' && m === 'GET') return json(await q(`select id, contrato, etapa from carteira.cobranca_casos where encerrado_em is null`));
   if (p[1] === 'contrato' && p[2] && m === 'GET') {
     const [c] = await q(`select id, etapa from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [p[2]]);
