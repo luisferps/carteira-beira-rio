@@ -98,6 +98,7 @@ const brl=v=>v==null||isNaN(v)?'—':Number(v).toLocaleString('pt-BR',{style:'cu
 const dbr=d=>d?String(d).slice(0,10).split('-').reverse().join('/'):'—';
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const r2=v=>Math.round(v*100)/100;
+const hojeL=()=>new Date(Date.now()-3*3600e3).toISOString().slice(0,10);
 async function api(path,opt={}){
   const r=await fetch('/api/'+path,{method:opt.method||'GET',headers:{'x-pin':PIN,'x-como':COMO,'content-type':'application/json'},body:opt.body?JSON.stringify(opt.body):undefined});
   const d=(await r.json().catch(()=>({erro:'Resposta inválida'})))??(r.ok?{}:{erro:'Resposta vazia do servidor'});
@@ -238,7 +239,7 @@ async function telaCaso(id){app.innerHTML='<div class="card">Carregando…</div>
    <div class="card"><h3 style="margin-top:0">Histórico</h3>${timelineCaso(X)}</div></div>`}
 async function excluiCaso(){if(!confirm('Excluir este caso e todo o histórico dele? Use só para caso lançado por engano.'))return;await api('cobranca/caso/'+CASO.caso.id,{method:'DELETE'});location.hash='cobranca'}
 function negociacaoDe(id){const cc=CASO?.cc;if(!cc)return '';const p=(cc.propostas||[]).find(p=>(p.dados?.titulos_origem||[]).map(Number).includes(+id));return p?'na proposta '+(p.dados?.termo||''):''}
-function editaReg(id){const r=CASO.registros.find(x=>x.id==id);if(!r)return;const d=new Date(new Date(r.em).getTime()-3*3600e3).toISOString().slice(0,10),hoje=new Date().toISOString().slice(0,10);
+function editaReg(id){const r=CASO.registros.find(x=>x.id==id);if(!r)return;const d=new Date(new Date(r.em).getTime()-3*3600e3).toISOString().slice(0,10),hoje=hojeL();
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Editar registro</h3><button onclick="fechaModal()">Fechar</button></div>
   <div class="f2"><div><label>Data do contato</label><input type="date" id="er_d" value="${d}" max="${hoje}"></div><div><label>Como foi</label><select id="er_t">${['ligacao','whatsapp','email','visita','nota'].map(k=>`<option value="${k}" ${r.tipo===k?'selected':''}>${TIPOS_REG[k]}</option>`).join('')}</select></div>
   <div><label>Resultado</label><select id="er_r"><option value="">—</option>${[...new Set([...RESULTADOS,'Mensagem enviada',r.resultado||''])].filter(Boolean).map(x=>`<option ${x===r.resultado?'selected':''}>${esc(x)}</option>`).join('')}</select></div></div>
@@ -254,7 +255,7 @@ function modalTela(hash,titulo,aoFechar){const d=document.createElement('div');d
   d._fecha=()=>{d.remove();if(aoFechar)aoFechar()};d.onclick=e=>{if(e.target===d)d._fecha()};document.body.appendChild(d)}
 const telaNoCaso=(hash,titulo)=>modalTela(hash,titulo,()=>{if(CASO&&location.hash.startsWith('#cob/'))telaCaso(CASO.caso.id)});
 /* situação das negociações do contrato, clara: proposta (não efetivada) e acordos com cada parcela paga ou em aberto */
-function negocCaso(X){const cc=X.cc;if(!cc)return '';const hoje=new Date().toISOString().slice(0,10),pg=id=>cc.pagamentos.filter(p=>p.titulo_id==id);
+function negocCaso(X){const cc=X.cc;if(!cc)return '';const hoje=hojeL(),pg=id=>cc.pagamentos.filter(p=>p.titulo_id==id);
   const lin=[];
   for(const p of cc.propostas||[]){const d=p.dados||{},ps=d.parcelas||[];lin.push(`<div class="ficha" style="border-left-color:#f59e0b;margin:6px 0"><b>Proposta ${esc(d.termo||'')}</b> de ${dbr(d.data_acordo)} — <b style="color:#b45309">AINDA NÃO EFETIVADA</b> (o acordo só vale quando o cliente pagar a 1ª parcela)<div>${brl(d.valor_acordado)} em ${ps.length}x: ${ps.map((x,i)=>`${i+1}ª ${dbr(x.vencimento)} ${brl(x.valor)}`).join(' · ')}</div><div class="mut" style="font-size:12px">Parcelas que entram: ${(d.titulos_origem||[]).map(i=>cc.titulos.find(t=>t.id==i)).filter(Boolean).map(t=>esc(t.rotulo)).join(', ')}</div>${bolProp(p)}<div class="bt" style="margin-top:6px"><button onclick="acaoCob('${cc.contrato.numero}','editp',${p.id})">Editar proposta</button><button onclick="acaoCob('${cc.contrato.numero}','baixap',${p.id})">Baixar termo (Word)</button><button onclick="acaoCob('${cc.contrato.numero}','termop',${p.id})">Editar termo</button><button class="pri" onclick="acaoCob('${cc.contrato.numero}','efetp',${p.id})">Efetivar acordo</button><button class="per" onclick="acaoCob('${cc.contrato.numero}','desfazp',${p.id})">${d.boleto?'Desfazer (cancela o boleto)':'Excluir'}</button></div></div>`)}
   const ent=String(X.caso.criado_em||'').slice(0,10),acs=(cc.acordos||[]).filter(a=>a.tipo!=='repactuacao'&&String(a.data_acordo).slice(0,10)>=ent).map(a=>({a,ts:cc.titulos.filter(t=>t.acordo_id==a.id).sort((x,y)=>x.numero-y.numero)})).filter(o=>o.ts.length&&o.ts.some(t=>!pg(t.id).length));
@@ -292,7 +293,7 @@ function negociarCaso(extra){const X=CASO,cc=X.cc;if(!cc)return alert('Não cons
   if(pr&&!extra)return modalAcordo(null,pr.id);
   if(!ids.length&&!(extra||[]).length)return alert('Este contrato não tem parcela em atraso para negociar.');
   SEL.clear();[...ids,...(extra||[])].forEach(i=>SEL.add(+i));modalAcordo()}
-function escolheVencer(){const cc=CASO.cc,hoje=new Date().toISOString().slice(0,10),pg=new Set(cc.pagamentos.map(p=>String(p.titulo_id))),ja=new Set([...SEL].map(String));
+function escolheVencer(){const cc=CASO.cc,hoje=hojeL(),pg=new Set(cc.pagamentos.map(p=>String(p.titulo_id))),ja=new Set([...SEL].map(String));
   const L=cc.titulos.filter(t=>!pg.has(String(t.id))&&!ja.has(String(t.id))&&String(t.vencimento).slice(0,10)>=hoje&&!acordoDe(t)).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).slice(0,24);
   if(!L.length)return alert('Não há parcelas a vencer para incluir.');
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Incluir parcelas a vencer</h3><button onclick="negociarCaso([...SEL].filter(i=>!CASO.divida.parcelas.some(p=>+p.id===+i)))">Voltar</button></div>
@@ -302,7 +303,7 @@ function relCaso(){if(!CASO.cc)return alert('Não consegui carregar o contrato.'
 function copia(t){navigator.clipboard.writeText(t);alert('Link copiado.')}
 async function mudaCaso(b){const r=await api('cobranca/caso/'+CASO.caso.id,{method:'PUT',body:b});telaCaso(CASO.caso.id)}
 async function encerraCaso(){const m=prompt('Motivo do encerramento (ex.: Regularizado, Acordo cumprido, Retomada, Distrato):',+CASO.divida.total?'':'Regularizado');if(!m)return;await api('cobranca/caso/'+CASO.caso.id+'/encerrar',{method:'POST',body:{motivo:m}});location.hash='cobranca'}
-function modalReg(pre){const hoje=new Date().toISOString().slice(0,10);
+function modalReg(pre){const hoje=hojeL();
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Registrar contato</h3><button onclick="fechaModal()">Fechar</button></div>
   <div class="f2"><div><label>Como foi</label><select id="rg_t">${['ligacao','whatsapp','email','visita','nota'].map(k=>`<option value="${k}" ${pre?.tipo===k?'selected':''}>${TIPOS_REG[k]}</option>`).join('')}</select></div>
   <div><label>Resultado</label><select id="rg_r"><option value="">—</option>${RESULTADOS.map(r=>`<option>${r}</option>`).join('')}</select></div></div>
@@ -315,7 +316,7 @@ function modalReg(pre){const hoje=new Date().toISOString().slice(0,10);
   $('#rg_dt').onchange=()=>{const d=$('#rg_dt').value;if(!d||$('#rg_dp').value)return;const px=somaDiasF(d,3);$('#rg_px').value=px<hoje?hoje:px}}
 async function salvaReg(){const b={data:$('#rg_dt').value||null,tipo:$('#rg_t').value,resultado:$('#rg_r').value,texto:$('#rg_x').value,data_promessa:$('#rg_dp').value||null,valor_promessa:numBR($('#rg_vp').value)||null,proximo_contato:$('#rg_px').value||null,etapa:$('#rg_et').value||null};
   await api('cobranca/caso/'+CASO.caso.id+'/registro',{method:'POST',body:b});fechaModal();telaCaso(CASO.caso.id)}
-function preencheMsg(t,extra={},ctx){const X=ctx||CASO,d=X.divida,ct=X.contrato,nm=nome(d.titular||(ct.compradores||[]).map(x=>x.nome).join(' e ')||'');const hoje=new Date().toISOString().slice(0,10);
+function preencheMsg(t,extra={},ctx){const X=ctx||CASO,d=X.divida,ct=X.contrato,nm=nome(d.titular||(ct.compradores||[]).map(x=>x.nome).join(' e ')||'');const hoje=hojeL();
   const v={nome:nm,primeiro_nome:nm.split(' ')[0],contrato:ct.numero,quadra:ct.quadra,lote:ct.lote,qtd_parcelas:d.parcelas.length,valor_total:brl(d.total),parcelas:d.parcelas.map(p=>`• ${p.rotulo} (venc. ${dbr(p.vencimento)}): ${brl(p.total)}`).join('\n'),data_hoje:dbr(hoje),data_limite:dbr(somaDiasF(hoje,5)),valor_promessa:extra.valor_promessa||'',data_promessa:extra.data_promessa||''};
   return t.replace(/\{(\w+)\}/g,(m,k)=>k in v?v[k]:m)}
 /* mensagem sugerida pela etapa do caso */
@@ -343,9 +344,9 @@ async function modalMsg(){MODELOS=MODELOS||await api('cobranca/modelos');const F
   <label>Texto (pode editar antes de mandar)</label><textarea id="mg_x" style="min-height:220px"></textarea>
   <div class="info" style="margin-top:8px">Quando a pessoa responder: <button onclick="relCaso()">Abrir relatório de atraso</button> — tire o print, mande na conversa e depois a mensagem "Relatório".</div>
   <div class="bt" style="margin-top:8px;align-items:center"><button class="pri" onclick="mandaMsg()">Abrir a conversa no WhatsApp</button>${seletorWA()}<span class="mut" style="font-size:12px">Abre a conversa da pessoa com o texto pronto; você confere e aperta enviar. Fica registrado como enviado; se não foi, marque no histórico em \"não foi enviado\".</span></div><div id="mg_ok"></div>
-  <div class="bt" style="margin-top:8px;align-items:flex-end;border-top:1px solid var(--ln);padding-top:8px"><div><label>Já mandei esta mensagem antes, em</label><input type="date" id="mg_dt" max="${new Date().toISOString().slice(0,10)}" style="width:auto"></div><button onclick="mandaMsg(true)">Só registrar (sem abrir o WhatsApp)</button></div>`);
+  <div class="bt" style="margin-top:8px;align-items:flex-end;border-top:1px solid var(--ln);padding-top:8px"><div><label>Já mandei esta mensagem antes, em</label><input type="date" id="mg_dt" max="${hojeL()}" style="width:auto"></div><button onclick="mandaMsg(true)">Só registrar (sem abrir o WhatsApp)</button></div>`);
   $('#mg_m').value=modeloEtapa(CASO.caso.etapa);const pega=()=>$('#mg_x').value=preencheMsg(MODELOS[+$('#mg_m').value].texto,ex);$('#mg_m').onchange=pega;pega()}
-async function mandaMsg(so){const t=CASO.fones[+$('#mg_f').value],x=$('#mg_x').value,md=MODELOS[+$('#mg_m').value],hoje=new Date().toISOString().slice(0,10);
+async function mandaMsg(so){const t=CASO.fones[+$('#mg_f').value],x=$('#mg_x').value,md=MODELOS[+$('#mg_m').value],hoje=hojeL();
   const dt=so?$('#mg_dt').value:hoje;if(so&&!dt)return alert('Informe a data em que a mensagem foi mandada.');
   const px=somaDiasF(dt,3),reg=async()=>{await api('cobranca/caso/'+CASO.caso.id+'/registro',{method:'POST',body:{data:dt,tipo:'whatsapp',resultado:'Mensagem enviada',texto:`[${md.titulo}] para ${t.v}\n\n${x}`,proximo_contato:px<hoje?hoje:px}});fechaModal();telaCaso(CASO.caso.id)};
   if(!so)abreWA(t.v,x);return reg()}
@@ -374,7 +375,7 @@ async function passoSeq(){const el=$('#sq_p');if(SEQ.i>=SEQ.ids.length){el.inner
   if(F.length){const ex=extraPromessa(X.registros),pega=()=>$('#sq_x').value=preencheMsg(MODELOS[+$('#sq_mm').value].texto,ex,X);$('#sq_mm').onchange=pega;pega()}}
 function relSeq(){if(!SEQ.X.cc)return alert('Não consegui carregar o contrato.');const sv=C;C=SEQ.X.cc;try{relatorio('atraso')}finally{C=sv}}
 async function abreSeq(){const X=SEQ.X,t=X.fones[+$('#sq_f').value],x=$('#sq_x').value,md=MODELOS[+$('#sq_mm').value];abreWA(t.v,x);
-  const rg=await api('cobranca/caso/'+X.caso.id+'/registro',{method:'POST',body:{tipo:'whatsapp',resultado:'Mensagem enviada',texto:`[${md.titulo}] para ${t.v}\n\n${x}`,proximo_contato:somaDiasF(new Date().toISOString().slice(0,10),3)}});
+  const rg=await api('cobranca/caso/'+X.caso.id+'/registro',{method:'POST',body:{tipo:'whatsapp',resultado:'Mensagem enviada',texto:`[${md.titulo}] para ${t.v}\n\n${x}`,proximo_contato:somaDiasF(hojeL(),3)}});
   $('#sq_ok').innerHTML=`✔ Conversa aberta e registrada como enviada. Depois de enviar no WhatsApp, clique em <b>Próximo</b>. <button class="per" style="padding:2px 8px;font-size:12px" id="sq_ne">Não foi enviado (número sem WhatsApp / mudou)</button>`;
   $('#sq_ne').onclick=()=>naoEnviado(rg.id,t.v,()=>{const nx=X.fones.findIndex(f=>!ruimDe(f));[...$('#sq_f').options].forEach((op,i)=>op.textContent=op.textContent.replace(/ — ⚠.*$/,'')+rotFone(X.fones[i]));if(nx>=0)$('#sq_f').value=nx;
     $('#sq_ok').innerHTML=`<div class="aviso">Desfeito: não conta como enviado e o número foi para "Números com problema".${nx>=0?' Tente outro número ou vá para o próximo.':' Sem outro número que funcione — atualize o cadastro e vá para o próximo.'}</div>`})}
@@ -437,7 +438,7 @@ async function telaBoletos(){
   <div id="bprev"></div></div>
   <div class="card" id="bcob">Carregando cobrança…</div>
   <div class="card"><h3 style="margin-top:0">Relatórios de cobrança</h3>
-   <div class="bt" style="align-items:flex-end"><div><label>De</label><input type="date" id="rc_de" value="${new Date().toISOString().slice(0,8)}01" style="width:170px"></div><div><label>Até</label><input type="date" id="rc_ate" value="${new Date().toISOString().slice(0,10)}" style="width:170px"></div>
+   <div class="bt" style="align-items:flex-end"><div><label>De</label><input type="date" id="rc_de" value="${new Date().toISOString().slice(0,8)}01" style="width:170px"></div><div><label>Até</label><input type="date" id="rc_ate" value="${hojeL()}" style="width:170px"></div>
    <button class="pri" onclick="relCobRec()">Recebido em cobrança</button><button onclick="relEmCob()">Em cobrança hoje</button></div><div id="rc_res"></div></div>
   <div class="card" id="bsob"></div>
   <div class="card" id="bsem"></div>`;
@@ -1759,7 +1760,7 @@ function cardRetomada(X){const c=X.caso,R=c.retomada||{},enc=!!c.encerrado_em,fe
    ${enc||feito?'':`<button onclick="relCaso();marcaRet('debito')">Relatório de débito</button><button onclick="comunicadoRet()">Comunicado de retomada (WhatsApp)</button><button class="per" onclick="concluiRetomada()">Concluir: lote retomado</button>`}</div>
    <table style="margin-top:6px">${PASSOS_RET.map(([k,l])=>`<tr><td>${R[k]?'✅':'⬜'} ${l}</td><td style="width:170px">${enc||k==='encerrado'?(R[k]?dbr(R[k]):'—'):`<input type="date" value="${R[k]||''}" onchange="marcaRet('${k}',this.value)" style="padding:3px 6px">`}</td></tr>`).join('')}</table>
    <div class="mut">Se o cliente quitar, encerre o caso como "Regularizado". Ao concluir a retomada, o contrato é encerrado por retomada e abre a conta da devolução.</div></div>`}
-async function marcaRet(k,v){const hoje=new Date().toISOString().slice(0,10);if(v===undefined)v=CASO.caso.retomada?.[k]||hoje;await api('cobranca/caso/'+CASO.caso.id+'/retomada',{method:'PUT',body:{passos:{[k]:v}}});telaCaso(CASO.caso.id)}
+async function marcaRet(k,v){const hoje=hojeL();if(v===undefined)v=CASO.caso.retomada?.[k]||hoje;await api('cobranca/caso/'+CASO.caso.id+'/retomada',{method:'PUT',body:{passos:{[k]:v}}});telaCaso(CASO.caso.id)}
 function comunicadoRet(){const F=CASO.fones;if(!F.length)return alert('Este cliente não tem telefone no cadastro.');const R=CASO.caso.retomada||{};
   const d=new Date();d.setDate(d.getDate()+15);const pz=R.prazo||d.toISOString().slice(0,10);
   const txt=p=>`*CONDOMÍNIO DE CHÁCARAS BEIRA RIO* - _Comunicado Importante_\n\nOlá, meu nome é Luis Fernando, sou responsável pelas cobranças do Condomínio de Chácaras Beira Rio.\n\nApós diversas tentativas de recebimento ou acordo relacionado ao débito que você tem conosco, venho informar que a FCA Construtora solicitou que lhe informasse que a partir de ${dbr(p)} o contrato firmado entre vocês para a compra e venda de lote no *Condomínio de Chácaras Beira Rio* será considerado rescindido e encerrado, de acordo com a cláusula nona do mesmo, que trata da rescisão do mesmo por motivo de inadimplência.\n\nDevo salientar que já foram feitas várias tentativas anteriores de acordo sem sucesso, e também, seu contrato já se encontra em atraso há ${CASO.divida.dias} dias.\n\nSendo assim, a continuidade do contrato de compra e venda somente será possível com a quitação integral dos valores devidos.\n\nCaso tenha interesse em continuar com o contrato, entre em contato comigo em horário comercial (08 às 12, e 14 às 18h) de segunda à sexta, pelo telefone ou WhatsApp.`;
@@ -1767,11 +1768,11 @@ function comunicadoRet(){const F=CASO.fones;if(!F.length)return alert('Este clie
    <div class="f2"><div><label>Rescindido a partir de</label><input type="date" id="rt_pz" value="${pz}" onchange="$('#rt_tx').value=window._RTX(this.value)"></div><div><label>Telefone</label><select id="rt_f">${F.map((t,i)=>`<option value="${i}">${esc(t.v)} · ${esc(t.nome.split(' ')[0])}${rotFone(t)}</option>`).join('')}</select></div></div>
    <label style="margin-top:8px">Mensagem</label><textarea id="rt_tx" style="min-height:260px">${esc(txt(pz))}</textarea>
    <div class="bt" style="margin-top:8px;align-items:center">${seletorWA()}<span style="flex:1"></span><button onclick="enviaRet(true)">Só registrar (já enviei)</button><button class="pri" onclick="enviaRet(false)">Abrir no WhatsApp</button></div><div id="rt_ok"></div>`);window._RTX=txt}
-async function enviaRet(so){const t=CASO.fones[+$('#rt_f').value],x=$('#rt_tx').value,pz=$('#rt_pz').value,hoje=new Date().toISOString().slice(0,10);
+async function enviaRet(so){const t=CASO.fones[+$('#rt_f').value],x=$('#rt_tx').value,pz=$('#rt_pz').value,hoje=hojeL();
   if(!so)abreWA(t.v,x);
   await api('cobranca/caso/'+CASO.caso.id+'/registro',{method:'POST',body:{data:hoje,tipo:'whatsapp',resultado:'Mensagem enviada',texto:`[Comunicado de retomada] para ${t.v}\n\n${x}`,proximo_contato:pz}});
   await api('cobranca/caso/'+CASO.caso.id+'/retomada',{method:'PUT',body:{passos:{comunicado:hoje,prazo:pz}}});fechaModal();telaCaso(CASO.caso.id)}
-async function concluiRetomada(){const cc=CASO.cc,n=CASO.caso.contrato,hoje=new Date().toISOString().slice(0,10);if(!cc)return alert('Não consegui carregar o contrato.');
+async function concluiRetomada(){const cc=CASO.cc,n=CASO.caso.contrato,hoje=hojeL();if(!cc)return alert('Não consegui carregar o contrato.');
   if(cc.eventos.some(e=>e.tipo==='encerramento'))return alert('Este contrato já está encerrado.');
   const ab=CASO.divida.parcelas.slice().sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)))[0];
   const t0=ab?cc.titulos.find(t=>t.id==ab.id):cc.titulos.filter(t=>t.grupo!=='acordo'&&!cc.pagamentos.some(p=>p.titulo_id==t.id)).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)))[0];

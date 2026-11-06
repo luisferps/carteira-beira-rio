@@ -126,7 +126,7 @@ async function carregar(n, conf) {
   const termosArq = await q('select termo, nome, enviado_em from carteira.termos_arq where contrato=$1 order by termo', [n]).catch(() => []);
   const boletos = await q(`select id_asaas, titulo_id, tipo, fatura, valor, vencimento::text vencimento, status, link, origem, motivo, composicao, criado_em from carteira.boletos where contrato=$1 order by vencimento desc, criado_em desc`, [n]).catch(() => []);
   const cessoes = await q(`select id, numero, status, datas, dados - 'textos' dados from carteira.cessoes where contrato=$1 order by numero`, [n]).catch(() => []);
-  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, boletos, cessoes, fechamento: fechamento || null, hoje: new Date().toISOString().slice(0, 10), conferente: conf };
+  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, boletos, cessoes, fechamento: fechamento || null, hoje: hojeBR(), conferente: conf };
 }
 
 /* ---------- cruzamento ---------- */
