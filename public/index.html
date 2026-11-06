@@ -599,7 +599,10 @@ function cliDados(c){const A=c.asaas||{},M=c.manual||{},P={...(c.planilha||{}),.
 const orgT=o=>`<span class="org ${o==='Planilha'?'pl':o==='Editado'?'mn':''}">${o}</span>`;
 function docOk(v){const c=digs(v);if(c.length===14){if(/^(\d)\1+$/.test(c))return false;const dv=n=>{let s=0,p=n-7;for(let i=0;i<n;i++){s+=+c[i]*p--;if(p<2)p=9}const r=s%11;return r<2?0:11-r};return dv(12)===+c[12]&&dv(13)===+c[13]}
   if(c.length!==11||/^(\d)\1+$/.test(c))return false;let s=0;for(let i=0;i<9;i++)s+=+c[i]*(10-i);const d1=(s*10)%11%10;s=0;for(let i=0;i<10;i++)s+=+c[i]*(11-i);return d1===+c[9]&&(s*10)%11%10===+c[10]}
-async function telaClientes(){app.innerHTML='<div class="card">Carregando…</div>';CLI=await api('clientes');desenhaClientes()}
+let CPFERR=[];
+async function telaClientes(){app.innerHTML='<div class="card">Carregando…</div>';CLI=await api('clientes');CPFERR=EU==='luis'?await api('manutencao/clientes-cpf').catch(()=>[]):[];desenhaClientes()}
+async function juntaCpf(){const P=CPFERR.filter(x=>x.certo);if(!confirm(`Juntar ${P.length} cadastro(s) com CPF digitado errado no cadastro do CPF certo?\n\n${P.map(x=>`${x.errado.nome}: ${cpfF(x.errado.cpf)} → ${cpfF(x.certo.cpf)}`).join('\n')}\n\nOs dados da planilha passam para o cadastro certo e o cadastro errado é apagado.`))return;
+  const r=await api('manutencao/clientes-cpf',{method:'POST',body:{}});alert(`Feito: ${r.feitos.length} cadastro(s) unificado(s).`);telaClientes()}
 function desenhaClientes(){
   const q=CLIQ.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(),qd=digs(CLIQ);
   const L=CLI.map(c=>({c,d:cliDados(c)})).filter(({c,d})=>{
@@ -612,6 +615,7 @@ function desenhaClientes(){
   <div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Clientes (${CLI.length})</h3>${EU==='luis'?'<button onclick="sincAsaas()">Atualizar com o Asaas</button>':''}</div>
   <div class="bt" style="margin-top:10px;align-items:center"><input id="cq" placeholder="Buscar por nome, CPF, telefone, e-mail ou nº do contrato" value="${esc(CLIQ)}" style="flex:1;min-width:240px">
    <select id="cf"><option value="todos">Todos</option><option value="ativos" ${CLIF==='ativos'?'selected':''}>Só quem tem contrato ativo (${at})</option><option value="semtel" ${CLIF==='semtel'?'selected':''}>Sem telefone</option></select></div>
+  ${CPFERR.some(x=>x.certo)?`<div class="aviso" style="margin-top:8px"><b>${CPFERR.filter(x=>x.certo).length} cliente(s) estão duplicados por CPF digitado errado na planilha</b> (o mesmo nome aparece também com o CPF certo):<div style="font-size:12px;margin:4px 0">${CPFERR.filter(x=>x.certo).map(x=>`${esc(x.errado.nome)}: <s>${cpfF(x.errado.cpf)}</s> → ${cpfF(x.certo.cpf)}`).join('<br>')}</div><button class="pri" onclick="juntaCpf()">Juntar no CPF certo</button></div>`:''}
   <div class="mut" style="margin:6px 0">${L.length} cliente${L.length==1?'':'s'}</div>
   <div style="overflow:auto"><table class="tcl"><thead><tr><th>Nome</th><th>CPF</th><th>Telefone</th><th>E-mail</th><th>Contratos</th></tr></thead><tbody>
   ${L.slice(0,400).map(({c,d})=>`<tr class="lk" onclick="location.hash='cl/${c.id}'"><td><b>${esc(d.nome)}</b></td><td>${esc(d.cpf)}${c.cpf&&!docOk(c.cpf)?' <span style="color:#dc2626;font-size:11px;font-weight:700">CPF inválido</span>':''}</td><td>${d.tel[0]?esc(d.tel[0].v)+(d.tel.length>1?` <span class="mut">+${d.tel.length-1}</span>`:''):'<span class="mut">—</span>'}</td><td>${d.em[0]?esc(d.em[0].v):'<span class="mut">—</span>'}</td>
