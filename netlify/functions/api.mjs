@@ -2217,6 +2217,9 @@ export default async (req) => {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
       let n = 0;
       for (const r of body.linhas || []) {
+        let cpf = String(r.cpf || '').replace(/\D/g, ''); if (cpf && cpf.length < 11) cpf = cpf.padStart(11, '0');
+        if (cpf && !docValido(cpf)) { const tw = (await q(`select cpf, nome from carteira.clientes where cpf is not null`)).find(x => docValido(x.cpf) && normNome(x.nome) === normNome(r.nome)); if (tw) { r.cpf_errado_na_planilha = cpf; cpf = tw.cpf; } }
+        r.cpf = cpf || null;
         const chave = r.cpf ? 'cpf:' + r.cpf : 'nome:' + String(r.nome || '').toLowerCase().trim();
         await q(`insert into carteira.clientes(chave, cpf, nome, planilha) values ($1,$2,$3,$4)
                  on conflict (chave) do update set planilha=excluded.planilha, cpf=coalesce(carteira.clientes.cpf, excluded.cpf), nome=coalesce(carteira.clientes.nome, excluded.nome), atualizado_em=now()`, [chave, r.cpf || null, r.nome, r]);
@@ -2367,6 +2370,30 @@ export default async (req) => {
     /* boletos no nome de outra pessoa: exceção só do administrador */
     if (real !== 'luis' && body && typeof body === 'object' && ['acordo', 'proposta'].includes(p[0])) { delete body.pagador; if (body.dados && typeof body.dados === 'object') delete body.dados.pagador; }
     /* anotações internas (exceções, correções do Luis) ficam só no banco, fora da tela: tira da observação e guarda em nota_interna */
+    if (p[0] === 'manutencao' && p[1] === 'clientes-cpf' && real === 'luis') {
+      /* cliente com CPF inválido (digitado errado na planilha) que tem um "gêmeo" com o mesmo nome e CPF certo: junta os dois no CPF certo */
+      const cl = await q(`select * from carteira.clientes`);
+      const pares = [];
+      for (const c of cl) {
+        if (!c.cpf || docValido(c.cpf)) continue;
+        const tw = cl.filter(o => o.id !== c.id && o.cpf && docValido(o.cpf) && normNome(o.nome) === normNome(c.nome));
+        pares.push({ errado: { id: c.id, cpf: c.cpf, nome: c.nome }, certo: tw.length === 1 ? { id: tw[0].id, cpf: tw[0].cpf, nome: tw[0].nome } : null, motivo: tw.length > 1 ? 'mais de um cliente com esse nome' : tw.length ? null : 'sem cliente com CPF certo e mesmo nome' });
+      }
+      if (m === 'GET') return json(pares);
+      const feitos = [];
+      for (const pr of pares.filter(x => x.certo)) {
+        const a = cl.find(x => x.id === pr.errado.id), b = cl.find(x => x.id === pr.certo.id);
+        const pl = { ...(a.planilha || {}), ...(b.planilha || {}), cpf_errado_na_planilha: a.cpf };
+        const ma = (a.manual || b.manual) ? { ...(a.manual || {}), ...(b.manual || {}) } : null;
+        await q(`update carteira.clientes set planilha=$2, manual=$3, atualizado_em=now() where id=$1`, [b.id, pl, ma]);
+        const cts = await q(`select numero, compradores from carteira.contratos where compradores::text like $1`, ['%' + a.cpf + '%']);
+        for (const ct of cts) await q(`update carteira.contratos set compradores=$2 where numero=$1`, [ct.numero, JSON.stringify((ct.compradores || []).map(x => String(x.cpf || '').replace(/\D/g, '') === a.cpf ? { ...x, cpf: b.cpf } : x))]);
+        await q(`delete from carteira.clientes where id=$1`, [a.id]);
+        feitos.push({ ...pr, contratos_corrigidos: cts.map(x => x.numero) });
+      }
+      await log(real, 'clientes_cpf_unificados', { feitos });
+      return json({ feitos, sem_par: pares.filter(x => !x.certo) });
+    }
     if (p[0] === 'manutencao' && p[1] === 'notas-internas' && m === 'POST' && real === 'luis') {
       const RX = /\s*(?:\|\s*|\.\s+)?((?:Exceção do Luis \(|Custo de cobrança (?:corrigido|da entrada recalculado) em )[^|]*)/g;
       const feito = {};
@@ -2754,6 +2781,13 @@ async function garanteIA() {
   await q(`create table if not exists carteira.ia_sugestoes(id serial primary key, contrato text, caso_id int, acao jsonb not null, descricao text, origem text, status text default 'pendente', por text, em timestamptz default now(), resolvido_em timestamptz, resultado text)`);
   await q(`alter table carteira.cobranca_casos add column if not exists ia_situacao text`);
   await q(`alter table carteira.cobranca_casos add column if not exists ia_em timestamptz`);
+}
+function docValido(v) {
+  const c = String(v || '').replace(/\D/g, '');
+  if (c.length === 14) { if (/^(\d)\1+$/.test(c)) return false; const dv = n => { let s = 0, p = n - 7; for (let i = 0; i < n; i++) { s += +c[i] * p--; if (p < 2) p = 9; } const r = s % 11; return r < 2 ? 0 : 11 - r; }; return dv(12) === +c[12] && dv(13) === +c[13]; }
+  if (c.length !== 11 || /^(\d)\1+$/.test(c)) return false;
+  let s = 0; for (let i = 0; i < 9; i++) s += +c[i] * (10 - i); const d1 = (s * 10) % 11 % 10; s = 0; for (let i = 0; i < 10; i++) s += +c[i] * (11 - i);
+  return d1 === +c[9] && (s * 10) % 11 % 10 === +c[10];
 }
 const normNome = v => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
 const digF = v => { let d = String(v || '').replace(/\D/g, ''); if (d.length > 11 && d.startsWith('55')) d = d.slice(2); return d; };

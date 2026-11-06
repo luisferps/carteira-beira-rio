@@ -597,6 +597,8 @@ function cliDados(c){const A=c.asaas||{},M=c.manual||{},P={...(c.planilha||{}),.
   const end=[];if(M.endereco)end.push({v:M.endereco,o:'Editado'});if(eA)end.push({v:eA,o:'Asaas'});if(eP&&(!eA||!digs(eA).includes(digs(P.cep))))end.push({v:eP,o:'Planilha'});
   return{nome:nome(c.nome||A.name||P.nome),cpf:cpfF(c.cpf||A.cpfCnpj||P.cpf),tel,em,end,P,A,M}}
 const orgT=o=>`<span class="org ${o==='Planilha'?'pl':o==='Editado'?'mn':''}">${o}</span>`;
+function docOk(v){const c=digs(v);if(c.length===14){if(/^(\d)\1+$/.test(c))return false;const dv=n=>{let s=0,p=n-7;for(let i=0;i<n;i++){s+=+c[i]*p--;if(p<2)p=9}const r=s%11;return r<2?0:11-r};return dv(12)===+c[12]&&dv(13)===+c[13]}
+  if(c.length!==11||/^(\d)\1+$/.test(c))return false;let s=0;for(let i=0;i<9;i++)s+=+c[i]*(10-i);const d1=(s*10)%11%10;s=0;for(let i=0;i<10;i++)s+=+c[i]*(11-i);return d1===+c[9]&&(s*10)%11%10===+c[10]}
 async function telaClientes(){app.innerHTML='<div class="card">Carregando…</div>';CLI=await api('clientes');desenhaClientes()}
 function desenhaClientes(){
   const q=CLIQ.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(),qd=digs(CLIQ);
@@ -612,7 +614,7 @@ function desenhaClientes(){
    <select id="cf"><option value="todos">Todos</option><option value="ativos" ${CLIF==='ativos'?'selected':''}>Só quem tem contrato ativo (${at})</option><option value="semtel" ${CLIF==='semtel'?'selected':''}>Sem telefone</option></select></div>
   <div class="mut" style="margin:6px 0">${L.length} cliente${L.length==1?'':'s'}</div>
   <div style="overflow:auto"><table class="tcl"><thead><tr><th>Nome</th><th>CPF</th><th>Telefone</th><th>E-mail</th><th>Contratos</th></tr></thead><tbody>
-  ${L.slice(0,400).map(({c,d})=>`<tr class="lk" onclick="location.hash='cl/${c.id}'"><td><b>${esc(d.nome)}</b></td><td>${esc(d.cpf)}</td><td>${d.tel[0]?esc(d.tel[0].v)+(d.tel.length>1?` <span class="mut">+${d.tel.length-1}</span>`:''):'<span class="mut">—</span>'}</td><td>${d.em[0]?esc(d.em[0].v):'<span class="mut">—</span>'}</td>
+  ${L.slice(0,400).map(({c,d})=>`<tr class="lk" onclick="location.hash='cl/${c.id}'"><td><b>${esc(d.nome)}</b></td><td>${esc(d.cpf)}${c.cpf&&!docOk(c.cpf)?' <span style="color:#dc2626;font-size:11px;font-weight:700">CPF inválido</span>':''}</td><td>${d.tel[0]?esc(d.tel[0].v)+(d.tel.length>1?` <span class="mut">+${d.tel.length-1}</span>`:''):'<span class="mut">—</span>'}</td><td>${d.em[0]?esc(d.em[0].v):'<span class="mut">—</span>'}</td>
    <td>${c.contratos.map(k=>`<span class="chip ${k.atual?'at':k.encerrado||!k.atual?'old':''}" title="${k.papel}${k.atual?' — titular atual':k.encerrado?' — contrato encerrado':' — já não é titular'}" onclick="event.stopPropagation();location.hash='c/${k.numero}'">${k.numero}</span>`).join('')}</td></tr>`).join('')}
   </tbody></table></div>${L.length>400?'<div class="mut">Mostrando 400. Use a busca para achar os outros.</div>':''}</div>`;
   const cq=$('#cq');cq.oninput=()=>{CLIQ=cq.value;const p=cq.selectionStart;desenhaClientes();const n=$('#cq');n.focus();n.setSelectionRange(p,p)};
