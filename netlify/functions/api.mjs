@@ -2426,6 +2426,18 @@ export default async (req) => {
     /* boletos no nome de outra pessoa: exceção só do administrador */
     if (real !== 'luis' && body && typeof body === 'object' && ['acordo', 'proposta'].includes(p[0])) { delete body.pagador; if (body.dados && typeof body.dados === 'object') delete body.dados.pagador; }
     /* anotações internas (exceções, correções do Luis) ficam só no banco, fora da tela: tira da observação e guarda em nota_interna */
+    if (p[0] === 'manutencao' && p[1] === 'asaas-historico' && m === 'GET' && real === 'luis') {
+      /* consulta (só leitura): todos os boletos do Asaas dos clientes de um contrato, com descrição */
+      const n = url.searchParams.get('contrato'); const ts = await titularesAtuais(n);
+      const [ct] = await q('select compradores from carteira.contratos where numero=$1', [n]);
+      const cpfs = [...new Set([...ts.map(t => digF(t.cpf)), ...(ct?.compradores || []).map(x => digF(x.cpf))].filter(d => d.length >= 11))];
+      const out = [];
+      for (const d of cpfs) { const r = await asaas('/customers?cpfCnpj=' + d).catch(() => null);
+        for (const c of (r?.data || [])) for (let off = 0; off < 1000; off += 100) { const pg = await asaas(`/payments?customer=${c.id}&limit=100&offset=${off}`).catch(() => null);
+          for (const x of pg?.data || []) if (String(x.description || '').includes(n)) out.push({ id: x.id, fatura: x.invoiceNumber, venc: x.dueDate, pago: x.paymentDate || x.clientPaymentDate, valor: x.value, recebido: x.netValue, status: x.status, desc: String(x.description || '').replace(/\s+/g, ' ').slice(0, 220) });
+          if (!pg?.hasMore) break; } }
+      return json(out.sort((a, b) => String(a.venc).localeCompare(String(b.venc))));
+    }
     if (p[0] === 'manutencao' && p[1] === 'auditoria' && m === 'GET' && real === 'luis') {
       const sp = url.searchParams, cond = [], par = [];
       if (sp.get('teste')) {
