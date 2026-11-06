@@ -225,7 +225,7 @@ async function telaCaso(id){app.innerHTML='<div class="card">Carregando…</div>
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='cobranca'">← Cobrança</button><button onclick="telaNoCaso('c/${c.contrato}','Contrato ${c.contrato}')">Abrir o contrato</button></div>
   <div class="card"><div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h2 style="margin:0;white-space:nowrap">Contrato ${c.contrato} — Q${ct.quadra} L${ct.lote}</h2><span style="font-size:16px">${esc(nome(d.titular||(ct.compradores||[]).map(x=>x.nome).join(' e ')))}</span></div>
    <div class="mut" style="margin-top:2px">Na campanha desde ${dbr(c.criado_em)}${c.criado_por?' · por '+esc(c.criado_por):''}${enc?' · <b>ENCERRADO em '+dbr(c.encerrado_em)+'</b> ('+esc(c.motivo_encerramento||'')+')':''}</div>
-   <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px">${enc?'':`<div style="display:contents"><button class="pri" onclick="modalMsg()">Mandar WhatsApp</button><button onclick="relCaso()">O que está devendo (relatório para print)</button><button onclick="telaNoCaso('c/${c.contrato}','Contrato ${c.contrato} — negociação')">Negociar</button><button onclick="modalReg()">Registrar contato / histórico</button></div>`}<span style="flex:1"></span>${enc?'':'<button class="per" onclick="encerraCaso()">Encerrar caso</button>'}${EU==='luis'?`<button class="per" onclick="excluiCaso()">Excluir (lançado por engano)</button>`:''}</div>
+   <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px">${enc?'':`<div style="display:contents"><button class="pri" onclick="modalMsg()">Mandar WhatsApp</button><button onclick="relCaso()">O que está devendo (relatório para print)</button><button onclick="negociarCaso()">Negociar</button><button onclick="modalReg()">Registrar contato / histórico</button></div>`}<span style="flex:1"></span>${enc?'':'<button class="per" onclick="encerraCaso()">Encerrar caso</button>'}${EU==='luis'?`<button class="per" onclick="excluiCaso()">Excluir (lançado por engano)</button>`:''}</div>
    <div class="tot" style="margin-top:10px"><div class="neg"><span class="mut">Dívida hoje</span><b>${brl(d.total)}</b></div><div><span class="mut">Parcelas em atraso</span><b>${d.parcelas.length}</b></div><div><span class="mut">Maior atraso</span><b>${d.dias} dias</b></div><div><span class="mut">Recebido desde que entrou</span><b>${brl(X.pagamentos.reduce((s,p)=>s+(+p.valor_pago),0))}</b></div></div>
    ${negocCaso(X)}
    ${['notificacao','retomada'].includes(c.etapa)||Object.keys(c.retomada||{}).length?cardRetomada(X):''}
@@ -286,6 +286,18 @@ function timelineCaso(X){const cc=X.cc,ev=[],ini=String(X.caso.criado_em||'').sl
   ev.sort((a,b)=>b.d-a.d);
   if(!ev.length)return '<div class="mut">Sem registros.</div>';
   return ev.map(x=>`<div class="reg reg-${x.k}"><details><summary style="cursor:pointer;list-style:none"><span class="mut" style="font-size:12px">${x.d.toLocaleDateString('pt-BR')}</span> · <b style="font-weight:600">${esc(x.t)}</b>${x.por&&x.por!=='sistema'?` <span class="mut" style="font-size:12px">· ${esc(x.por)}</span>`:''}</summary>${x.det?`<div style="white-space:pre-wrap;margin-top:4px;font-size:13px">${esc(x.det)}</div>`:''}${x.acoes?`<div style="font-size:12px;margin-top:4px">${x.acoes}</div>`:''}</details></div>`).join('')}
+/* negociar dentro do caso: abre a proposta pendente da campanha ou um acordo novo já com as parcelas atrasadas marcadas */
+function negociarCaso(extra){const X=CASO,cc=X.cc;if(!cc)return alert('Não consegui carregar o contrato.');C=cc;
+  const ids=X.divida.parcelas.map(p=>+p.id),pr=(cc.propostas||[]).find(p=>(p.dados?.titulos_origem||[]).map(Number).some(i=>ids.includes(i)));
+  if(pr&&!extra)return modalAcordo(null,pr.id);
+  if(!ids.length&&!(extra||[]).length)return alert('Este contrato não tem parcela em atraso para negociar.');
+  SEL.clear();[...ids,...(extra||[])].forEach(i=>SEL.add(+i));modalAcordo()}
+function escolheVencer(){const cc=CASO.cc,hoje=new Date().toISOString().slice(0,10),pg=new Set(cc.pagamentos.map(p=>String(p.titulo_id))),ja=new Set([...SEL].map(String));
+  const L=cc.titulos.filter(t=>!pg.has(String(t.id))&&!ja.has(String(t.id))&&String(t.vencimento).slice(0,10)>=hoje&&!acordoDe(t)).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).slice(0,24);
+  if(!L.length)return alert('Não há parcelas a vencer para incluir.');
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Incluir parcelas a vencer</h3><button onclick="negociarCaso([...SEL].filter(i=>!CASO.divida.parcelas.some(p=>+p.id===+i)))">Voltar</button></div>
+   <div class="cgrid" style="margin-top:6px">${L.map(t=>`<label class="cb blk" style="cursor:pointer;border-left-color:#0ea5e9"><input type="checkbox" class="vxk" value="${t.id}" style="width:auto"> <b>${esc(t.rotulo)}</b><span class="cbl">vence ${dbr(t.vencimento)}</span><span class="cbl">${brl(valorAno(t))}</span></label>`).join('')}</div>
+   <div class="bt" style="margin-top:10px"><button class="pri" onclick="negociarCaso([...[...SEL].filter(i=>!CASO.divida.parcelas.some(p=>+p.id===+i)),...[...document.querySelectorAll('.vxk:checked')].map(x=>+x.value)])">Incluir e continuar</button></div>`)}
 function relCaso(){if(!CASO.cc)return alert('Não consegui carregar o contrato.');const sv=C;C=CASO.cc;try{relatorio('atraso')}finally{C=sv}}
 function copia(t){navigator.clipboard.writeText(t);alert('Link copiado.')}
 async function mudaCaso(b){const r=await api('cobranca/caso/'+CASO.caso.id,{method:'PUT',body:b});telaCaso(CASO.caso.id)}
@@ -1124,7 +1136,7 @@ function modalAcordo(aid,pid){
   const pars=a?C.titulos.filter(t=>t.acordo_id==a.id).map(t=>({valor:Number(t.valor_face),vencimento:t.vencimento})):pd?(pd.parcelas||[]).map(p=>({...p})):[];
   const orig=ids.map(id=>C.titulos.find(t=>t.id==id)).filter(Boolean).sort((x,y)=>String(x.vencimento).localeCompare(String(y.vencimento)));
   const campo=(id,l)=>`<div class="dado"><span>${l}</span><input id="${id}" inputmode="decimal" style="font-weight:700"></div>`;
-  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${a?'Editar acordo '+numAc(a):pd?'Editar proposta '+esc(pd.termo||''):'Novo acordo'}</h3><button onclick="fechaModal()">Fechar</button></div>
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${a?'Editar acordo '+numAc(a):pd?'Editar proposta '+esc(pd.termo||''):'Novo acordo'}</h3>${!a&&!pd&&location.hash.startsWith('#cob/')?'<a href="#" style="font-size:13px;margin-right:8px" onclick="escolheVencer();return false">incluir parcelas a vencer</a>':''}<button onclick="fechaModal()">Fechar</button></div>
   <div class="info">Parcelas no acordo: <b>${orig.map(codTit).join(' + ')}</b> <span class="mut">(${orig.map(t=>esc(t.rotulo)).join(', ')})</span></div>
   ${pd&&String(pd.data_acordo).slice(0,10)<C.hoje?`<div class="aviso" style="display:flex;gap:10px;align-items:center">Esta proposta foi calculada em ${dbr(pd.data_acordo)}. <button class="pri" onclick="window._atualizaHoje()">Atualizar valores para hoje</button></div>`:''}
   <div class="f2"><div><label>Data do acordo</label><input type="date" id="a_data" value="${a?a.data_acordo.slice(0,10):pd?String(pd.data_acordo).slice(0,10):C.hoje}"></div>
