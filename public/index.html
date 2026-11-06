@@ -175,7 +175,7 @@ function falaIA(){const SR=window.SpeechRecognition||window.webkitSpeechRecognit
   r.start();IAREC=r;const b=$('#ia_mic');b.textContent='⏹ Parar';b.classList.add('per')}
 async function enviaIA(){if(IAREC)IAREC.stop();const t=$('#ia_tx').value.trim();if(!t)return;$('#ia_go').disabled=true;IACHAT.push({eu:1,t});$('#ia_tx').value='';IACHAT.push({t:'Pensando…'});await desenhaIA();
   try{if(location.hash.startsWith('#cob/')&&CASO?.caso)api('ia/recado',{method:'POST',body:{caso_id:CASO.caso.id,texto:t}}).catch(()=>{});
-    const r=await api('ia/assistente',{method:'POST',body:{texto:t,contrato:ctxIA(),pagina:paginaIA()}});IACHAT.pop();IACHAT.push({t:r.resposta||(r.sugestoes?.length?'Confira abaixo.':'Não entendi, pode explicar melhor?')})}
+    const r=await api('ia/assistente',{method:'POST',body:{texto:t,contrato:ctxIA(),pagina:paginaIA(),historico:IACHAT.slice(0,-2).filter(m=>m.t!=='Pensando…').slice(-8)}});IACHAT.pop();IACHAT.push({t:r.resposta||(r.sugestoes?.length?'Confira abaixo.':'Não entendi, pode explicar melhor?')})}
   catch(e){IACHAT.pop();IACHAT.push({t:'Deu erro: '+(e.message||e)})}
   finally{$('#ia_go')&&($('#ia_go').disabled=false);await desenhaIA();contaIA()}}
 async function resolveIA(id,acao){try{const r=await api('ia/sugestoes/'+id+'/'+acao,{method:'POST',body:{}});IACHAT.push({t:acao==='aprovar'?'✔ '+(r.resultado||'Feito'):'Recusada.'});if($('#iapanel')){await desenhaIA();contaIA();if(acao==='aprovar'&&location.hash.startsWith('#cob/')&&CASO?.caso)telaCaso(CASO.caso.id);return}const el=$('#sg_'+id);if(el)el.outerHTML=`<div class="mut" style="margin:6px 0">${acao==='aprovar'?'✔ '+esc(r.resultado||'Feito'):'Recusada.'}</div>`;document.querySelectorAll('#sg_'+id).forEach(x=>x.remove());contaIA()}catch(e){}}

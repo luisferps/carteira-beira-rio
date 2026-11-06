@@ -2866,13 +2866,13 @@ export async function processaWhatsPendentes(limiteMs = 20000) {
   }
   return out;
 }
-async function chamaIA(prompt, max = 1500) {
+async function chamaIA(prompt, max = 1500, modelo) {
   const key = (process.env.ANTHROPIC_API_KEY || '').trim().replace(/^["']|["']$/g, '');
   if (!key) return { erro: 'sem chave da IA' };
   const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL_RAPIDO || 'claude-haiku-4-5-20251001', max_tokens: max, messages: [{ role: 'user', content: prompt }] }) });
+    body: JSON.stringify({ model: modelo || process.env.ANTHROPIC_MODEL_RAPIDO || 'claude-haiku-4-5-20251001', max_tokens: max, messages: [{ role: 'user', content: prompt }] }) });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) return { erro: d.error?.message || 'IA respondeu ' + r.status };
+  if (!r.ok) { if (modelo && (r.status === 404 || r.status === 400)) return chamaIA(prompt, max); return { erro: d.error?.message || 'IA respondeu ' + r.status }; }
   const txt = (d.content || []).map(x => x.text || '').join('');
   try { return { J: JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1)) }; } catch { return { erro: 'resposta da IA ilegível' }; }
 }
@@ -2981,7 +2981,7 @@ async function contextoContratoIA(n) {
   const [caso] = await q(`select etapa, criado_em from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [n]);
   const d = (await dividas([n]))[n];
   const fut = await q(`select rotulo, vencimento::text v from carteira.titulos t where contrato=$1 and conferente is null and grupo<>'acordo' and vencimento >= $2::date and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis') order by vencimento limit 3`, [n, hojeBR()]);
-  return `Contrato ${n} (Quadra ${ct.quadra}, Lote ${ct.lote}). Clientes: ${cs.map(c => `${c.nome} (telefones: ${fonesDoCliente(c).join(', ') || 'nenhum'}; e-mail: ${(c.manual || {}).email || (c.asaas || {}).email || '—'})`).join('; ') || (ct.compradores || []).map(x => x.nome).join(', ')}.
+  return `Contrato ${n} (Quadra ${ct.quadra}, Lote ${ct.lote}). Clientes (nome exatamente como está no cadastro): ${cs.map(c => `${c.nome} (telefones: ${[...new Set(fonesDoCliente(c))].join(', ') || 'nenhum'}; e-mail atual: ${(c.manual || {}).email || (c.asaas || {}).email || (c.planilha || {}).email || '—'}; outros e-mails conhecidos: ${[...new Set([(c.manual || {}).email, (c.asaas || {}).email, (c.planilha || {}).email].filter(Boolean))].join(', ') || '—'})`).join('; ') || (ct.compradores || []).map(x => x.nome).join(', ')}.
 ${caso ? `Está na campanha de cobrança, etapa "${caso.etapa}".` : 'Não está na campanha de cobrança.'} Dívida em atraso hoje: R$ ${(d?.total || 0).toFixed(2)} em ${d?.parcelas.length || 0} parcela(s).
 Próximas parcelas a vencer: ${fut.map(t => `${t.rotulo} (${t.v})`).join(', ') || 'nenhuma'}.`;
 }
@@ -3002,8 +3002,10 @@ async function contratosCitados(texto, pagina) {
   }
   return out.sort((a, b) => b.pts - a.pts).slice(0, 6);
 }
-async function assistenteIA(texto, contrato, quem, pagina) {
+async function assistenteIA(texto, contrato, quem, pagina, historico) {
   const ctx = await contextoContratoIA(contrato);
+  const pend = await q(`select id, descricao from carteira.ia_sugestoes where status='pendente' order by id desc limit 10`);
+  const hist = (Array.isArray(historico) ? historico : []).slice(-8).map(m => (m.eu ? 'Usuário: ' : 'Você: ') + String(m.t || '').slice(0, 400)).join('\n');
   const cit = contrato ? [] : await contratosCitados(texto, pagina);
   const ctxCit = cit.length ? `Contratos que podem ser o citado (em ordem de prioridade; o usuário está na página "${pagina || 'início'}", então dê preferência aos ${pagina === 'cobranca' ? 'que estão na cobrança' : 'primeiros'}; se houver dúvida real entre mais de um, pergunte qual é em vez de propor ação):\n` + (await Promise.all(cit.slice(0, 3).map(c => contextoContratoIA(c.numero)))).join('\n') : '';
   const prompt = `Você é o assistente do sistema da carteira de recebíveis do loteamento Beira Rio. O usuário (${quem}) escreve um recado ou pedido. Você NÃO executa nada: só propõe ações para ele aprovar.
@@ -3018,12 +3020,16 @@ Você só pode propor estas ações (nada além disso; nunca mexa em estrutura, 
 - anotar: {"tipo":"anotar","contrato":"0000","texto":"..."}
 - emitir_boleto: {"tipo":"emitir_boleto","contrato":"0000","parcela":"rótulo exato da parcela a vencer, ex.: Mensal 52/120"}
 Hoje é ${hojeBR()}. Use o contrato do contexto quando o usuário não disser outro. Não invente números, datas ou valores que o usuário não disse.
+Leia a conversa anterior: o pedido atual pode ser continuação ou correção do anterior (ex.: "não, é com s" corrige a grafia do que foi pedido antes). Use o contexto do cadastro para entender: nomes de clientes e e-mails já cadastrados mostram a grafia certa. Se a correção substitui uma sugestão pendente, coloque o número dela em "cancelar" e proponha a ação corrigida.
+${pend.length ? 'Sugestões ainda pendentes:\n' + pend.map(x => `#${x.id}: ${x.descricao}`).join('\n') : ''}
+${hist ? 'Conversa anterior (mais antiga primeiro):\n' + hist : ''}
 ${ctx ? 'Contrato aberto na tela (é dele que o usuário está falando, salvo se disser outro):\n' + ctx : ctxCit || 'Nenhum contrato identificado: se o pedido precisar de contrato e ele não disser, pergunte.'}
-Devolva SOMENTE um JSON: {"resposta":"resumo BREVE (no máximo 2 frases) do que o usuário pediu e do que você vai mexer, ou por que não pode / o que precisa saber","acoes":[{...}]}
+Devolva SOMENTE um JSON: {"resposta":"resumo BREVE (no máximo 2 frases) do que o usuário pediu e do que você vai mexer, ou por que não pode / o que precisa saber","acoes":[{...}],"cancelar":[números das sugestões pendentes que ficaram erradas ou foram substituídas]}
 
 Pedido do usuário: ${String(texto).slice(0, 2000)}`;
-  const r = await chamaIA(prompt, 1200);
+  const r = await chamaIA(prompt, 1500, process.env.ANTHROPIC_MODEL_ASSISTENTE || 'claude-sonnet-5-5');
   if (r.erro) return { erro: r.erro };
+  for (const id of (Array.isArray(r.J.cancelar) ? r.J.cancelar : [])) await q(`update carteira.ia_sugestoes set status='substituida', resolvido_em=now() where id=$1 and status='pendente'`, [+id || 0]);
   const acoes = (Array.isArray(r.J.acoes) ? r.J.acoes : []).filter(a => a && ACOES_IA[a.tipo]).slice(0, 6);
   const ids = [];
   for (const a of acoes) {
@@ -3037,7 +3043,7 @@ async function rotasIA(p, m, body, url, real) {
   if (p[0] !== 'ia') return null;
   if (real !== 'luis') return json({ erro: 'Por enquanto a IA é só do administrador' }, 403);
   await garanteIA();
-  if (p[1] === 'assistente' && m === 'POST') return json(await assistenteIA(body.texto || '', body.contrato || null, ATOR || real, body.pagina || ''));
+  if (p[1] === 'assistente' && m === 'POST') return json(await assistenteIA(body.texto || '', body.contrato || null, ATOR || real, body.pagina || '', body.historico || []));
   if (p[1] === 'sugestoes' && !p[2] && m === 'GET') {
     const n = url.searchParams.get('contrato');
     return json(await q(`select * from carteira.ia_sugestoes where status='pendente' ${n ? 'and contrato=$1' : ''} order by id desc limit 50`, n ? [n] : []));
