@@ -1545,13 +1545,14 @@ async function rotasCobranca(p, m, body, url, real) {
     if (b.etapa === 'sem_retorno' && !podeSemRetorno(c.etapa)) return json({ erro: 'Sem retorno só depois do contato 3.' }, 400);
     const novaEtapa = b.etapa || (b.data_promessa ? 'promessa' : (['whatsapp', 'ligacao', 'email', 'visita'].includes(b.tipo) && b.resultado !== 'Número errado' ? PROX_CONTATO[c.etapa] || null : null));
     if (novaEtapa && novaEtapa !== c.etapa) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,$4)`, [c.id, c.contrato, `${c.etapa} → ${novaEtapa}`, quem]);
-    await q(`update carteira.cobranca_casos set etapa=coalesce($2, etapa), proximo_contato=coalesce($3::date, proximo_contato), responsavel=coalesce(nullif(responsavel,''), $4), atualizado_em=now() where id=$1`, [c.id, novaEtapa, b.proximo_contato || b.data_promessa || null, ['whatsapp', 'ligacao', 'email', 'visita'].includes(b.tipo) ? quem : null]);
+    await q(`update carteira.cobranca_casos set etapa=coalesce($2, etapa), proximo_contato=coalesce($3::date, proximo_contato), atualizado_em=now() where id=$1`, [c.id, novaEtapa, b.proximo_contato || b.data_promessa || null]);
     return json({ ok: true, id: novo.id });
   }
   if (p[1] === 'caso' && p[2] && !p[3] && m === 'PUT') {
     const [c] = await q(`select * from carteira.cobranca_casos where id=$1`, [p[2]]);
     if (!c) return json({ erro: 'Caso não encontrado' }, 404);
     const b = body;
+    if (b.responsavel !== undefined && real !== 'luis') return json({ erro: 'Só o administrador atribui o responsável' }, 403);
     if (b.etapa === 'sem_retorno' && !podeSemRetorno(c.etapa)) return json({ erro: 'Sem retorno só depois do contato 3.' }, 400);
     if (b.etapa && !ETAPAS_COB.includes(b.etapa)) return json({ erro: 'Etapa inválida' }, 400);
     if (b.etapa && b.etapa !== c.etapa) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,$4)`, [c.id, c.contrato, `${c.etapa} → ${b.etapa}`, quem]);
