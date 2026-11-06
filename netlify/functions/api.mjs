@@ -71,8 +71,9 @@ async function garanteAuditoria() {
           execute 'create trigger audita_${t} after update or delete on carteira.${t} for each row execute function carteira.audita()';
         end if; end $d$`);
     auditOk = true;
-  } catch (e) { console.error('garanteAuditoria', e.message); }
+  } catch (e) { console.error('garanteAuditoria', e.message); AUDIT_ERRO = e.message; }
 }
+let AUDIT_ERRO = null;
 
 let ATOR = null;
 async function log(conf, acao, detalhe) {
@@ -2410,6 +2411,7 @@ export default async (req) => {
     /* anotações internas (exceções, correções do Luis) ficam só no banco, fora da tela: tira da observação e guarda em nota_interna */
     if (p[0] === 'manutencao' && p[1] === 'auditoria' && m === 'GET' && real === 'luis') {
       const sp = url.searchParams, cond = [], par = [];
+      if (sp.get('status')) { auditOk = false; await garanteAuditoria(); return json({ erro: AUDIT_ERRO, gatilhos: (await q(`select tgname from pg_trigger where tgname like 'audita_%'`)).map(x => x.tgname), linhas: (await q(`select count(*)::int n from carteira.auditoria`))[0].n }); }
       if (sp.get('tabela')) { par.push(sp.get('tabela')); cond.push(`tabela=$${par.length}`); }
       if (sp.get('registro')) { par.push(sp.get('registro')); cond.push(`registro=$${par.length}`); }
       if (sp.get('texto')) { par.push('%' + sp.get('texto') + '%'); cond.push(`(antes::text ilike $${par.length} or depois::text ilike $${par.length})`); }
