@@ -64,6 +64,8 @@ async function garanteAuditoria() {
           insert into carteira.auditoria(tabela, operacao, registro, ator, antes, depois) values (TG_TABLE_NAME, 'alteração', coalesce(d->>'id', d->>'numero', d->>'id_asaas'), quem, aa, dd);
         end if;
         return NEW;
+      exception when others then
+        return coalesce(NEW, OLD); /* a auditoria nunca pode impedir uma alteração */
       end $f$`);
     for (const t of ['clientes', 'pagamentos', 'acordos', 'titulos', 'propostas', 'eventos', 'cobranca_casos', 'contratos', 'cessoes', 'boletos', 'usuarios'])
       await pool.query(`do $d$ begin
@@ -2411,6 +2413,15 @@ export default async (req) => {
     /* anotações internas (exceções, correções do Luis) ficam só no banco, fora da tela: tira da observação e guarda em nota_interna */
     if (p[0] === 'manutencao' && p[1] === 'auditoria' && m === 'GET' && real === 'luis') {
       const sp = url.searchParams, cond = [], par = [];
+      if (sp.get('teste')) {
+        await pool.query(`create table if not exists carteira.teste_auditoria(id int primary key, x text)`);
+        await pool.query(`do $d$ begin if not exists (select 1 from pg_trigger where tgname='audita_teste_auditoria') then create trigger audita_teste_auditoria after update or delete on carteira.teste_auditoria for each row execute function carteira.audita(); end if; end $d$`);
+        await pool.query(`insert into carteira.teste_auditoria values (1,'antes') on conflict (id) do update set x='antes'`);
+        await q(`update carteira.teste_auditoria set x='depois' where id=1`); await q(`delete from carteira.teste_auditoria where id=1`);
+        const rs = await q(`select operacao, ator, antes, depois from carteira.auditoria where tabela='teste_auditoria' order by id desc limit 2`);
+        await pool.query(`delete from carteira.auditoria where tabela='teste_auditoria'`); await pool.query(`drop table carteira.teste_auditoria`);
+        return json(rs);
+      }
       if (sp.get('status')) { auditOk = false; await garanteAuditoria(); return json({ erro: AUDIT_ERRO, gatilhos: (await q(`select tgname from pg_trigger where tgname like 'audita_%'`)).map(x => x.tgname), linhas: (await q(`select count(*)::int n from carteira.auditoria`))[0].n }); }
       if (sp.get('tabela')) { par.push(sp.get('tabela')); cond.push(`tabela=$${par.length}`); }
       if (sp.get('registro')) { par.push(sp.get('registro')); cond.push(`registro=$${par.length}`); }
