@@ -153,11 +153,13 @@ async function contaIA(){try{const L=await api('ia/sugestoes');const e=$('#iacnt
 const paginaIA=()=>{const h=location.hash.slice(1);return h.startsWith('cob')?'cobranca':/^(c|f)\//.test(h)?'contrato':h.split('/')[0]||'inicio'};
 const rotPagIA=()=>{const n=ctxIA(),p=paginaIA();return n?'contrato '+n+(p==='cobranca'?' (cobrança)':''):({cobranca:'Cobrança',inicio:'Início',contratos:'Contratos',clientes:'Clientes'}[p]||p)};
 let IACHAT=[];
+function listaSugIA(L){return L.length?L.map(s=>`<div class="ficha" id="sg_${s.id}" style="border-left-color:#7c3aed;margin:6px 0"><div class="mut" style="font-size:11px">Vai alterar · ${s.origem==='conversa'?'visto na conversa do WhatsApp':'pedido seu'} · ${dbr(s.em)}</div><div><b>${esc(s.descricao||s.acao.tipo)}</b></div>
+  <div class="bt" style="margin-top:4px"><button class="pri" onclick="resolveIA(${s.id},'aprovar')">Aprovar</button><button onclick="resolveIA(${s.id},'recusar')">Recusar</button></div></div>`).join(''):'<div class="mut">Nada pendente.</div>'}
 async function abreIA(){let P=$('#iapanel');if(P){P.remove();return}
   P=document.createElement('div');P.id='iapanel';P.style.cssText='position:fixed;right:18px;bottom:70px;width:min(400px,calc(100vw - 32px));height:min(560px,calc(100vh - 110px));z-index:60;background:#fff;border:1px solid #ddd;border-radius:12px;box-shadow:0 10px 30px #0003;display:flex;flex-direction:column;overflow:hidden';
   P.innerHTML=`<div style="background:#7c3aed;color:#fff;padding:8px 12px;display:flex;align-items:center;gap:8px"><b style="flex:1">Assistente IA</b><span id="ia_ctx" style="font-size:12px;opacity:.9"></span><button onclick="abreIA()" style="background:none;border:0;color:#fff;font-size:18px;padding:0 4px;cursor:pointer" title="Minimizar">–</button></div>
   <div id="ia_log" style="flex:1;overflow:auto;padding:10px;font-size:13px"></div>
-  <div style="border-top:1px solid #eee;padding:8px"><textarea id="ia_tx" style="min-height:60px;margin:0" placeholder="Avise ou peça algo… (Enter envia, Shift+Enter quebra linha)"></textarea><div class="bt" style="margin-top:6px;align-items:center"><button class="pri" id="ia_go" onclick="enviaIA()">Enviar</button><span class="mut" style="font-size:11px">Nada muda sem você aprovar.</span></div></div>`;
+  <div style="border-top:1px solid #eee;padding:8px"><textarea id="ia_tx" style="min-height:60px;margin:0" placeholder="Avise ou peça algo… (Enter envia, Shift+Enter quebra linha)"></textarea><div class="bt" style="margin-top:6px;align-items:center"><button class="pri" id="ia_go" onclick="enviaIA()">Enviar</button><button id="ia_mic" onclick="falaIA()" title="Falar em vez de digitar">🎤 Falar</button><span class="mut" style="font-size:11px">Nada muda sem você aprovar.</span></div></div>`;
   document.body.appendChild(P);$('#ia_tx').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();enviaIA()}};await desenhaIA();$('#ia_tx').focus()}
 async function desenhaIA(){const P=$('#iapanel');if(!P)return;$('#ia_ctx').textContent='você está em: '+rotPagIA();
   const pend=await api('ia/sugestoes').catch(()=>[]);const n=ctxIA(),ord=[...pend].sort((a,b)=>(b.contrato===n)-(a.contrato===n));
@@ -165,7 +167,13 @@ async function desenhaIA(){const P=$('#iapanel');if(!P)return;$('#ia_ctx').textC
    +IACHAT.map(m=>m.eu?`<div style="margin:6px 0 6px 30px;background:#ede9fe;border-radius:10px;padding:6px 9px">${esc(m.t)}</div>`:`<div style="margin:6px 30px 6px 0;background:#f4f4f5;border-radius:10px;padding:6px 9px">${esc(m.t)}</div>`).join('')
    +(ord.length?`<div style="margin-top:10px;font-weight:700">Aguardando sua aprovação (${ord.length})</div>${listaSugIA(ord)}`:'');
   const L=$('#ia_log');L.scrollTop=L.scrollHeight}
-async function enviaIA(){const t=$('#ia_tx').value.trim();if(!t)return;$('#ia_go').disabled=true;IACHAT.push({eu:1,t});$('#ia_tx').value='';IACHAT.push({t:'Pensando…'});await desenhaIA();
+let IAREC=null;
+function falaIA(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return alert('Este navegador não aceita ditado. Use o Google Chrome.');
+  if(IAREC){IAREC.stop();return}const r=new SR();r.lang='pt-BR';r.interimResults=true;r.continuous=true;const base=$('#ia_tx').value?$('#ia_tx').value+' ':'';let fin='';
+  r.onresult=e=>{let tmp='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;if(e.results[i].isFinal)fin+=t+' ';else tmp+=t}$('#ia_tx').value=base+fin+tmp};
+  r.onend=()=>{IAREC=null;const b=$('#ia_mic');if(b){b.textContent='🎤 Falar';b.classList.remove('per')}};r.onerror=e=>{if(e.error==='not-allowed')alert('Libere o microfone para este site (ícone do cadeado ao lado do endereço).')};
+  r.start();IAREC=r;const b=$('#ia_mic');b.textContent='⏹ Parar';b.classList.add('per')}
+async function enviaIA(){if(IAREC)IAREC.stop();const t=$('#ia_tx').value.trim();if(!t)return;$('#ia_go').disabled=true;IACHAT.push({eu:1,t});$('#ia_tx').value='';IACHAT.push({t:'Pensando…'});await desenhaIA();
   try{if(location.hash.startsWith('#cob/')&&CASO?.caso)api('ia/recado',{method:'POST',body:{caso_id:CASO.caso.id,texto:t}}).catch(()=>{});
     const r=await api('ia/assistente',{method:'POST',body:{texto:t,contrato:ctxIA(),pagina:paginaIA()}});IACHAT.pop();IACHAT.push({t:r.resposta||(r.sugestoes?.length?'Confira abaixo.':'Não entendi, pode explicar melhor?')})}
   catch(e){IACHAT.pop();IACHAT.push({t:'Deu erro: '+(e.message||e)})}
