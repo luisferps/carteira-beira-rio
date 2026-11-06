@@ -126,14 +126,20 @@ window.emitirTermo=async function(A0,modo,htmlPronto){
 window.escolhePastaTermo=async()=>{window._pastaTermo=await pasta();return !!window._pastaTermo};
 /* ===== arquivos do termo: Word e PDF (o PDF é gerado aqui mesmo, com a marca d'água) ===== */
 const carregaJS=src=>new Promise((ok,er)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=er;document.head.appendChild(s)});
+function pdfEl(html){
+  const el=document.createElement('div');el.id='termopdf';el.style.cssText='width:170mm;font-family:Arial;font-size:12px;line-height:1.45;text-align:justify;color:#000;background:#fff';
+  const S='#termopdf';
+  el.innerHTML=`<style>${S} *{box-sizing:border-box}${S} p{margin:0 0 8px;font-size:12px}${S} h1{font-size:17px;text-align:center;margin:0 0 8px;font-weight:700}${S} table{display:table;border-collapse:collapse;width:100%;margin:6px 0;table-layout:auto}${S} tr{display:table-row}${S} td,${S} th{display:table-cell;border:1px solid #999;padding:3px 4px;font-size:9.5px;background:none;border-radius:0;white-space:nowrap}${S} th{background:#e8eef4;white-space:normal;color:#000;font-weight:700}${S} b{display:inline;font-size:inherit;color:inherit}${S} tr.xtot td{background:#f1f5f9;font-weight:700}</style>`+String(html).replace(/class="tot"/g,'class="xtot"');
+  return el}
 async function pdfBlob(html){
   if(!window.html2pdf)await carregaJS('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
-  const el=document.createElement('div');el.style.cssText='width:170mm;font-family:Arial;font-size:12px;line-height:1.45;text-align:justify;color:#000';
-  el.innerHTML=`<style>p{margin:0 0 8px}table{border-collapse:collapse;width:100%;margin:6px 0}td,th{border:1px solid #999;padding:3px 5px;font-size:10.5px}th{background:#e8eef4}</style>`+html;
+  const el=pdfEl(html);const sy=window.scrollY;window.scrollTo(0,0);
   const wm=await new Promise(r=>{const i=new Image();i.onload=()=>r(i);i.onerror=()=>r(null);i.src='/ferramentas/wm.png'});
-  return await window.html2pdf().set({margin:[18,20,18,20],image:{type:'jpeg',quality:0.85},html2canvas:{scale:1.6,useCORS:true},jsPDF:{unit:'mm',format:'a4'},pagebreak:{mode:['css','legacy']}})
-    .from(el).toPdf().get('pdf').then(pdf=>{if(wm){const n=pdf.internal.getNumberOfPages();for(let i=1;i<=n;i++){pdf.setPage(i);try{pdf.setGState(new pdf.GState({opacity:0.45}))}catch(e){}pdf.addImage(wm,'PNG',61,62,88,145);try{pdf.setGState(new pdf.GState({opacity:1}))}catch(e){}}}return pdf.output('blob')});
+  try{return await window.html2pdf().set({margin:[18,20,18,20],image:{type:'jpeg',quality:0.85},html2canvas:{scale:1.6,useCORS:true,scrollX:0,scrollY:0,windowWidth:1100},jsPDF:{unit:'mm',format:'a4'},pagebreak:{mode:['css','legacy'],avoid:['tr','p']}})
+    .from(el).toPdf().get('pdf').then(pdf=>{if(wm){const n=pdf.internal.getNumberOfPages();for(let i=1;i<=n;i++){pdf.setPage(i);try{pdf.setGState(new pdf.GState({opacity:0.45}))}catch(e){}pdf.addImage(wm,'PNG',61,62,88,145);try{pdf.setGState(new pdf.GState({opacity:1}))}catch(e){}}}return pdf.output('blob')})}
+  finally{window.scrollTo(0,sy)}
 }
+window._pdfEl=pdfEl;
 async function arquivosTermo(A0,htmlPronto){
   const d=dadosTermo(A0);const {c,num,nome1}=d;const html=htmlPronto||window.htmlTermo(d.A);
   const pastaNome=`${num} - Q${c.quadra} L${c.lote} - ${nome1}`.replace(/[\\/:*?"<>|]/g,''),base=`${num} - Termo de Renegociação - ${nome1}`.replace(/[\\/:*?"<>|]/g,'');
