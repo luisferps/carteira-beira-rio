@@ -126,20 +126,30 @@ window.emitirTermo=async function(A0,modo,htmlPronto){
 window.escolhePastaTermo=async()=>{window._pastaTermo=await pasta();return !!window._pastaTermo};
 /* ===== arquivos do termo: Word e PDF (o PDF é gerado aqui mesmo, com a marca d'água) ===== */
 const carregaJS=src=>new Promise((ok,er)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=er;document.head.appendChild(s)});
-function pdfEl(html){
-  const el=document.createElement('div');el.id='termopdf';el.style.cssText='width:170mm;font-family:Arial;font-size:12px;line-height:1.45;text-align:justify;color:#000;background:#fff';
-  const S='#termopdf';
-  el.innerHTML=`<style>${S} *{box-sizing:border-box}${S} p{margin:0 0 8px;font-size:12px}${S} h1{font-size:17px;text-align:center;margin:0 0 8px;font-weight:700}${S} table{display:table;border-collapse:collapse;width:100%;margin:6px 0;table-layout:auto}${S} tr{display:table-row}${S} td,${S} th{display:table-cell;border:1px solid #999;padding:3px 4px;font-size:9.5px;background:none;border-radius:0;white-space:nowrap}${S} th{background:#e8eef4;white-space:normal;color:#000;font-weight:700}${S} b{display:inline;font-size:inherit;color:inherit}${S} tr.xtot td{background:#f1f5f9;font-weight:700}</style>`+String(html).replace(/class="tot"/g,'class="xtot"');
-  return el}
+const CSS_PDF=`*{box-sizing:border-box}body{margin:0;background:#fff}#t{width:643px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.45;text-align:justify;color:#000}p{margin:0 0 8px}h1{font-size:17px;text-align:center;margin:0 0 8px}table{border-collapse:collapse;width:100%;margin:6px 0}td,th{border:1px solid #999;padding:3px 4px;font-size:9.5px;white-space:nowrap}th{background:#e8eef4;white-space:normal}tr.tot td{background:#f1f5f9}`;
 async function pdfBlob(html){
-  if(!window.html2pdf)await carregaJS('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
-  const el=pdfEl(html);const sy=window.scrollY;window.scrollTo(0,0);
-  const wm=await new Promise(r=>{const i=new Image();i.onload=()=>r(i);i.onerror=()=>r(null);i.src='/ferramentas/wm.png'});
-  try{return await window.html2pdf().set({margin:[18,20,18,20],image:{type:'jpeg',quality:0.85},html2canvas:{scale:1.6,useCORS:true,scrollX:0,scrollY:0,windowWidth:1100},jsPDF:{unit:'mm',format:'a4'},pagebreak:{mode:['css','legacy'],avoid:['tr','p']}})
-    .from(el).toPdf().get('pdf').then(pdf=>{if(wm){const n=pdf.internal.getNumberOfPages();for(let i=1;i<=n;i++){pdf.setPage(i);try{pdf.setGState(new pdf.GState({opacity:0.45}))}catch(e){}pdf.addImage(wm,'PNG',61,62,88,145);try{pdf.setGState(new pdf.GState({opacity:1}))}catch(e){}}}return pdf.output('blob')})}
-  finally{window.scrollTo(0,sy)}
+  if(!window.html2canvas)await carregaJS('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+  if(!window.jspdf)await carregaJS('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  const fr=document.createElement('iframe');fr.style.cssText='position:fixed;left:-10000px;top:0;width:800px;height:1200px;border:0';document.body.appendChild(fr);
+  try{
+    const dc=fr.contentDocument;dc.open();dc.write(`<!doctype html><html><head><meta charset="utf-8"><style>${CSS_PDF}</style></head><body><div id="t">${html}</div></body></html>`);dc.close();
+    await new Promise(r=>setTimeout(r,150));try{await dc.fonts.ready}catch(e){}
+    const t=dc.getElementById('t');const SC=2,PXMM=643/170,PAG=Math.floor(257*PXMM);
+    const cv=await window.html2canvas(t,{scale:SC,backgroundColor:'#ffffff',windowWidth:800,useCORS:true});
+    const tot=t.offsetHeight,base=t.getBoundingClientRect().top;
+    const fins=[...t.querySelectorAll('p,h1,tr,br,table')].map(e=>{const r=e.getBoundingClientRect();return r.bottom-base}).filter(x=>x>0).sort((x,y)=>x-y);
+    const cortes=[];let ini=0;
+    while(ini<tot-1){const lim=ini+PAG;if(lim>=tot){cortes.push([ini,tot]);break}
+      const c=fins.filter(x=>x>ini+PAG*0.5&&x<=lim).pop()||lim;cortes.push([ini,c]);ini=c}
+    const wm=await new Promise(r=>{const i=new Image();i.onload=()=>r(i);i.onerror=()=>r(null);i.src='/ferramentas/wm.png'});
+    const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4'});
+    cortes.forEach(([y0,y1],k)=>{if(k)pdf.addPage();
+      const h=Math.ceil((y1-y0)*SC),pc=document.createElement('canvas');pc.width=cv.width;pc.height=h;const g=pc.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,pc.width,h);g.drawImage(cv,0,Math.floor(y0*SC),cv.width,h,0,0,cv.width,h);
+      pdf.addImage(pc.toDataURL('image/jpeg',0.82),'JPEG',20,20,170,(y1-y0)/PXMM);
+      if(wm){try{pdf.setGState(new pdf.GState({opacity:0.45}))}catch(e){}pdf.addImage(wm,'PNG',61,62,88,145);try{pdf.setGState(new pdf.GState({opacity:1}))}catch(e){}}});
+    return pdf.output('blob')}
+  finally{fr.remove()}
 }
-window._pdfEl=pdfEl;
 async function arquivosTermo(A0,htmlPronto){
   const d=dadosTermo(A0);const {c,num,nome1}=d;const html=htmlPronto||window.htmlTermo(d.A);
   const pastaNome=`${num} - Q${c.quadra} L${c.lote} - ${nome1}`.replace(/[\\/:*?"<>|]/g,''),base=`${num} - Termo de Renegociação - ${nome1}`.replace(/[\\/:*?"<>|]/g,'');
