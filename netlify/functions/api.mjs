@@ -833,6 +833,7 @@ async function clienteDoContrato(n, opc = {}) {
                          order by b.status in ('PENDING','OVERDUE','RECEIVED','CONFIRMED','RECEIVED_IN_CASH') desc, b.criado_em desc nulls last limit 1`, [opc.tituloId]).catch(() => []);
     if (b?.c) return b.c;
   }
+  { const pd = await pagadorPadraoAsaas(n).catch(() => null); if (pd) return pd; }
   const cs = await clienteCessionario(n);
   if (cs.tem) return cs.id;
   const [b] = await q(`select dados->>'customer' c from carteira.boletos where contrato=$1 and dados->>'customer' like 'cus_%' order by vencimento desc nulls last limit 1`, [n]);
@@ -1755,9 +1756,9 @@ async function garanteEsquema() {
   if (schemaOk) return;
   try {
     const [r] = await q(`select pg_get_constraintdef(oid) d from pg_constraint where conname='eventos_tipo_check'`);
-    if (!r || !/'vencimento'/.test(r.d)) {
+    if (!r || !/'pagador'/.test(r.d)) {
       await q(`alter table carteira.eventos drop constraint if exists eventos_tipo_check`);
-      await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao','credito','devolucao','pendencia','observacao','vencimento'))`);
+      await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao','credito','devolucao','pendencia','observacao','vencimento','pagador'))`);
     }
     await q(`alter table carteira.acordos add column if not exists tipo text not null default 'acordo'`);
     await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
@@ -1811,6 +1812,7 @@ export default async (req) => {
   { const ru = await rotasUsuarios(p, m, body, real); if (ru) return ru; }
   { const rc = await rotasCobranca(p, m, body, url, real); if (rc) return rc; }
   { const ri = await rotasIA(p, m, body, url, real); if (ri) return ri; }
+  { const rp = await rotasPagador(p, m, body, real); if (rp) return rp; }
   { const ra = await rotasAcerto(p, m, body, real); if (ra) return ra; }
   { const rd = await DEV.rotas(p, m, body, real); if (rd) return rd; }
   { const rc2 = await rotasCessoes(p, m, body, real); if (rc2) return rc2; }
@@ -3269,4 +3271,74 @@ async function agregaNoAsaas(cid, quem) {
   }
   if (feitos.length) await log(quem || 'sistema', 'asaas_cliente_agregado', { cliente: c.id, nome: c.nome, feitos });
   return { feitos };
+}
+
+/* ================= em nome de quem saem os boletos ================= */
+/* regra: sempre o 1º titular (1º comprador, ou 1º cessionário depois de uma cessão); exceção = evento "pagador" no contrato (ex.: "emite no nome do meu marido") */
+async function titularesAtuais(n, locais) {
+  locais = locais || await q(`select cpf, nome, asaas->>'id' aid from carteira.clientes where nome is not null`);
+  const [e] = await q(`select dados->>'novos_titulares' t from carteira.eventos where contrato=$1 and tipo='cessao' and coalesce(dados->>'novos_titulares','')<>'' order by data desc nulls last, id desc limit 1`, [n]);
+  if (e) {
+    const nomes = String(e.t).replace(/[\[\]"]/g, '').split(/\s+e\s+|,|;/i).map(x => x.trim()).filter(x => x.length > 5);
+    return nomes.map(nome => { const k = locais.filter(x => mesmoNome(x.nome, nome)).sort((a, b) => (normNome(b.nome) === normNome(nome)) - (normNome(a.nome) === normNome(nome)))[0]; return { nome: k?.nome || nome, cpf: k?.cpf || null, aid: k?.aid || null }; });
+  }
+  const [ct] = await q('select compradores from carteira.contratos where numero=$1', [n]);
+  return (ct?.compradores || []).map(x => { const d = digF(x.cpf); const k = locais.find(y => y.cpf === d) || locais.find(y => mesmoNome(y.nome, x.nome)); return { nome: k?.nome || x.nome, cpf: d || k?.cpf || null, aid: k?.aid || null }; });
+}
+async function pagadorDefinido(n) {
+  const [e] = await q(`select id, data::text data, dados, obs from carteira.eventos where contrato=$1 and conferente='luis' and tipo='pagador' order by data desc, id desc limit 1`, [n]).catch(() => []);
+  return e && !e.dados?.padrao && e.dados?.cpf ? { nome: e.dados.nome, cpf: e.dados.cpf, desde: e.data, motivo: e.obs } : null;
+}
+async function pagadorPadraoAsaas(n) {
+  const ev = await pagadorDefinido(n);
+  if (ev) return clientePagador({ nome: ev.nome, cpf: ev.cpf });
+  const [t1] = await titularesAtuais(n);
+  if (t1?.cpf && digF(t1.cpf).length >= 11) {
+    const r = await asaas('/customers?cpfCnpj=' + digF(t1.cpf)).catch(() => null); const c = (r?.data || []).find(x => !x.deleted); if (c) return c.id;
+    return clientePagador({ nome: t1.nome, cpf: t1.cpf });
+  }
+  return null;
+}
+async function rotasPagador(p, m, body, real) {
+  if (p[0] === 'contrato' && p[1] && p[2] === 'pagador') {
+    const n = p[1];
+    if (m === 'GET') return json({ titulares: await titularesAtuais(n), definido: await pagadorDefinido(n) });
+    if (m === 'POST') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      if (!body.padrao && digF(body.cpf).length < 11) return json({ erro: 'Informe o CPF de quem vai receber os boletos' }, 400);
+      const dados = body.padrao ? { padrao: true } : { nome: String(body.nome || '').trim(), cpf: digF(body.cpf) };
+      await q(`insert into carteira.eventos(contrato, conferente, tipo, data, dados, obs) values ($1,'luis','pagador',(now() at time zone 'America/Sao_Paulo')::date,$2,$3)`, [n, dados, body.motivo || null]);
+      await log(real, 'pagador_boleto', { contrato: n, ...dados, motivo: body.motivo || null });
+      return json({ ok: true });
+    }
+  }
+  if (p[0] === 'manutencao' && p[1] === 'pagadores' && real === 'luis') {
+    /* contratos em que o último boleto saiu no nome de alguém que não é o 1º titular e não há troca registrada */
+    if (m === 'POST') {
+      for (const it of (body.itens || [])) {
+        if (digF(it.cpf).length < 11) continue;
+        await q(`insert into carteira.eventos(contrato, conferente, tipo, data, dados, obs) values ($1,'luis','pagador',(now() at time zone 'America/Sao_Paulo')::date,$2,$3)`, [it.contrato, { nome: it.nome, cpf: digF(it.cpf) }, 'Já era assim antes (organização de 06/11/2026)']);
+      }
+      await log(real, 'pagadores_organizados', { itens: body.itens });
+      return json({ ok: true, n: (body.itens || []).length });
+    }
+    const locais = await q(`select cpf, nome, asaas->>'id' aid from carteira.clientes where nome is not null`);
+    const porAid = Object.fromEntries(locais.filter(x => x.aid).map(x => [x.aid, x]));
+    const ults = await q(`select distinct on (b.contrato) b.contrato, b.dados->>'customer' cust, b.vencimento::text v from carteira.boletos b
+                          where b.tipo='parcela' and b.dados->>'customer' like 'cus_%' and b.vencimento >= (now() - interval '120 days')::date order by b.contrato, b.vencimento desc`);
+    const evs = new Set((await q(`select distinct contrato from carteira.eventos where tipo='pagador' and conferente='luis'`)).map(x => x.contrato));
+    const out = [];
+    for (const u of ults) {
+      if (evs.has(u.contrato)) continue;
+      const ts = await titularesAtuais(u.contrato, locais); if (!ts.length) continue;
+      const quem = porAid[u.cust];
+      const t1 = ts[0];
+      const ehPrimeiro = quem ? (quem.cpf && t1.cpf ? quem.cpf === digF(t1.cpf) : mesmoNome(quem.nome, t1.nome)) : (t1.aid === u.cust);
+      if (ehPrimeiro) continue;
+      out.push({ contrato: u.contrato, vencimento: u.v, hoje_no_nome_de: quem ? { nome: quem.nome, cpf: quem.cpf } : { nome: 'cliente ' + u.cust + ' (não está no cadastro daqui)', cpf: null },
+        eh_titular: !!quem && ts.some(t => (t.cpf && quem.cpf === digF(t.cpf)) || mesmoNome(t.nome, quem.nome)), primeiro_titular: { nome: t1.nome, cpf: t1.cpf }, titulares: ts.map(t => t.nome) });
+    }
+    return json(out.sort((a, b) => a.contrato.localeCompare(b.contrato)));
+  }
+  return null;
 }
