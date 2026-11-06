@@ -2953,7 +2953,8 @@ Pedido do usuário: ${String(texto).slice(0, 2000)}`;
   const ids = [];
   for (const a of acoes) {
     if (a.numero) { const ok = confereFone(a.numero, texto); if (!ok) continue; a.numero = ok; }
-    a.contrato = String(a.contrato || contrato || '').padStart(4, '0'); ids.push(await sugereIA(a.contrato, null, a, a.descricao || ACOES_IA[a.tipo], 'assistente', quem)); }
+    a.contrato = String(a.contrato || contrato || '').padStart(4, '0'); const desc = a.descricao || ACOES_IA[a.tipo]; delete a.descricao;
+    const id = await sugereIA(a.contrato, null, a, desc, 'assistente', quem); if (!ids.includes(id)) ids.push(id); }
   return { resposta: r.J.resposta || '', sugestoes: ids.length ? await q(`select * from carteira.ia_sugestoes where id = any($1) order by id`, [ids]) : [] };
 }
 async function rotasIA(p, m, body, url, real) {
