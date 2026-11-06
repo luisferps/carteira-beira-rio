@@ -2929,8 +2929,27 @@ async function contextoContratoIA(n) {
 ${caso ? `Está na campanha de cobrança, etapa "${caso.etapa}".` : 'Não está na campanha de cobrança.'} Dívida em atraso hoje: R$ ${(d?.total || 0).toFixed(2)} em ${d?.parcelas.length || 0} parcela(s).
 Próximas parcelas a vencer: ${fut.map(t => `${t.rotulo} (${t.v})`).join(', ') || 'nenhuma'}.`;
 }
-async function assistenteIA(texto, contrato, quem) {
+/* contratos citados no texto pelo nome do cliente: primeiro os da página em que o usuário está, depois o resto do sistema */
+async function contratosCitados(texto, pagina) {
+  const tks = normNome(texto).split(' ').filter(t => t.length >= 3 && !['que','com','para','pra','ele','ela','dele','dela','novo','nova','numero','trocou','pagar','pagou','dia','mes','boleto','parcela','cliente','contrato','telefone','mandou','falou','disse','prometeu','vai','esta','isso','aqui','hoje','amanha','ontem','ligou','liguei','mensal','anual'].includes(t));
+  if (!tks.length) return [];
+  const cts = await q(`select numero, compradores from carteira.contratos`);
+  const camp = new Set((await q(`select contrato from carteira.cobranca_casos where encerrado_em is null`)).map(x => x.contrato));
+  const out = [];
+  for (const c of cts) {
+    const nomes = (Array.isArray(c.compradores) ? c.compradores : []).map(x => normNome(x.nome)).filter(Boolean);
+    let pts = 0; for (const n of nomes) { const ns = n.split(' '); const hit = tks.filter(t => ns.includes(t)).length; if (hit) pts = Math.max(pts, hit + (tks.includes(ns[0]) ? 1 : 0)); }
+    if (/\b\d{4}\b/.test(texto) && texto.includes(c.numero)) pts += 5;
+    if (!pts) continue;
+    const naPagina = pagina === 'cobranca' && camp.has(c.numero);
+    out.push({ numero: c.numero, nomes: (c.compradores || []).map(x => x.nome).join(' e '), na_cobranca: camp.has(c.numero), pts: pts + (naPagina ? 3 : 0) });
+  }
+  return out.sort((a, b) => b.pts - a.pts).slice(0, 6);
+}
+async function assistenteIA(texto, contrato, quem, pagina) {
   const ctx = await contextoContratoIA(contrato);
+  const cit = contrato ? [] : await contratosCitados(texto, pagina);
+  const ctxCit = cit.length ? `Contratos que podem ser o citado (em ordem de prioridade; o usuário está na página "${pagina || 'início'}", então dê preferência aos ${pagina === 'cobranca' ? 'que estão na cobrança' : 'primeiros'}; se houver dúvida real entre mais de um, pergunte qual é em vez de propor ação):\n` + (await Promise.all(cit.slice(0, 3).map(c => contextoContratoIA(c.numero)))).join('\n') : '';
   const prompt = `Você é o assistente do sistema da carteira de recebíveis do loteamento Beira Rio. O usuário (${quem}) escreve um recado ou pedido. Você NÃO executa nada: só propõe ações para ele aprovar.
 Você só pode propor estas ações (nada além disso; nunca mexa em estrutura, design, regras, cálculos, configurações ou funcionamento do sistema — se pedirem isso, responda que não pode e que isso é com o desenvolvedor):
 - adicionar_telefone: {"tipo":"adicionar_telefone","contrato":"0000","nome":"nome do cliente","numero":"DDD+número só dígitos"}
@@ -2943,7 +2962,7 @@ Você só pode propor estas ações (nada além disso; nunca mexa em estrutura, 
 - anotar: {"tipo":"anotar","contrato":"0000","texto":"..."}
 - emitir_boleto: {"tipo":"emitir_boleto","contrato":"0000","parcela":"rótulo exato da parcela a vencer, ex.: Mensal 52/120"}
 Hoje é ${hojeBR()}. Use o contrato do contexto quando o usuário não disser outro. Não invente números, datas ou valores que o usuário não disse.
-${ctx ? 'Contexto:\n' + ctx : 'Nenhum contrato aberto na tela: se o pedido precisar de contrato e ele não disser, pergunte.'}
+${ctx ? 'Contrato aberto na tela (é dele que o usuário está falando, salvo se disser outro):\n' + ctx : ctxCit || 'Nenhum contrato identificado: se o pedido precisar de contrato e ele não disser, pergunte.'}
 Devolva SOMENTE um JSON: {"resposta":"frase curta em português explicando o que você vai fazer ou por que não pode","acoes":[{...,"descricao":"frase curta do que a ação faz"}]}
 
 Pedido do usuário: ${String(texto).slice(0, 2000)}`;
@@ -2952,6 +2971,7 @@ Pedido do usuário: ${String(texto).slice(0, 2000)}`;
   const acoes = (Array.isArray(r.J.acoes) ? r.J.acoes : []).filter(a => a && ACOES_IA[a.tipo]).slice(0, 6);
   const ids = [];
   for (const a of acoes) {
+    if (!a.contrato && !contrato) continue;
     if (a.numero) { const ok = confereFone(a.numero, texto); if (!ok) continue; a.numero = ok; }
     a.contrato = String(a.contrato || contrato || '').padStart(4, '0'); const desc = a.descricao || ACOES_IA[a.tipo]; delete a.descricao;
     const id = await sugereIA(a.contrato, null, a, desc, 'assistente', quem); if (!ids.includes(id)) ids.push(id); }
@@ -2961,7 +2981,7 @@ async function rotasIA(p, m, body, url, real) {
   if (p[0] !== 'ia') return null;
   if (real !== 'luis') return json({ erro: 'Por enquanto a IA é só do administrador' }, 403);
   await garanteIA();
-  if (p[1] === 'assistente' && m === 'POST') return json(await assistenteIA(body.texto || '', body.contrato || null, ATOR || real));
+  if (p[1] === 'assistente' && m === 'POST') return json(await assistenteIA(body.texto || '', body.contrato || null, ATOR || real, body.pagina || ''));
   if (p[1] === 'sugestoes' && !p[2] && m === 'GET') {
     const n = url.searchParams.get('contrato');
     return json(await q(`select * from carteira.ia_sugestoes where status='pendente' ${n ? 'and contrato=$1' : ''} order by id desc limit 50`, n ? [n] : []));
