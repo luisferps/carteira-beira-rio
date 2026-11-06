@@ -3155,7 +3155,7 @@ const emailsDe = (...v) => [...new Set(v.flatMap(e => String(e || '').split(/[,;
 function oQueAgregar(c, a) {
   const M = c.manual || {}, P = c.planilha || {};
   /* só o telefone do próprio cliente (editado aqui ou o pessoal da planilha); telefone de referência/comercial pode ser de outra pessoa e não vai para o Asaas */
-  const fones = [M.telefone, P.fone].map(digF).filter(d => d.length >= 10 && d.length <= 11 && d !== '62992893573');
+  const fones = [M.telefone, P.fone].map(digF).filter(d => d !== '62992893573' && /^[1-9][1-9]/.test(d) && ((d.length === 11 && d[2] === '9' && /[6-9]/.test(d[3])) || (d.length === 10 && /[2-5]/.test(d[2]))));
   const temF = [a.mobilePhone, a.phone].map(digF).filter(Boolean).map(x => x.slice(-8));
   const novos = [...new Set(fones.filter(f => !temF.includes(f.slice(-8))))];
   const upd = {};
