@@ -2730,7 +2730,7 @@ ${conversa}`;
     const d = confereFone(J.numero_novo.numero, conversa) || '';
     const conhecidos = (await clientesDoContrato(c.contrato)).flatMap(fonesDoCliente).map(f => f.slice(-8));
     if (d.length >= 10 && d.length <= 11 && !conhecidos.includes(d.slice(-8)))
-      await sugereIA(c.contrato, c.id, { tipo: 'adicionar_telefone', contrato: c.contrato, nome: J.numero_novo.de_quem || '', numero: d }, `Incluir o telefone ${d} no cadastro de ${J.numero_novo.de_quem || 'cliente'} (visto na conversa)`, 'conversa', 'IA');
+      { const ac = { tipo: 'adicionar_telefone', contrato: c.contrato, nome: J.numero_novo.de_quem || '', numero: d }; await sugereIA(c.contrato, c.id, ac, await previaAcaoIA(ac), 'conversa', 'IA'); }
   }
   /* a IA só move o card até Promessa; Proposta, Acordo, Notificação e Retomada são do Luis */
   const [atual] = await q(`select etapa from carteira.cobranca_casos where id=$1`, [c.id]);
@@ -2916,6 +2916,28 @@ async function executaAcaoIA(a, quem) {
   }
   throw new Error('Ação não permitida');
 }
+/* o que exatamente a ação vai mudar, escrito pelo sistema (não pela IA) para o usuário conferir antes de aprovar */
+async function previaAcaoIA(a) {
+  const n = a.contrato;
+  try {
+    const cs = n ? await clientesDoContrato(n) : [];
+    const k = normNome(a.nome || ''); const c = cs.find(x => k && normNome(x.nome).split(' ')[0] === k.split(' ')[0]) || cs[0];
+    const [caso] = n ? await q(`select etapa from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [n]) : [];
+    const ETN = { fila: 'Na fila', contato1: 'Contato 1', contato2: 'Contato 2', contato3: 'Contato 3', negociando: 'Negociando', promessa: 'Promessa de pagamento', proposta: 'Proposta de pagamento', acordo: 'Acordo feito', sem_retorno: 'Sem retorno', notificacao: 'Notificação / jurídico', retomada: 'Retomada do lote' };
+    const dt = d => String(d || '').split('-').reverse().join('/');
+    if (a.tipo === 'adicionar_telefone') { const M = c?.manual || {}; return `Contrato ${n} · cadastro de ${c?.nome || '?'}: telefone principal passa a ser ${a.numero}${M.telefone ? ` (o ${M.telefone} fica guardado como anterior)` : ''}.`; }
+    if (a.tipo === 'alterar_email') return `Contrato ${n} · cadastro de ${c?.nome || '?'}: e-mail de "${(c?.manual || {}).email || (c?.asaas || {}).email || 'vazio'}" para "${a.valor}".`;
+    if (a.tipo === 'alterar_endereco') return `Contrato ${n} · cadastro de ${c?.nome || '?'}: endereço passa a ser "${a.valor}".`;
+    if (a.tipo === 'marcar_numero_ruim') return `Número ${a.numero} marcado como "sem WhatsApp / mudou" (vai para Números com problema).`;
+    if (!caso && ['registrar_contato', 'registrar_promessa', 'mudar_etapa', 'anotar'].includes(a.tipo)) return `Contrato ${n}: não está na cobrança — essa ação não vai funcionar.`;
+    if (a.tipo === 'registrar_contato') return `Contrato ${n} · cobrança: registra ${({ ligacao: 'ligação', whatsapp: 'WhatsApp', email: 'e-mail', visita: 'visita' })[a.como] || 'contato'}${a.resultado ? ' — ' + a.resultado : ''}: "${a.texto || ''}".`;
+    if (a.tipo === 'registrar_promessa') return `Contrato ${n} · cobrança: promessa de pagar${a.valor ? ' R$ ' + (+a.valor).toFixed(2).replace('.', ',') : ''} até ${dt(a.data)}; etapa de "${ETN[caso.etapa] || caso.etapa}" para "Promessa de pagamento".`;
+    if (a.tipo === 'mudar_etapa') return `Contrato ${n} · cobrança: etapa de "${ETN[caso.etapa] || caso.etapa}" para "${ETN[a.etapa] || a.etapa}".`;
+    if (a.tipo === 'anotar') return `Contrato ${n} · cobrança: anota no histórico "${a.texto || ''}".`;
+    if (a.tipo === 'emitir_boleto') return `Contrato ${n}: emite no Asaas o boleto da ${a.parcela}.`;
+  } catch (e) { }
+  return ACOES_IA[a.tipo] || a.tipo;
+}
 /* resumo da situação de um contrato para a IA */
 async function contextoContratoIA(n) {
   if (!n) return '';
@@ -2963,7 +2985,7 @@ Você só pode propor estas ações (nada além disso; nunca mexa em estrutura, 
 - emitir_boleto: {"tipo":"emitir_boleto","contrato":"0000","parcela":"rótulo exato da parcela a vencer, ex.: Mensal 52/120"}
 Hoje é ${hojeBR()}. Use o contrato do contexto quando o usuário não disser outro. Não invente números, datas ou valores que o usuário não disse.
 ${ctx ? 'Contrato aberto na tela (é dele que o usuário está falando, salvo se disser outro):\n' + ctx : ctxCit || 'Nenhum contrato identificado: se o pedido precisar de contrato e ele não disser, pergunte.'}
-Devolva SOMENTE um JSON: {"resposta":"frase curta em português explicando o que você vai fazer ou por que não pode","acoes":[{...,"descricao":"frase curta do que a ação faz"}]}
+Devolva SOMENTE um JSON: {"resposta":"resumo BREVE (no máximo 2 frases) do que o usuário pediu e do que você vai mexer, ou por que não pode / o que precisa saber","acoes":[{...}]}
 
 Pedido do usuário: ${String(texto).slice(0, 2000)}`;
   const r = await chamaIA(prompt, 1200);
@@ -2973,7 +2995,7 @@ Pedido do usuário: ${String(texto).slice(0, 2000)}`;
   for (const a of acoes) {
     if (!a.contrato && !contrato) continue;
     if (a.numero) { const ok = confereFone(a.numero, texto); if (!ok) continue; a.numero = ok; }
-    a.contrato = String(a.contrato || contrato || '').padStart(4, '0'); const desc = a.descricao || ACOES_IA[a.tipo]; delete a.descricao;
+    a.contrato = String(a.contrato || contrato || '').padStart(4, '0'); delete a.descricao; const desc = await previaAcaoIA(a);
     const id = await sugereIA(a.contrato, null, a, desc, 'assistente', quem); if (!ids.includes(id)) ids.push(id); }
   return { resposta: r.J.resposta || '', sugestoes: ids.length ? await q(`select * from carteira.ia_sugestoes where id = any($1) order by id`, [ids]) : [] };
 }
