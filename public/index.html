@@ -1211,10 +1211,13 @@ async function marca(tid,sit){let obs=null;if(sit)obs=prompt('Observação (opci
 async function verPrint(id){const d=await api('print/'+id);const w=window.open('');w.document.write(`<img src="${d.conteudo}" style="max-width:100%">`)}
 
 /* acordo */
-function calcAcordo(ids,data){
+function calcAcordo(ids,data,reneg){
   let pr=0,mu=0,ju=0,ho=0;
-  /* regra do Luis: custo de cobrança (10%) só nas parcelas com mais de 60 dias de atraso, qualquer que seja a forma de pagar (avulsa ou renegociada) */
-  for(const id of ids){const t=C.titulos.find(x=>x.id==id);if(!t)continue;const k=atrasoDe(t,data);pr+=k.v+k.co;mu+=k.mu;ju+=k.ju;ho+=k.ho}
+  /* regra do Luis: pagamento avulso só leva custo de cobrança (10%) com mais de 60 dias de atraso.
+     Renegociação nova (reneg=true, a partir de 06/11/2026): toda parcela vencida que entra nela leva os 10%, mesmo com menos de 60 dias.
+     Acordos antigos continuam pela regra antiga (reneg=false). */
+  for(const id of ids){const t=C.titulos.find(x=>x.id==id);if(!t)continue;const k=atrasoDe(t,data);pr+=k.v+k.co;mu+=k.mu;ju+=k.ju;ho+=k.ho;
+    if(reneg&&k.dias>0&&!(k.ho>0.004))ho+=(k.v+k.co+k.mu+k.ju)*0.10}
   return {principal:r2(pr),multa:r2(mu),juros:r2(ju),honorarios:r2(ho),total:r2(pr+mu+ju+ho)};
 }
 function modalAcordo(aid,pid){
@@ -1244,11 +1247,11 @@ function modalAcordo(aid,pid){
   <div class="f2" style="margin-top:8px"><div><label>Termo de renegociação nº</label><input id="a_termo" placeholder="${proxTermo()}" value="${esc(a?.termo||pd?.termo||'')}"><small class="mut">Formato: contrato-sequência (ex.: ${proxTermo()}). Deixe vazio se não houver termo.</small></div><div><label>Observação</label><input id="a_obs" value="${esc(a?.obs||pd?.obs||'')}"></div></div>
   ${aid&&A0T(aid)?`<div style="margin-top:10px">${tagTermo(A0T(aid))}</div>`:''}<div class="bt" style="margin-top:12px"><button onclick="${aid&&A0T(aid)?`baixaTermo(acordoParaTermo(${aid}))`:'emiteTermo()'}">Baixar termo (Word)</button>${aid&&A0T(aid)?`<button onclick="editaTermo(acordoParaTermo(${aid}))">Editar termo</button>`:''}${pd?`<button class="pri" onclick="salvaPropostaEd(${pid})">Salvar alterações da proposta</button>`:aid?'':'<button class="pri" onclick="salvaProposta()">Salvar proposta</button>'}${pd?'':`<button ${aid?'class="pri"':''} onclick="salvaAcordo(${aid||'null'})">${aid?'Salvar acordo':'Salvar já efetivado'}</button>`}</div>`);
   let P=pars.map(p=>({...p,vfixo:true}));const num=s=>numBR(s)||0;let B;
-  const calc=()=>calcAcordo(ids,$('#a_data').value);
+  const calc=()=>calcAcordo(ids,$('#a_data').value,true);
   const mostraB=(skip)=>{for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])if(id!==skip)$('#'+id).value=brl(B[k]);
     const c=calc();$('#a_calc').textContent=brl(c.total);B.de=0;if(skip!=='a_de')$('#a_de').value=brl(B.de);$('#a_som2').textContent=brl(r2(B.pr+B.mu+B.ju+B.ho));
     $('#a_ate').textContent=`— multa e juros calculados até ${dbr($('#a_data').value)}, a data do acordo`;
-    $('#a_det').innerHTML=orig.map(t=>{const k=atrasoDe(t,$('#a_data').value);return `${esc(t.rotulo)}: ${brl(k.v)} + correção ${brl(k.co)} · venceu ${dbr(t.vencimento)} · ${k.dias} dia(s) de atraso · multa ${brl(k.mu)} · juros ${brl(k.ju)} · cobrança ${brl(k.ho)} · total ${brl(k.tot)}`}).join('<br>');
+    $('#a_det').innerHTML=orig.map(t=>{const k={...atrasoDe(t,$('#a_data').value)};if(k.dias>0&&!(k.ho>0.004)){k.ho=(k.v+k.co+k.mu+k.ju)*0.10;k.tot+=k.ho}return `${esc(t.rotulo)}: ${brl(k.v)} + correção ${brl(k.co)} · venceu ${dbr(t.vencimento)} · ${k.dias} dia(s) de atraso · multa ${brl(k.mu)} · juros ${brl(k.ju)} · cobrança ${brl(k.ho)} · total ${brl(k.tot)}`}).join('<br>');
     $('#a_av').innerHTML=num($('#a_val').value)<B.pr-0.009?`<div class="aviso">O valor acordado é menor que o principal. Ele quita as parcelas mesmo assim (vai todo para o principal).</div>`:''};
   const deCalc=()=>{const c=calc();B={pr:c.principal,mu:c.multa,ju:c.juros,ho:c.honorarios,de:0};$('#a_val').value=brl(c.total)};
   const peloValor=()=>{const c=calc(),v=num($('#a_val').value),q=repartir({principal:c.principal,multa:c.multa,juros:c.juros},v);B={pr:Math.min(c.principal,v),mu:q.multa,ju:q.juros,ho:q.honorarios,de:q.desconto}};
