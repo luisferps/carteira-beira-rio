@@ -874,7 +874,7 @@ function cliRapido(){const L=(C.clientes||[]).map(c=>({c,k:c.contratos.find(k=>k
   return `<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">${M.map(({c})=>{const d=cliDados(c),t=d.tel[0];
     return `<div style="display:flex;align-items:center;gap:8px"><button onclick="location.hash='cl/${c.id}'">Ver cadastro do cliente${M.length>1?' — '+esc(d.nome.split(' ')[0]):''}</button>
     ${t?`<a href="https://wa.me/${waNum(t.v)}" target="_blank" title="WhatsApp ${esc(t.v)}" style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:#25d366">${WA_SVG}</a>`:'<span class="mut" style="font-size:12px">sem telefone</span>'}</div>`}).join('')}</div>`}
-function desenhaContrato(){setTimeout(linhaPagador,0);
+function desenhaContrato(){if(location.hash.startsWith('#cob/'))return;setTimeout(linhaPagador,0);
   const c=C.contrato,tt=totais(),T=C.titulos,base=T.filter(t=>t.grupo!=='acordo');
   const ent=base.filter(t=>t.grupo==='entrada'),men=base.filter(t=>t.grupo==='mensal'),anu=base.filter(t=>t.grupo==='anual'),out=base.filter(t=>t.grupo==='outra');
   let linhas='';
@@ -1336,7 +1336,10 @@ function enviaTermo(termo){const i=document.createElement('input');i.type='file'
 async function voltaTermo(termo){if(!confirm('Apagar a versão editada do termo '+termo+' e voltar a usar a gerada pelo sistema?'))return;await api('termo-arq/'+encodeURIComponent(termo),{method:'DELETE'});recarrega()}
 /* termo fica salvo no sistema assim que o acordo/proposta é gravado (versão "auto" acompanha as edições do acordo; versão editada à mão fica como está) */
 /* ações da proposta/acordo a partir da tela da cobrança: abre o contrato e executa */
-async function acaoCob(n,acao,id){location.hash='c/'+n;for(let i=0;i<60&&!(C&&C.contrato&&C.contrato.numero===n&&document.querySelector('#app details'));i++)await new Promise(r=>setTimeout(r,250));
+async function acaoCob(n,acao,id){
+  /* dentro do caso de cobrança: faz a ação ali mesmo, sem ir para a página do contrato */
+  if(location.hash.startsWith('#cob/')&&CASO?.cc?.contrato?.numero===n){C=CASO.cc;if(!C.clientes)C.clientes=await api('clientes?contrato='+n).catch(()=>[]);SEL.clear();SELMODO=false}
+  else{location.hash='c/'+n;for(let i=0;i<60&&!(C&&C.contrato&&C.contrato.numero===n&&document.querySelector('#app details'));i++)await new Promise(r=>setTimeout(r,250))}
   const A={editp:()=>modalAcordo(null,id),termop:()=>editaTermo(pDados(id)),baixap:()=>baixaTermo(pDados(id)),desfazp:()=>apagaProposta(id),efetp:()=>efetivaProposta(id),termoa:()=>editaTermo(acordoParaTermo(id)),baixaa:()=>baixaTermo(acordoParaTermo(id))};return A[acao]&&A[acao]()}
 async function guardaTermoAuto(d){try{if(!d?.termo)return;const x=tArq(d.termo);if(x&&x.nome!=='auto')return;await carregaTermo();const html=window.htmlTermo(d);
   await api('termo-arq',{method:'POST',body:{contrato:C.contrato.numero,termo:d.termo,html,nome:'auto'}});const cl=C.clientes;C=await api('contrato/'+C.contrato.numero);C.clientes=cl}catch(e){console.warn('termo auto',e)}}
