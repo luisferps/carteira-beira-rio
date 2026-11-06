@@ -2371,6 +2371,20 @@ export default async (req) => {
     /* boletos no nome de outra pessoa: exceção só do administrador */
     if (real !== 'luis' && body && typeof body === 'object' && ['acordo', 'proposta'].includes(p[0])) { delete body.pagador; if (body.dados && typeof body.dados === 'object') delete body.dados.pagador; }
     /* anotações internas (exceções, correções do Luis) ficam só no banco, fora da tela: tira da observação e guarda em nota_interna */
+    if (p[0] === 'manutencao' && p[1] === 'asaas-trocar-celular' && m === 'POST' && real === 'luis') {
+      /* troca de celular pedida pelo administrador: o celular novo passa a receber os avisos do Asaas; o antigo sai do Asaas */
+      const [c] = await q(`select * from carteira.clientes where id=$1`, [body.cliente_id]);
+      if (!c?.cpf) return json({ erro: 'Cliente não encontrado' }, 404);
+      const novo = digF(body.celular); if (novo.length !== 11) return json({ erro: 'Celular inválido' }, 400);
+      const r = await asaas(`/customers?cpfCnpj=${c.cpf}&limit=10`); const out = [];
+      for (const a of (r?.data || []).filter(x => !x.deleted)) {
+        const upd = { mobilePhone: novo }; if (digF(a.phone) === novo || (body.apagar_antigo && digF(a.phone))) upd.phone = '';
+        const n2 = await asaasReq('POST', '/customers/' + a.id, upd); out.push({ asaas: a.id, antes: a.mobilePhone, depois: n2.mobilePhone });
+        if (c.asaas?.id === a.id) await q(`update carteira.clientes set asaas=$2 where id=$1`, [c.id, n2]);
+      }
+      await log(real, 'asaas_celular_trocado', { cliente: c.id, nome: c.nome, novo, out, motivo: body.motivo || null });
+      return json({ ok: true, out });
+    }
     if (p[0] === 'manutencao' && p[1] === 'agrega-asaas' && real === 'luis') {
       /* clientes com telefone/e-mail aqui que faltam no Asaas: agrega lá (pela foto do Asaas guardada aqui; confirma no Asaas antes de gravar) */
       const cl = await q(`select id, nome, cpf, planilha, manual, asaas from carteira.clientes where cpf is not null and asaas is not null`);
