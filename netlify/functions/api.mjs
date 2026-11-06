@@ -3328,7 +3328,10 @@ async function rotasPagador(p, m, body, real) {
     }
   }
   if (p[0] === 'manutencao' && p[1] === 'termos' && real === 'luis') {
-    return json(await q(`select a.contrato, a.id, a.termo from carteira.acordos a where a.termo is not null and a.termo<>'' and a.conferente='luis' order by a.termo`).catch(e => ({ erro: e.message })));
+    await q(`create table if not exists carteira.termos_pasta(termo text primary key, gravado_em timestamptz default now(), por text)`);
+    if (m === 'POST') { if (body?.termo) await q(`insert into carteira.termos_pasta(termo, por) values ($1,$2) on conflict (termo) do update set gravado_em=now(), por=$2`, [String(body.termo), real]); return json({ ok: true }); }
+    return json(await q(`select a.contrato, a.id, a.termo from carteira.acordos a where a.termo is not null and a.termo<>'' and a.conferente='luis'
+                         and not exists (select 1 from carteira.termos_pasta x where x.termo=a.termo) order by a.termo`).catch(e => ({ erro: e.message })));
   }
   if (p[0] === 'manutencao' && p[1] === 'pagadores' && real === 'luis') {
     /* contratos em que o último boleto saiu no nome de alguém que não é o 1º titular e não há troca registrada */
