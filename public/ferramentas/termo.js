@@ -131,7 +131,7 @@ async function pdfBlob(html){
   const el=document.createElement('div');el.style.cssText='width:170mm;font-family:Arial;font-size:12px;line-height:1.45;text-align:justify;color:#000';
   el.innerHTML=`<style>p{margin:0 0 8px}table{border-collapse:collapse;width:100%;margin:6px 0}td,th{border:1px solid #999;padding:3px 5px;font-size:10.5px}th{background:#e8eef4}</style>`+html;
   const wm=await new Promise(r=>{const i=new Image();i.onload=()=>r(i);i.onerror=()=>r(null);i.src='/ferramentas/wm.png'});
-  return await window.html2pdf().set({margin:[18,20,18,20],image:{type:'jpeg',quality:0.96},html2canvas:{scale:2,useCORS:true},jsPDF:{unit:'mm',format:'a4'},pagebreak:{mode:['css','legacy']}})
+  return await window.html2pdf().set({margin:[18,20,18,20],image:{type:'jpeg',quality:0.85},html2canvas:{scale:1.6,useCORS:true},jsPDF:{unit:'mm',format:'a4'},pagebreak:{mode:['css','legacy']}})
     .from(el).toPdf().get('pdf').then(pdf=>{if(wm){const n=pdf.internal.getNumberOfPages();for(let i=1;i<=n;i++){pdf.setPage(i);try{pdf.setGState(new pdf.GState({opacity:0.45}))}catch(e){}pdf.addImage(wm,'PNG',61,62,88,145);try{pdf.setGState(new pdf.GState({opacity:1}))}catch(e){}}}return pdf.output('blob')});
 }
 async function arquivosTermo(A0,htmlPronto){
