@@ -1545,7 +1545,7 @@ async function rotasCobranca(p, m, body, url, real) {
     if (b.etapa === 'sem_retorno' && !podeSemRetorno(c.etapa)) return json({ erro: 'Sem retorno só depois do contato 3.' }, 400);
     const novaEtapa = b.etapa || (b.data_promessa ? 'promessa' : (['whatsapp', 'ligacao', 'email', 'visita'].includes(b.tipo) && b.resultado !== 'Número errado' ? PROX_CONTATO[c.etapa] || null : null));
     if (novaEtapa && novaEtapa !== c.etapa) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,$4)`, [c.id, c.contrato, `${c.etapa} → ${novaEtapa}`, quem]);
-    await q(`update carteira.cobranca_casos set etapa=coalesce($2, etapa), proximo_contato=coalesce($3::date, proximo_contato), atualizado_em=now() where id=$1`, [c.id, novaEtapa, b.proximo_contato || b.data_promessa || null]);
+    await q(`update carteira.cobranca_casos set etapa=coalesce($2, etapa), proximo_contato=coalesce($3::date, proximo_contato), responsavel=coalesce(nullif(responsavel,''), $4), atualizado_em=now() where id=$1`, [c.id, novaEtapa, b.proximo_contato || b.data_promessa || null, ['whatsapp', 'ligacao', 'email', 'visita'].includes(b.tipo) ? quem : null]);
     return json({ ok: true, id: novo.id });
   }
   if (p[1] === 'caso' && p[2] && !p[3] && m === 'PUT') {
@@ -1587,6 +1587,10 @@ async function rotasCobranca(p, m, body, url, real) {
     await q(`delete from carteira.cobranca_registros where caso_id=$1`, [p[2]]);
     await log(real, 'cobranca_caso_excluido', { caso: p[2], contrato: c?.contrato });
     return json({ ok: true });
+  }
+  if (p[1] === 'usuarios' && m === 'GET') {
+    const us = await q(`select nome, email from carteira.usuarios where status='ativo' order by nome`).catch(() => []);
+    return json([{ nome: 'Luis', email: 'luis' }, ...us.filter(u => u.email !== 'luis')]);
   }
   if (p[1] === 'resultado' && m === 'GET') {
     const casos = await q(`select c.id, c.contrato, c.criado_em, c.encerrado_em, c.motivo_encerramento, c.etapa,
