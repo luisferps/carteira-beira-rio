@@ -142,11 +142,11 @@ async function pdfBlob(html){
     while(ini<tot-1){const lim=ini+PAG;if(lim>=tot){cortes.push([ini,tot]);break}
       const c=fins.filter(x=>x>ini+PAG*0.5&&x<=lim).pop()||lim;cortes.push([ini,c]);ini=c}
     const wm=await new Promise(r=>{const i=new Image();i.onload=()=>r(i);i.onerror=()=>r(null);i.src='/ferramentas/wm.png'});
-    const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4'});
+    const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4',compress:true});
     cortes.forEach(([y0,y1],k)=>{if(k)pdf.addPage();
       const h=Math.ceil((y1-y0)*SC),pc=document.createElement('canvas');pc.width=cv.width;pc.height=h;const g=pc.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,pc.width,h);g.drawImage(cv,0,Math.floor(y0*SC),cv.width,h,0,0,cv.width,h);
       pdf.addImage(pc.toDataURL('image/jpeg',0.82),'JPEG',20,20,170,(y1-y0)/PXMM);
-      if(wm){try{pdf.setGState(new pdf.GState({opacity:0.45}))}catch(e){}pdf.addImage(wm,'PNG',61,62,88,145);try{pdf.setGState(new pdf.GState({opacity:1}))}catch(e){}}});
+      if(wm){try{pdf.setGState(new pdf.GState({opacity:0.45}))}catch(e){}pdf.addImage(wm,'PNG',61,62,88,145,'wm','FAST');try{pdf.setGState(new pdf.GState({opacity:1}))}catch(e){}}});
     return pdf.output('blob')}
   finally{fr.remove()}
 }
