@@ -124,6 +124,39 @@ window.emitirTermo=async function(A0,modo,htmlPronto){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=arq;a.click();
   return true};
 window.escolhePastaTermo=async()=>{window._pastaTermo=await pasta();return !!window._pastaTermo};
+/* ===== arquivos do termo: Word e PDF (o PDF é gerado aqui mesmo, com a marca d'água) ===== */
+const carregaJS=src=>new Promise((ok,er)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=er;document.head.appendChild(s)});
+async function pdfBlob(html){
+  if(!window.html2pdf)await carregaJS('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
+  const el=document.createElement('div');el.style.cssText='width:170mm;font-family:Arial;font-size:12px;line-height:1.45;text-align:justify;color:#000';
+  el.innerHTML=`<style>p{margin:0 0 8px}table{border-collapse:collapse;width:100%;margin:6px 0}td,th{border:1px solid #999;padding:3px 5px;font-size:10.5px}th{background:#e8eef4}</style>`+html;
+  const wm=await new Promise(r=>{const i=new Image();i.onload=()=>r(i);i.onerror=()=>r(null);i.src='/ferramentas/wm.png'});
+  return await window.html2pdf().set({margin:[18,20,18,20],image:{type:'jpeg',quality:0.96},html2canvas:{scale:2,useCORS:true},jsPDF:{unit:'mm',format:'a4'},pagebreak:{mode:['css','legacy']}})
+    .from(el).toPdf().get('pdf').then(pdf=>{if(wm){const n=pdf.internal.getNumberOfPages();for(let i=1;i<=n;i++){pdf.setPage(i);try{pdf.setGState(new pdf.GState({opacity:0.45}))}catch(e){}pdf.addImage(wm,'PNG',61,62,88,145);try{pdf.setGState(new pdf.GState({opacity:1}))}catch(e){}}}return pdf.output('blob')});
+}
+async function arquivosTermo(A0,htmlPronto){
+  const d=dadosTermo(A0);const {c,num,nome1}=d;const html=htmlPronto||window.htmlTermo(d.A);
+  const pastaNome=`${num} - Q${c.quadra} L${c.lote} - ${nome1}`.replace(/[\\/:*?"<>|]/g,''),base=`${num} - Termo de Renegociação - ${nome1}`.replace(/[\\/:*?"<>|]/g,'');
+  return {num,pastaNome,base,html};
+}
+/* Word ou PDF: o usuário escolhe onde salvar */
+window.salvaTermoComo=async function(A0,htmlPronto,tipo){
+  let F;try{F=await arquivosTermo(A0,htmlPronto)}catch(e){alert(e.message);return}
+  const nome=F.base+(tipo==='pdf'?'.pdf':'.docx');let fh=null;
+  if(window.showSaveFilePicker){try{fh=await window.showSaveFilePicker({suggestedName:nome,types:[tipo==='pdf'?{description:'PDF',accept:{'application/pdf':['.pdf']}}:{description:'Word',accept:{'application/vnd.openxmlformats-officedocument.wordprocessingml.document':['.docx']}}]})}catch(e){if(e.name==='AbortError')return}}
+  const blob=tipo==='pdf'?await pdfBlob(F.html):await htmlParaDocx(F.html,F.num);
+  if(fh){const w=await fh.createWritable();await w.write(blob);await w.close();return true}
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=nome;a.click();return true};
+/* registra o termo (Word + PDF) na pasta Renegociações do OneDrive: Renegociações\<nº - Qx Ly - Nome>\ */
+window.gravaTermoNaPasta=async function(A0,htmlPronto,h){
+  let F;try{F=await arquivosTermo(A0,htmlPronto)}catch(e){return {erro:e.message}}
+  h=h||await pasta();if(!h)return {erro:'pasta Renegociações não escolhida'};
+  try{const p=await h.queryPermission({mode:'readwrite'});if(p!=='granted'){const p2=await h.requestPermission({mode:'readwrite'});if(p2!=='granted')return {erro:'sem permissão para gravar na pasta'}}}catch(e){}
+  try{const sub=await h.getDirectoryHandle(F.pastaNome,{create:true});
+    for(const [ext,blob] of [['.docx',await htmlParaDocx(F.html,F.num)],['.pdf',await pdfBlob(F.html)]]){const f=await sub.getFileHandle(F.base+ext,{create:true});const w=await f.createWritable();await w.write(blob);await w.close()}
+    return {ok:true,caminho:'Renegociações\\'+F.pastaNome}}
+  catch(e){return {erro:(e.name||'')+': '+(e.message||e)}}};
+window.pastaRenegociacoes=pasta;
 /* PDF do termo: abre o termo numa janela já com a marca d'água e manda imprimir — escolher "Salvar como PDF" */
 window.pdfDoTermo=async function(A0,htmlPronto,w){
   let d;try{d=dadosTermo(A0)}catch(e){if(w)w.close();alert(e.message);return}
