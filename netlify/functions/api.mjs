@@ -1448,6 +1448,24 @@ async function rotasCobranca(p, m, body, url, real) {
   if (p[1] === 'painel' && m === 'GET') {
     {
       const D0 = await dividas(null);
+      await q(`create table if not exists carteira.cobranca_fora(contrato text primary key, em timestamptz default now(), por text, motivo text)`);
+      const fora = new Set((await q(`select contrato from carteira.cobranca_fora`)).map(x => x.contrato));
+      const abertos = new Set((await q(`select contrato from carteira.cobranca_casos where encerrado_em is null`)).map(x => x.contrato));
+      /* entrada automática: dívida acima de R$ 5 mil entra na fila, menos quem o Luis tirou da cobrança */
+      for (const d of Object.values(D0)) {
+        if (d.total <= 5000 || abertos.has(d.contrato) || fora.has(d.contrato)) continue;
+        const [c] = await q(`insert into carteira.cobranca_casos(contrato, etapa, proximo_contato, criado_por) values ($1,'fila',current_date,'sistema') on conflict do nothing returning id`, [d.contrato]);
+        if (c) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, d.contrato, `Enviado para cobrança (entrou sozinho: dívida acima de R$ 5 mil). Dívida de hoje: R$ ${d.total.toFixed(2).replace('.', ',')} em ${d.parcelas.length} parcela(s).`]);
+      }
+      /* promessa vencida sem pagamento volta para Negociando e para a agenda de hoje */
+      for (const c of await q(`select c.id, c.contrato, r.data_promessa::text dp, r.em from carteira.cobranca_casos c
+          join lateral (select data_promessa, em from carteira.cobranca_registros r where r.caso_id=c.id and r.data_promessa is not null order by r.em desc limit 1) r on true
+          where c.encerrado_em is null and c.etapa='promessa' and r.data_promessa < $1::date
+          and not exists (select 1 from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato=c.contrato and g.conferente='luis' and g.confirmada_em >= r.em::date)`, [hojeBR()])) {
+        await q(`update carteira.cobranca_casos set etapa='negociando', proximo_contato=current_date, atualizado_em=now() where id=$1`, [c.id]);
+        await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa','promessa → negociando','sistema')`, [c.id, c.contrato]);
+        await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, c.contrato, `Promessa de pagamento para ${c.dp.split('-').reverse().join('/')} não cumprida — voltou para Negociando e para a agenda de hoje.`]);
+      }
       for (const c of await q(`select id, contrato, criado_em, etapa from carteira.cobranca_casos where encerrado_em is null`)) {
         const tot = D0[c.contrato]?.total || 0;
         if (tot >= 5000) continue;
@@ -1468,7 +1486,8 @@ async function rotasCobranca(p, m, body, url, real) {
     const D = await dividas(null);
     const pagos = await q(`select t.contrato, sum(g.valor_pago)::numeric v, max(g.confirmada_em)::text ult from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
                            join carteira.cobranca_casos c on c.contrato=t.contrato and c.encerrado_em is null where g.conferente='luis' and g.confirmada_em >= c.criado_em::date group by t.contrato`);
-    const graves = Object.values(D).filter(d => d.total > 5000 && !casos.some(c => c.contrato === d.contrato))
+    const foraM = Object.fromEntries((await q(`select contrato, motivo, em from carteira.cobranca_fora`).catch(() => [])).map(x => [x.contrato, x]));
+    const graves = Object.values(D).filter(d => d.total > 5000 && !casos.some(c => c.contrato === d.contrato)).map(d => ({ ...d, fora: foraM[d.contrato] || null }))
       .filter(d => !d.parcelas.every(x => x.grupo === 'acordo' && false));
     const enc = await q(`select id, contrato, motivo_encerramento, encerrado_em, criado_em from carteira.cobranca_casos where encerrado_em is not null order by encerrado_em desc limit 100`);
     const [rec] = await q(`select coalesce(sum(g.valor_pago),0)::numeric v from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
@@ -1482,6 +1501,7 @@ async function rotasCobranca(p, m, body, url, real) {
     for (const n of ns) {
       const [ja] = await q(`select id from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [n]);
       if (ja) { out.push({ contrato: n, id: ja.id, ja: true }); continue; }
+      await q(`delete from carteira.cobranca_fora where contrato=$1`, [n]).catch(() => null);
       const [c] = await q(`insert into carteira.cobranca_casos(contrato, etapa, proximo_contato, criado_por, responsavel) values ($1,'fila',current_date,$2,$3) returning id`, [n, quem, body.responsavel || null]);
       const d = (await dividas([n]))[n];
       await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,$4)`, [c.id, n, `Enviado para cobrança. Dívida de hoje: R$ ${(d?.total || 0).toFixed(2).replace('.', ',')} em ${d?.parcelas.length || 0} parcela(s).`, quem]);
@@ -1580,11 +1600,15 @@ async function rotasCobranca(p, m, body, url, real) {
     if (!c) return json({ erro: 'Caso não encontrado' }, 404);
     await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,$4)`, [c.id, c.contrato, 'Caso encerrado: ' + mot, quem]);
     await log(real, 'cobranca_encerrada', { caso: c.id, contrato: c.contrato, motivo: body.motivo });
+    await q(`create table if not exists carteira.cobranca_fora(contrato text primary key, em timestamptz default now(), por text, motivo text)`);
+    await q(`insert into carteira.cobranca_fora(contrato, por, motivo) values ($1,$2,$3) on conflict (contrato) do update set em=now(), por=$2, motivo=$3`, [c.contrato, quem, body.motivo || 'Encerrado']);
     return json({ ok: true });
   }
   if (p[1] === 'caso' && p[2] && !p[3] && m === 'DELETE') {
     if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
     const [c] = await q(`delete from carteira.cobranca_casos where id=$1 returning contrato`, [p[2]]);
+    await q(`create table if not exists carteira.cobranca_fora(contrato text primary key, em timestamptz default now(), por text, motivo text)`);
+    if (c?.contrato) await q(`insert into carteira.cobranca_fora(contrato, por, motivo) values ($1,$2,'Excluído da campanha') on conflict (contrato) do update set em=now(), por=$2, motivo='Excluído da campanha'`, [c.contrato, quem]);
     await q(`delete from carteira.cobranca_registros where caso_id=$1`, [p[2]]);
     await log(real, 'cobranca_caso_excluido', { caso: p[2], contrato: c?.contrato });
     return json({ ok: true });
