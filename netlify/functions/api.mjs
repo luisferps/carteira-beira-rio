@@ -3324,16 +3324,20 @@ async function rotasPagador(p, m, body, real) {
     }
     const locais = await q(`select cpf, nome, asaas->>'id' aid from carteira.clientes where nome is not null`);
     const porAid = Object.fromEntries(locais.filter(x => x.aid).map(x => [x.aid, x]));
-    const ults = await q(`select distinct on (b.contrato) b.contrato, b.dados->>'customer' cust, b.vencimento::text v from carteira.boletos b
-                          where b.tipo='parcela' and b.dados->>'customer' like 'cus_%' and b.vencimento >= (now() - interval '120 days')::date order by b.contrato, b.vencimento desc`);
+    /* último boleto de parcela normal (não de acordo), emitido depois da última cessão */
+    const ults = await q(`select distinct on (b.contrato) b.contrato, b.dados->>'customer' cust, b.vencimento::text v from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
+                          where b.tipo='parcela' and t.grupo<>'acordo' and b.dados->>'customer' like 'cus_%' and b.vencimento >= (now() - interval '120 days')::date
+                          and b.criado_em > coalesce((select max(e.data) from carteira.eventos e where e.contrato=b.contrato and e.tipo='cessao'), '2000-01-01')
+                          order by b.contrato, b.vencimento desc`);
     const evs = new Set((await q(`select distinct contrato from carteira.eventos where tipo='pagador' and conferente='luis'`)).map(x => x.contrato));
     const out = [];
     for (const u of ults) {
       if (evs.has(u.contrato)) continue;
       const ts = await titularesAtuais(u.contrato, locais); if (!ts.length) continue;
-      const quem = porAid[u.cust];
+      let quem = porAid[u.cust];
+      if (!quem) { const a = await asaas('/customers/' + u.cust).catch(() => null); if (a?.name) quem = { nome: a.name, cpf: digF(a.cpfCnpj) || null }; }
       const t1 = ts[0];
-      const ehPrimeiro = quem ? (quem.cpf && t1.cpf ? quem.cpf === digF(t1.cpf) : mesmoNome(quem.nome, t1.nome)) : (t1.aid === u.cust);
+      const ehPrimeiro = t1.aid === u.cust || (quem && ((quem.cpf && t1.cpf && quem.cpf === digF(t1.cpf)) || mesmoNome(quem.nome, t1.nome)));
       if (ehPrimeiro) continue;
       out.push({ contrato: u.contrato, vencimento: u.v, hoje_no_nome_de: quem ? { nome: quem.nome, cpf: quem.cpf } : { nome: 'cliente ' + u.cust + ' (não está no cadastro daqui)', cpf: null },
         eh_titular: !!quem && ts.some(t => (t.cpf && quem.cpf === digF(t.cpf)) || mesmoNome(t.nome, quem.nome)), primeiro_titular: { nome: t1.nome, cpf: t1.cpf }, titulares: ts.map(t => t.nome) });
