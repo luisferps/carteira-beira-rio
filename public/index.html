@@ -32,7 +32,7 @@ th{font-size:12px;color:var(--mut);font-weight:600}tr.lk{cursor:pointer}tr.lk:ho
 .pc small{font-size:10px;opacity:.9}
 .acl{align-items:stretch}.acl .pc{width:auto;min-width:74px;max-width:150px;height:auto;min-height:50px;padding:3px 8px}
 .pc.paga{background:var(--pg)}.pc.paga_atraso{background:var(--pa);color:#0f3d1f}.pc.quitada_acordo{background:var(--pg);color:#fff;border:3px solid var(--ac)}.pc.em_acordo{background:var(--at);color:#fff;border:3px solid var(--ac)}.pc.quitada_repact{background:var(--rp)}.pc.em_repact{background:#fff;color:#134e4a;border-color:var(--rp)}
-.pc.cancelada{background:var(--ca)}.pc.em_atraso{background:var(--at)}.pc.vencida{background:var(--at)}.pc.futura{background:var(--fu);color:#333}
+.pc.cancelada{background:var(--ca)}.pc.diluida{background:#64748b;background-image:repeating-linear-gradient(45deg,transparent 0 6px,rgba(255,255,255,.18) 6px 12px)}.pc.em_atraso{background:var(--at)}.pc.vencida{background:var(--at)}.pc.futura{background:var(--fu);color:#333}
 .pc.anual{outline:2px dashed #333;outline-offset:1px}.pc.cob,.pc.pcob{box-shadow:inset 0 0 0 3px #7c3aed}.pc.cob::before,.pc.pcob::before{content:'C';position:absolute;left:4px;top:2px;font-size:10px;font-weight:800;color:#fff;background:#7c3aed;border-radius:3px;padding:0 3px}.grid.selmodo .pc{opacity:.3;filter:grayscale(.5);cursor:not-allowed}.grid.selmodo .pc.selok{opacity:1;filter:none;cursor:pointer}
 .grid.selmodo .pc.sel{opacity:1;filter:none;transform:scale(1.08);box-shadow:0 0 0 4px #fff,0 0 0 8px #2563eb,0 6px 14px rgba(0,0,0,.35);z-index:2}
 .pc.sel::after{content:'✔';position:absolute;left:4px;top:2px;background:#2563eb;color:#fff;border-radius:50%;width:16px;height:16px;font-size:11px;line-height:16px;text-align:center}
@@ -745,6 +745,7 @@ function estado(t){
   if(tituloSegVia(t))return 'cancelada';
   const hoje=C.hoje, pags=C.pagamentos.filter(p=>p.titulo_id==t.id), sit=C.situacoes.find(s=>s.titulo_id==t.id);
   const enc=C.eventos.find(e=>e.tipo==='encerramento'&&t.grupo!=='acordo'&&(()=>{const t0=C.titulos.find(x=>x.id==e.a_partir_titulo);return t0&&t.vencimento&&t.vencimento>=t0.vencimento})());
+  if(sit&&sit.situacao==='cancelada'&&/^Diluída/i.test(sit.obs||''))return 'diluida';
   if(sit&&sit.situacao==='cancelada'||enc)return 'cancelada';
   if(pags.length){const tarde=pags.some(p=>Number(p.multa_paga||0)+Number(p.juros_pago||0)+Number(p.honorarios_pago||0)>0.009||(p.confirmada_em&&(p.vencimento_boleto||t.vencimento)&&diasUteisDepois(p.vencimento_boleto||t.vencimento,p.confirmada_em)>3));return t.grupo!=='acordo'&&tarde?'paga_atraso':'paga'}
   const ac=C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)));
@@ -766,7 +767,7 @@ function ehSegVia(a){return !!a&&!ehRep(a)&&(a.titulos_origem||[]).length===1&&C
 function tituloSegVia(t){return t&&t.grupo==='acordo'&&ehSegVia(C.acordos.find(a=>a.id==t.acordo_id))}
 function segViaDe(t){const a=t&&t.grupo!=='acordo'?C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id))):null;return a&&ehSegVia(a)?a:null}
 function acordoDe(t){return C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)))}
-const NOMES={paga:'Paga em dia',paga_atraso:'Paga com atraso',quitada_acordo:'Paga em cobrança (acordo)',em_acordo:'Não paga, em acordo aguardando pagamento',quitada_repact:'Paga por repactuação',em_repact:'Repactuada (boletos em aberto)',cancelada:'Cancelada',em_atraso:'Não paga',vencida:'Não paga',futura:'A vencer'};
+const NOMES={paga:'Paga em dia',paga_atraso:'Paga com atraso',quitada_acordo:'Paga em cobrança (acordo)',em_acordo:'Não paga, em acordo aguardando pagamento',quitada_repact:'Paga por repactuação',em_repact:'Repactuada (boletos em aberto)',cancelada:'Cancelada',diluida:'Diluída nas parcelas seguintes (não paga; o valor foi somado às próximas)',em_atraso:'Não paga',vencida:'Não paga',futura:'A vencer'};
 const FATOR_ANO={2024:1.02,2025:1.0854,2026:1.02};
 function fatorAnos(y0,y1){let f=1;for(let y=y0+1;y<=y1;y++)f*=FATOR_ANO[y]||1;return f}
 /* correções de janeiro do contrato: a lançada (vinda do Asaas) em cada ano; se o ano não tem nenhuma lançada, usa o índice da tabela */
@@ -798,7 +799,7 @@ function encDe(v,venc,ate){const dias=Math.max(0,Math.round((new Date(ate)-new D
   const mu=v*.02,ju=v*(Math.pow(1.01,dias/30)-1),ho=dias>60?(v+mu+ju)*.10:0;return{mu,ju,ho,dias}}
 function totais(){
   let qv=0,esp=0,rec=0,pend=0;const pg={pr:0,mu:0,ju:0,ho:0,de:0,cp:0},at={pr:0,co:0,mu:0,ju:0,ho:0,q:0};
-  for(const t of C.titulos){const e=estado(t);const venc=t.vencimento&&t.vencimento<=C.hoje;if(e==='cancelada')continue;
+  for(const t of C.titulos){const e=estado(t);const venc=t.vencimento&&t.vencimento<=C.hoje;if(e==='cancelada'||e==='diluida')continue;
     if(t.grupo!=='acordo'&&venc){qv++;esp+=valorAno(t)}
     if(e==='vencida')pend++;
     if(venc&&(e==='vencida'||e==='em_atraso')){const k=atrasoDe(t,C.hoje);at.q++;at.pr+=k.P;at.co+=k.co;at.mu+=k.M;at.ju+=k.J;at.ho+=k.H}}
@@ -1487,7 +1488,7 @@ function modalDevolucao(){const CRD=C.eventos.find(e=>e.tipo==='credito')?.dados
 
 /* diluição da dívida: parte do que o cliente devia foi somada às parcelas a vencer (não gera parcelas novas, só aumenta o valor delas) */
 function modalDiluicao(eid){const e=eid?C.eventos.find(x=>x.id==eid):null,d=e?.dados||{};const ja={};(d.itens||[]).forEach(i=>ja[i.titulo_id]=i.valor);
-  const ts=C.titulos.filter(t=>(t.grupo==='mensal'||t.grupo==='anual')&&!t.conferente&&estado(t)!=='cancelada').sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
+  const ts=C.titulos.filter(t=>(t.grupo==='mensal'||t.grupo==='anual')&&!t.conferente&&!['cancelada','diluida'].includes(estado(t))).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Diluir dívida nas parcelas a vencer${e?' — editar':''}</h3><button onclick="fechaModal()">Fechar</button></div>
   <div class="info">Parte do que o cliente devia foi somada às parcelas a vencer. Não cria parcelas: só aumenta o valor das escolhidas.</div>
   <div class="f2"><div><label>Data</label><input id="g_d" type="date" value="${e?.data?String(e.data).slice(0,10):''}"></div>
@@ -1509,7 +1510,7 @@ async function salvaDiluicao(eid){const itens=[...document.querySelectorAll('.g_
   await api(eid?'evento/'+eid:'evento',{method:eid?'PUT':'POST',body});fechaModal();recarrega()}
 /* repactuação: parcela dividida em vários boletos antes de atrasar */
 function modalRepact(){
-  const ops=C.titulos.filter(t=>t.grupo!=='acordo'&&!C.pagamentos.some(p=>p.titulo_id==t.id)&&!acordoDe(t)&&estado(t)!=='cancelada').map(t=>`<option value="${t.id}">${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${brl(valorAno(t))}</option>`).join('');
+  const ops=C.titulos.filter(t=>t.grupo!=='acordo'&&!C.pagamentos.some(p=>p.titulo_id==t.id)&&!acordoDe(t)&&!['cancelada','diluida'].includes(estado(t))).map(t=>`<option value="${t.id}">${esc(t.rotulo)} — ${dbr(t.vencimento)} — ${brl(valorAno(t))}</option>`).join('');
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Repactuação (parcelamento sem atraso)</h3><button onclick="fechaModal()">Fechar</button></div>
   <div class="info">O cliente pediu, antes de atrasar, para dividir uma parcela em vários boletos. A parcela original sai como quitada pela repactuação e os boletos novos aparecem na seção Repactuações. Não tem multa nem juros.</div>
   <div class="f2"><div><label>Parcela repactuada</label><select id="r_t">${ops}</select></div>
@@ -1875,7 +1876,7 @@ function pessoaDoCliente(c){const d=cliDados(c),P=d.P;return {nome:(c.nome||P.no
 function faixas(ns){ns=[...new Set(ns)].sort((a,b)=>a-b);const r=[];let i=0;while(i<ns.length){let j=i;while(j+1<ns.length&&ns[j+1]===ns[j]+1)j++;r.push(i===j?ns[i]+'ª':ns[i]+'ª a '+ns[j]+'ª');i=j+1}return r.join(', ')}
 /* renegociações em aberto (acordos com parcelas a pagar e propostas ainda não pagas) */
 function renegAbertas(){const pago=t=>C.pagamentos.some(p=>p.titulo_id==t.id);
-  const ac=C.acordos.filter(a=>a.tipo!=='repactuacao').map(a=>{const ts=C.titulos.filter(t=>t.acordo_id==a.id&&!pago(t)&&estado(t)!=='cancelada').sort((x,y)=>String(x.vencimento).localeCompare(String(y.vencimento)));
+  const ac=C.acordos.filter(a=>a.tipo!=='repactuacao').map(a=>{const ts=C.titulos.filter(t=>t.acordo_id==a.id&&!pago(t)&&!['cancelada','diluida'].includes(estado(t))).sort((x,y)=>String(x.vencimento).localeCompare(String(y.vencimento)));
     return {k:'a'+a.id,tipo:'acordo',termo:a.termo?'nº '+a.termo:'('+nomeAc(a)+' de '+dbr(a.data_acordo)+')',ids:ts.map(t=>Number(t.id)),orig:[],ps:ts.map(t=>({vencimento:t.vencimento,valor:+valorAno(t)})),pagador:a.pagador||null}}).filter(x=>x.ps.length);
   const pr=(C.propostas||[]).map(p=>{const d=p.dados||{};return {k:'p'+p.id,tipo:'proposta',termo:d.termo?'nº '+d.termo:'(proposta)',ids:[],orig:(d.titulos_origem||[]).map(Number),ps:(d.parcelas||[]).map(x=>({vencimento:x.vencimento,valor:+x.valor})),pagador:d.pagador||null}});
   const naProp=new Set(pr.flatMap(r=>r.orig));
