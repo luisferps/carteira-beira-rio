@@ -3327,6 +3327,9 @@ async function rotasPagador(p, m, body, real) {
       return json({ ok: true });
     }
   }
+  if (p[0] === 'manutencao' && p[1] === 'termos' && real === 'luis') {
+    return json(await q(`select a.contrato, a.id, a.termo from carteira.acordos a where a.termo is not null and a.termo<>'' and a.conferente='luis' order by a.termo`).catch(e => ({ erro: e.message })));
+  }
   if (p[0] === 'manutencao' && p[1] === 'pagadores' && real === 'luis') {
     /* contratos em que o último boleto saiu no nome de alguém que não é o 1º titular e não há troca registrada */
     if (m === 'POST') {
