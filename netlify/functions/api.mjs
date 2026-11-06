@@ -770,17 +770,30 @@ function descricaoBoleto(ct, linha, aviso = true) {
 }
 const semAc = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
 /* depois de uma cessão, o boleto sai no nome do novo titular (cliente do Asaas achado pelo nome ou pelo CPF do cadastro) */
+/* nomes parecidos (Aryel × Ariel, sem acento, maiúscula): mesmo primeiro nome e quase todos os outros iguais, aceitando 1 letra diferente */
+function mesmoNome(a, b) {
+  const A = normNome(a).split(' ').filter(x => x.length > 2), B = normNome(b).split(' ').filter(x => x.length > 2);
+  if (!A.length || !B.length) return false;
+  const perto = (x, y) => { if (x === y) return true; if (Math.abs(x.length - y.length) > 1 || Math.min(x.length, y.length) < 4) return false; let i = 0, j = 0, d = 0; while (i < x.length && j < y.length) { if (x[i] === y[j]) { i++; j++; continue; } if (++d > 1) return false; if (x.length > y.length) i++; else if (y.length > x.length) j++; else { i++; j++; } } return d + (x.length - i) + (y.length - j) <= 1; };
+  if (A[0] !== B[0] || !perto(A[A.length - 1], B[B.length - 1])) return false; /* primeiro nome igual e último sobrenome igual (ou 1 letra) */
+  const [m, M] = A.length <= B.length ? [A, B] : [B, A];
+  return m.filter(x => M.some(y => perto(x, y))).length >= Math.max(2, m.length - 1);
+}
+/* titular para os boletos depois da cessão: SEMPRE o primeiro cessionário; os outros só se o primeiro não existir em lugar nenhum */
 async function clienteCessionario(n) {
   const [e] = await q(`select dados->>'novos_titulares' t from carteira.eventos where contrato=$1 and tipo='cessao' and coalesce(dados->>'novos_titulares','')<>''
                        order by data desc nulls last, id desc limit 1`, [n]).catch(() => []);
   if (!e) return { tem: false };
   const nomes = String(e.t).replace(/[\[\]"]/g, '').split(/\s+e\s+|,|;/i).map(x => x.trim()).filter(x => x.length > 5);
+  const locais = await q(`select cpf, nome, asaas->>'id' aid from carteira.clientes where nome is not null`).catch(() => []);
   for (const nome of nomes) {
-    const r = await asaas('/customers?name=' + encodeURIComponent(nome) + '&limit=20').catch(() => null);
-    const c = (r?.data || []).find(x => !x.deleted && semAc(x.name) === semAc(nome)); if (c) return { tem: true, id: c.id, nome };
-    const cs = (await q(`select cpf, nome from carteira.clientes where cpf is not null and nome is not null`).catch(() => [])).filter(x => semAc(x.nome) === semAc(nome));
-    for (const k of cs) { const d = String(k.cpf).replace(/\D/g, ''); if (d.length < 11) continue;
-      const r2 = await asaas('/customers?cpfCnpj=' + d).catch(() => null); const c2 = (r2?.data || []).find(x => !x.deleted); if (c2) return { tem: true, id: c2.id, nome }; }
+    for (const k of locais.filter(x => mesmoNome(x.nome, nome))) {
+      const d = String(k.cpf || '').replace(/\D/g, '');
+      if (d.length >= 11) { const r2 = await asaas('/customers?cpfCnpj=' + d).catch(() => null); const c2 = (r2?.data || []).find(x => !x.deleted); if (c2) return { tem: true, id: c2.id, nome: k.nome }; }
+      if (k.aid) return { tem: true, id: k.aid, nome: k.nome };
+    }
+    const r = await asaas('/customers?name=' + encodeURIComponent(nome.split(' ')[0]) + '&limit=50').catch(() => null);
+    const c = (r?.data || []).find(x => !x.deleted && mesmoNome(x.name, nome)); if (c) return { tem: true, id: c.id, nome: c.name };
   }
   return { tem: true, id: null, nome: nomes.join(' e ') };
 }
