@@ -1320,9 +1320,11 @@ async function blobTermo(termo){const r=await api('termo-arq/'+encodeURIComponen
 async function htmlSalvo(termo){if(!termo||!tArq(termo))return null;const r=await api('termo-arq/'+encodeURIComponent(termo));return r.html||null}
 async function baixaTermo(d){return termoComo(d,'word')}
 /* Word ou PDF do termo: o usuário escolhe onde salvar */
-async function termoComo(d,tipo){try{await carregaTermo();const h=await htmlSalvo(d?.termo);return await window.salvaTermoComo(d,h||undefined,tipo)}catch(e){console.error(e);alert('Erro ao gerar o termo: '+e.message)}}
+function aguardeT(on,txt){let el=document.getElementById('aguardeT');if(!on){el&&el.remove();return}if(!el){el=document.createElement('div');el.id='aguardeT';el.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111;color:#fff;padding:12px 18px;border-radius:10px;z-index:99999;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.3)';document.body.appendChild(el)}el.textContent=txt||'Gerando o termo… aguarde alguns segundos'}
+async function termoComo(d,tipo){try{await carregaTermo();const h=await htmlSalvo(d?.termo);const o=window.showSaveFilePicker;if(o)window.showSaveFilePicker=async(...a)=>{const r=await o(...a);aguardeT(true,tipo==='pdf'?'Gerando o PDF… aguarde alguns segundos':'Gerando o Word… aguarde');return r};else aguardeT(true);try{const r=await window.salvaTermoComo(d,h||undefined,tipo);aguardeT(true,'Termo salvo.');setTimeout(()=>aguardeT(false),2500);return r}finally{if(o)window.showSaveFilePicker=o}}catch(e){aguardeT(false);console.error(e);alert('Erro ao gerar o termo: '+e.message)}}
 /* registra o termo (Word + PDF) na pasta Renegociações do OneDrive */
-async function termoNaPasta(d,hP){await carregaTermo();const h=await htmlSalvo(d?.termo);const r=await window.gravaTermoNaPasta(d,h||undefined,hP);
+async function termoNaPasta(d,hP){aguardeT(true,'Gravando o termo (Word e PDF) na pasta do OneDrive… aguarde');await carregaTermo();const h=await htmlSalvo(d?.termo);const r=await window.gravaTermoNaPasta(d,h||undefined,hP);
+  aguardeT(false);
   if(r.ok&&d?.termo)api('manutencao/termos',{method:'POST',body:{termo:d.termo}}).catch(()=>{});
   if(r.ok)alert('Termo '+(d.termo||'')+' (Word e PDF) registrado na pasta OneDrive\\Beira Rio ADM\\Documentos\\'+r.caminho+'.');
   else alert('Não consegui registrar o termo na pasta do OneDrive ('+r.erro+'). O termo continua salvo no sistema; use o botão "Registrar na pasta" no acordo para tentar de novo.');return r}
