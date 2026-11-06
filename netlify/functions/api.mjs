@@ -3075,7 +3075,7 @@ No fim, chame a ferramenta "responder" (cada ação no formato acima).`;
   for (let volta = 0; volta < 6 && !fim; volta++) {
     const ultima = volta === 5 || Date.now() - t0 > 16000;
     const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: modelo, max_tokens: 1500, system: sistema, tools: FERRAMENTAS_IA, tool_choice: ultima ? { type: 'tool', name: 'responder' } : { type: 'any' }, messages: msgs }) });
+      body: JSON.stringify({ model: modelo, max_tokens: 1500, system: sistema, tools: FERRAMENTAS_IA, tool_choice: { type: 'auto' }, messages: ultima ? [...msgs.slice(0, -1), { role: 'user', content: [...(Array.isArray(msgs[msgs.length - 1].content) ? msgs[msgs.length - 1].content : [{ type: 'text', text: msgs[msgs.length - 1].content }]), { type: 'text', text: 'Agora chame a ferramenta responder.' }] }] : msgs }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) return { erro: d.error?.message || 'IA respondeu ' + r.status };
     msgs.push({ role: 'assistant', content: d.content });
@@ -3087,7 +3087,7 @@ No fim, chame a ferramenta "responder" (cada ação no formato acima).`;
       res.push({ type: 'tool_result', tool_use_id: u.id, content: JSON.stringify(out).slice(0, 12000) });
     }
     if (fim) break;
-    if (!res.length) { fim = { resposta: (d.content || []).map(c => c.text || '').join(' ').trim() || 'Não entendi, pode explicar melhor?' }; break; }
+    if (!res.length) { const tx = (d.content || []).map(c => c.text || '').join(' ').trim(); let J = null; try { J = JSON.parse(tx.slice(tx.indexOf('{'), tx.lastIndexOf('}') + 1)); } catch { } fim = J && J.resposta ? J : { resposta: tx || 'Não entendi, pode explicar melhor?' }; break; }
     msgs.push({ role: 'user', content: res });
   }
   fim = fim || { resposta: 'Não consegui terminar a consulta a tempo. Tente de novo ou dê mais detalhes.' };
