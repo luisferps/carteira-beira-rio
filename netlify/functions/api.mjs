@@ -539,7 +539,7 @@ async function efetivaPropostaPaga(pid, g) {
   await gravaBoleto(g, { contrato: pr.contrato, titulo_id: t1.id, tipo: 'acordo', origem: 'sistema' });
   await q(`update carteira.boletos set titulo_id=$2, tipo='acordo', atualizado_em=now() where id_asaas=$1`, [g.id, t1.id]);
   const [t0] = await q(`select id from carteira.titulos where contrato=$1 and (conferente is null or conferente='luis') and grupo<>'acordo' order by vencimento limit 1`, [pr.contrato]);
-  await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','pendencia',null,$2,current_date,'{}',$3)`,
+  await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','pendencia',null,$2,(now() at time zone 'America/Sao_Paulo')::date,'{}',$3)`,
     [pr.contrato, t0?.id || null, `Falta o termo de acordo ${d.termo || ''} assinado (acordo efetivado automaticamente pelo pagamento da 1ª parcela).`]);
   await anotaCobranca(pr.contrato, 'acordo', `Proposta ${d.termo || ''} efetivada: o cliente pagou a 1ª parcela (R$ ${(+g.value).toFixed(2).replace('.', ',')}).`, 'acordo');
   /* acordo efetivado: já gera os boletos das demais parcelas */
@@ -1454,7 +1454,7 @@ async function rotasCobranca(p, m, body, url, real) {
       /* entrada automática: dívida acima de R$ 5 mil entra na fila, menos quem o Luis tirou da cobrança */
       for (const d of Object.values(D0)) {
         if (d.total <= 5000 || abertos.has(d.contrato) || fora.has(d.contrato)) continue;
-        const [c] = await q(`insert into carteira.cobranca_casos(contrato, etapa, proximo_contato, criado_por) values ($1,'fila',current_date,'sistema') on conflict do nothing returning id`, [d.contrato]);
+        const [c] = await q(`insert into carteira.cobranca_casos(contrato, etapa, proximo_contato, criado_por) values ($1,'fila',(now() at time zone 'America/Sao_Paulo')::date,'sistema') on conflict do nothing returning id`, [d.contrato]);
         if (c) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, d.contrato, `Enviado para cobrança (entrou sozinho: dívida acima de R$ 5 mil). Dívida de hoje: R$ ${d.total.toFixed(2).replace('.', ',')} em ${d.parcelas.length} parcela(s).`]);
       }
       /* promessa vencida sem pagamento volta para Negociando e para a agenda de hoje */
@@ -1462,7 +1462,7 @@ async function rotasCobranca(p, m, body, url, real) {
           join lateral (select data_promessa, em from carteira.cobranca_registros r where r.caso_id=c.id and r.data_promessa is not null order by r.em desc limit 1) r on true
           where c.encerrado_em is null and c.etapa='promessa' and r.data_promessa < $1::date
           and not exists (select 1 from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato=c.contrato and g.conferente='luis' and g.confirmada_em >= r.em::date)`, [hojeBR()])) {
-        await q(`update carteira.cobranca_casos set etapa='negociando', proximo_contato=current_date, atualizado_em=now() where id=$1`, [c.id]);
+        await q(`update carteira.cobranca_casos set etapa='negociando', proximo_contato=(now() at time zone 'America/Sao_Paulo')::date, atualizado_em=now() where id=$1`, [c.id]);
         await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa','promessa → negociando','sistema')`, [c.id, c.contrato]);
         await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, c.contrato, `Promessa de pagamento para ${c.dp.split('-').reverse().join('/')} não cumprida — voltou para Negociando e para a agenda de hoje.`]);
       }
@@ -1491,7 +1491,7 @@ async function rotasCobranca(p, m, body, url, real) {
       .filter(d => !d.parcelas.every(x => x.grupo === 'acordo' && false));
     const enc = await q(`select id, contrato, motivo_encerramento, encerrado_em, criado_em from carteira.cobranca_casos where encerrado_em is not null order by encerrado_em desc limit 100`);
     const [rec] = await q(`select coalesce(sum(g.valor_pago),0)::numeric v from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
-                           where g.conferente='luis' and g.confirmada_em >= date_trunc('month', current_date) and exists (select 1 from carteira.cobranca_casos c where c.contrato=t.contrato and g.confirmada_em >= c.criado_em::date)`);
+                           where g.conferente='luis' and g.confirmada_em >= date_trunc('month', (now() at time zone 'America/Sao_Paulo')::date) and exists (select 1 from carteira.cobranca_casos c where c.contrato=t.contrato and g.confirmada_em >= c.criado_em::date)`);
     return json({ hoje: hojeBR(), casos: casos.map(c => ({ ...c, divida: D[c.contrato] || { total: 0, parcelas: [], dias: 0 }, pago_na_campanha: pagos.find(x => x.contrato === c.contrato) || null })),
       sugeridos: graves.sort((a, b) => b.total - a.total), encerrados: enc, recuperado_mes: +rec.v });
   }
@@ -1502,7 +1502,7 @@ async function rotasCobranca(p, m, body, url, real) {
       const [ja] = await q(`select id from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [n]);
       if (ja) { out.push({ contrato: n, id: ja.id, ja: true }); continue; }
       await q(`delete from carteira.cobranca_fora where contrato=$1`, [n]).catch(() => null);
-      const [c] = await q(`insert into carteira.cobranca_casos(contrato, etapa, proximo_contato, criado_por, responsavel) values ($1,'fila',current_date,$2,$3) returning id`, [n, quem, body.responsavel || null]);
+      const [c] = await q(`insert into carteira.cobranca_casos(contrato, etapa, proximo_contato, criado_por, responsavel) values ($1,'fila',(now() at time zone 'America/Sao_Paulo')::date,$2,$3) returning id`, [n, quem, body.responsavel || null]);
       const d = (await dividas([n]))[n];
       await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,$4)`, [c.id, n, `Enviado para cobrança. Dívida de hoje: R$ ${(d?.total || 0).toFixed(2).replace('.', ',')} em ${d?.parcelas.length || 0} parcela(s).`, quem]);
       out.push({ contrato: n, id: c.id });
@@ -1532,9 +1532,9 @@ async function rotasCobranca(p, m, body, url, real) {
     const [et] = await q(`select * from carteira.cobranca_registros where caso_id=$1 and tipo='etapa' and em between $2::timestamptz - interval '10 seconds' and $2::timestamptz + interval '10 seconds' order by id desc limit 1`, [c.id, r.em]);
     const mm = et && String(et.texto).match(/^(\S+) → (\S+)$/);
     if (mm && c.etapa === mm[2]) {
-      await q(`update carteira.cobranca_casos set etapa=$2, proximo_contato=current_date, atualizado_em=now() where id=$1`, [c.id, mm[1]]);
+      await q(`update carteira.cobranca_casos set etapa=$2, proximo_contato=(now() at time zone 'America/Sao_Paulo')::date, atualizado_em=now() where id=$1`, [c.id, mm[1]]);
       await q(`delete from carteira.cobranca_registros where id=$1`, [et.id]);
-    } else await q(`update carteira.cobranca_casos set proximo_contato=current_date, atualizado_em=now() where id=$1`, [c.id]);
+    } else await q(`update carteira.cobranca_casos set proximo_contato=(now() at time zone 'America/Sao_Paulo')::date, atualizado_em=now() where id=$1`, [c.id]);
     const ch = fone.replace(/\D/g, '').slice(-8);
     if (ch.length === 8) {
       await q(`create table if not exists carteira.fones_problema(chave text primary key, fone text, contrato text, situacao text, em timestamptz default now(), por text)`);
@@ -1777,7 +1777,7 @@ export default async (req) => {
         const [t0] = await q(`select id, vencimento from carteira.titulos where contrato=$1 and grupo=$2 and conferente is null and numero=$3`, [b.contrato, b.grupo, ap]);
         const ant = t0 ? new Date(new Date(t0.vencimento).getTime()) : null;
         if (ant) { ant.setUTCDate(ant.getUTCDate() - dias); ant.setUTCMonth(ant.getUTCMonth() - meses); }
-        await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values($1,$2,'vencimento',null,$3,current_date,$4,$5)`,
+        await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values($1,$2,'vencimento',null,$3,(now() at time zone 'America/Sao_Paulo')::date,$4,$5)`,
           [b.contrato, conf, t0 ? t0.id : null, JSON.stringify({ grupo: b.grupo, meses, dias, qtd: r.length, antes: ant ? ant.toISOString().slice(0, 10) : null, depois: t0 ? new Date(t0.vencimento).toISOString().slice(0, 10) : null }), b.obs || null]);
       }
       return json({ ok: true, qtd: r.length });
@@ -2263,9 +2263,9 @@ export default async (req) => {
         select c.numero, c.quadra, c.lote, c.valor_imovel, c.data_assinatura,
                coalesce((select e.dados->>'novos_titulares' from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='cessao' and coalesce(e.dados->>'novos_titulares','')<>'' order by e.data desc nulls last, e.id desc limit 1), (select nullif(string_agg(x->>'nome', ' e ' order by o), '') from jsonb_array_elements(case when jsonb_typeof(c.compradores)='array' then c.compradores else '[]'::jsonb end) with ordinality as j(x,o)), c.nome_planilha) as titular,
                jsonb_array_length(c.alertas) as n_alertas,
-               (select count(*) from carteira.titulos t where t.contrato=c.numero and t.conferente is null and t.vencimento <= current_date) as vencidas,
+               (select count(*) from carteira.titulos t where t.contrato=c.numero and t.conferente is null and t.vencimento <= (now() at time zone 'America/Sao_Paulo')::date) as vencidas,
                (select count(distinct t.id) from carteira.titulos t
-                  where t.contrato=c.numero and t.conferente is null and t.vencimento <= current_date
+                  where t.contrato=c.numero and t.conferente is null and t.vencimento <= (now() at time zone 'America/Sao_Paulo')::date
                     and (exists(select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente=$1)
                       or exists(select 1 from carteira.conferencia_titulo ct where ct.titulo_id=t.id and ct.conferente=$1)
                       or exists(select 1 from carteira.acordos a where a.contrato=c.numero and a.conferente=$1 and t.id = any(a.titulos_origem)))) as conferidas,
@@ -2275,7 +2275,7 @@ export default async (req) => {
                (select string_agg(coalesce(e.obs,''),' | ' order by e.id) from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='pendencia') as pendencia,
                ea.n as em_atraso, ea.v as em_atraso_valor
         from carteira.contratos c cross join lateral (select count(*) as n, coalesce(sum(t.valor_face),0) as v from carteira.titulos t
-                  where t.contrato=c.numero and (t.conferente is null or t.conferente=$1) and t.vencimento <= current_date
+                  where t.contrato=c.numero and (t.conferente is null or t.conferente=$1) and t.vencimento <= (now() at time zone 'America/Sao_Paulo')::date
                     and not exists(select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente=$1)
                     and not exists(select 1 from carteira.acordos a where a.contrato=c.numero and a.conferente=$1 and t.id = any(a.titulos_origem))
                     and not exists(select 1 from carteira.conferencia_titulo ct where ct.titulo_id=t.id and ct.conferente=$1 and ct.situacao='cancelada')
