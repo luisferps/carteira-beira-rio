@@ -1463,6 +1463,9 @@ async function garanteCobranca() {
   const [ver] = await q(`select valor from carteira.cobranca_cfg where chave='modelos_versao'`);
   if (+(ver?.valor || 0) < MODELOS_VERSAO) { await q(`delete from carteira.cobranca_modelos`); await q(`insert into carteira.cobranca_cfg values ('modelos_versao',$1) on conflict (chave) do update set valor=$1`, [String(MODELOS_VERSAO)]); }
   const [n] = await q(`select count(*)::int n from carteira.cobranca_modelos`);
+  /* mensagem do Luis para a última tentativa (3ª cobrança sem retorno): entra sem apagar as mensagens que ele já editou */
+  await q(`insert into carteira.cobranca_modelos(titulo, texto, ordem) select $1, $2, 3 where not exists (select 1 from carteira.cobranca_modelos where titulo=$1)`,
+    ['Último aviso antes da retomada (3ª tentativa)', 'Boa tarde, eu preciso dar retorno à construtora sobre sua situação. Se não conseguir negociar com você preciso avisá-los. O ideal é que façamos um acordo, pois o próximo passo é a retomada do seu terreno na semana que vem conforme prevê seu contrato.\n\nPreciso passar o relatório hoje ainda no final do dia.']);
   if (!n.n) for (let i = 0; i < MODELOS_PADRAO.length; i++) await q(`insert into carteira.cobranca_modelos(titulo, texto, ordem) values ($1,$2,$3)`, [MODELOS_PADRAO[i][0], MODELOS_PADRAO[i][1], i]);
 }
 /* dívida de hoje por contrato: parcelas vencidas e não pagas (fora de acordo), com correção, multa, juros e cobrança depois de 60 dias */

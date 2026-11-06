@@ -366,7 +366,7 @@ function preencheMsg(t,extra={},ctx){const X=ctx||CASO,d=X.divida,ct=X.contrato,
   const v={nome:nm,primeiro_nome:nm.split(' ')[0],contrato:ct.numero,quadra:ct.quadra,lote:ct.lote,qtd_parcelas:d.parcelas.length,valor_total:brl(d.total),parcelas:d.parcelas.map(p=>`• ${p.rotulo} (venc. ${dbr(p.vencimento)}): ${brl(p.total)}`).join('\n'),data_hoje:dbr(hoje),data_limite:dbr(somaDiasF(hoje,5)),valor_promessa:extra.valor_promessa||'',data_promessa:extra.data_promessa||''};
   return t.replace(/\{(\w+)\}/g,(m,k)=>k in v?v[k]:m)}
 /* mensagem sugerida pela etapa do caso */
-const MSG_ETAPA={fila:'Contato 1',contato1:'Contato 2',contato2:'Contato 3',contato3:'Contato 3',negociando:'Negociando',proposta:'Proposta enviada',promessa:'Lembrete de promessa',sem_retorno:'Notificação',notificacao:'Notificação',acordo:'Agradecimento'};
+const MSG_ETAPA={fila:'Contato 1',contato1:'Contato 2',contato2:'Último aviso',contato3:'Último aviso',negociando:'Negociando',proposta:'Proposta enviada',promessa:'Lembrete de promessa',sem_retorno:'Notificação',notificacao:'Notificação',acordo:'Agradecimento'};
 const modeloEtapa=e=>{const p=MSG_ETAPA[e]||'Contato 1';const i=MODELOS.findIndex(m=>m.titulo.startsWith(p));return i<0?0:i};
 /* abre a conversa da pessoa já com o texto; o envio é sempre confirmado por você no WhatsApp */
 const WAMODO=()=>{try{return localStorage.cbr_wa||'web'}catch(e){return 'web'}};
