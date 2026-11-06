@@ -600,6 +600,7 @@ const orgT=o=>`<span class="org ${o==='Planilha'?'pl':o==='Editado'?'mn':''}">${
 function docOk(v){const c=digs(v);if(c.length===14){if(/^(\d)\1+$/.test(c))return false;const dv=n=>{let s=0,p=n-7;for(let i=0;i<n;i++){s+=+c[i]*p--;if(p<2)p=9}const r=s%11;return r<2?0:11-r};return dv(12)===+c[12]&&dv(13)===+c[13]}
   if(c.length!==11||/^(\d)\1+$/.test(c))return false;let s=0;for(let i=0;i<9;i++)s+=+c[i]*(10-i);const d1=(s*10)%11%10;s=0;for(let i=0;i<10;i++)s+=+c[i]*(11-i);return d1===+c[9]&&(s*10)%11%10===+c[10]}
 let CPFERR=[];
+function avisoAsaas(r){const f=r?.asaas?.feitos||[];if(f.length){const t=f.map(x=>Object.entries(x.agregado).map(([k,v])=>({mobilePhone:'celular',phone:'telefone',email:'e-mail',additionalEmails:'e-mails adicionais'}[k]||k)+': '+v).join(', ')).join(' | ');alert('Também atualizado no Asaas (só acrescentado, nada foi apagado lá): '+t)}else if(r?.asaas?.erro)alert('Salvo aqui. No Asaas não deu para acrescentar: '+r.asaas.erro)}
 async function telaClientes(){app.innerHTML='<div class="card">Carregando…</div>';CLI=await api('clientes');CPFERR=EU==='luis'?await api('manutencao/clientes-cpf').catch(()=>[]):[];desenhaClientes()}
 async function juntaCpf(){const P=CPFERR.filter(x=>x.certo);if(!confirm(`Juntar ${P.length} cadastro(s) com CPF digitado errado no cadastro do CPF certo?\n\n${P.map(x=>`${x.errado.nome}: ${cpfF(x.errado.cpf)} → ${cpfF(x.certo.cpf)}`).join('\n')}\n\nOs dados da planilha passam para o cadastro certo e o cadastro errado é apagado.`))return;
   const r=await api('manutencao/clientes-cpf',{method:'POST',body:{}});alert(`Feito: ${r.feitos.length} cadastro(s) unificado(s).`);telaClientes()}
@@ -649,7 +650,7 @@ function editaCliente(id){const c=cliPorId(id),M=c.manual||{};
   <label>Observação</label><input id="ce_o" value="${esc(M.obs||'')}">
   <div class="bt"><button class="pri" onclick="salvaCliente(${id})">Salvar</button></div>`)}
 async function salvaCliente(id){const M0=cliPorId(id)?.manual||{};const manual={...M0,telefone:$('#ce_t').value.trim(),email:$('#ce_e').value.trim(),endereco:$('#ce_d').value.trim(),obs:$('#ce_o').value.trim()};
-  await api('cliente/'+id,{method:'PUT',body:{manual}});const c=cliPorId(id);if(c)c.manual=manual;fechaModal();if(location.hash.startsWith('#cob/')&&CASO)telaCaso(CASO.caso.id);else if(location.hash.startsWith('#c/'))abrirContrato(C.contrato.numero);else fichaCliente(id)}
+  {const rr=await api('cliente/'+id,{method:'PUT',body:{manual}});avisoAsaas(rr)}const c=cliPorId(id);if(c)c.manual=manual;fechaModal();if(location.hash.startsWith('#cob/')&&CASO)telaCaso(CASO.caso.id);else if(location.hash.startsWith('#c/'))abrirContrato(C.contrato.numero);else fichaCliente(id)}
 
 /* ---------- LISTA ---------- */
 let FILTRO=new Set(),NOMEU='';
@@ -1986,7 +1987,7 @@ function editaPessoais(id){const c=CLI.find(x=>x.id==id),d=cliDados(c),P=d.P,M=c
 async function salvaPessoais(id){const c=CLI.find(x=>x.id==id),M=c.manual||{};const ks=['rg','emissor','nascimento','estado_civil','sexo','naturalidade','uf_nat','nacionalidade','profissao','empresa','renda'];
   const pl=c.planilha||{},pes={};for(const k of ks){const v=$('#dp_'+k).value.trim();if(v&&v!==String(pl[k]||''))pes[k]=v}
   const manual={...M,pessoais:pes,emails_invalidos:[...document.querySelectorAll('.dp_ei:checked')].map(x=>x.value)};
-  await api('cliente/'+id,{method:'PUT',body:{manual}});c.manual=manual;fechaModal();fichaCliente(id)}
+  {const rr=await api('cliente/'+id,{method:'PUT',body:{manual}});avisoAsaas(rr)}c.manual=manual;fechaModal();fichaCliente(id)}
 
 /* ===== Mapa de lotes ===== */
 async function telaMapa(){app.innerHTML='<div class="card">Carregando…</div>';

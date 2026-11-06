@@ -2260,7 +2260,8 @@ export default async (req) => {
     if (p[0] === 'cliente' && p[1] && m === 'PUT') {
       await q(`update carteira.clientes set manual=$2, atualizado_em=now() where id=$1`, [p[1], body.manual || null]);
       await log(conf, 'cliente_editado', { id: p[1], manual: body.manual });
-      return json({ ok: true });
+      const ag = await agregaNoAsaas(p[1], real).catch(e => ({ erro: e.message }));
+      return json({ ok: true, asaas: ag });
     }
 
     if (p[0] === 'contratos' && m === 'GET') {
@@ -2370,6 +2371,15 @@ export default async (req) => {
     /* boletos no nome de outra pessoa: exceção só do administrador */
     if (real !== 'luis' && body && typeof body === 'object' && ['acordo', 'proposta'].includes(p[0])) { delete body.pagador; if (body.dados && typeof body.dados === 'object') delete body.dados.pagador; }
     /* anotações internas (exceções, correções do Luis) ficam só no banco, fora da tela: tira da observação e guarda em nota_interna */
+    if (p[0] === 'manutencao' && p[1] === 'agrega-asaas' && real === 'luis') {
+      /* clientes com telefone/e-mail aqui que faltam no Asaas: agrega lá (pela foto do Asaas guardada aqui; confirma no Asaas antes de gravar) */
+      const cl = await q(`select id, nome, cpf, planilha, manual, asaas from carteira.clientes where cpf is not null and asaas is not null`);
+      const cand = cl.filter(c => Object.keys(oQueAgregar(c, c.asaas)).length).map(c => ({ id: c.id, nome: c.nome, agregar: oQueAgregar(c, c.asaas) }));
+      if (m === 'GET') return json(cand);
+      const t0 = Date.now(), out = [];
+      for (const c of cand) { if (Date.now() - t0 > 7000) break; out.push({ nome: c.nome, ...(await agregaNoAsaas(c.id, real).catch(e => ({ erro: e.message }))) }); }
+      return json({ feitos: out, faltam: cand.length - out.length });
+    }
     if (p[0] === 'manutencao' && p[1] === 'clientes-cpf' && real === 'luis') {
       /* cliente com CPF inválido (digitado errado na planilha) que tem um "gêmeo" com o mesmo nome e CPF certo: junta os dois no CPF certo */
       const cl = await q(`select * from carteira.clientes`);
@@ -2905,14 +2915,14 @@ async function executaAcaoIA(a, quem) {
     if (fonesDoCliente(c).some(f => f.slice(-8) === d.slice(-8))) return 'O telefone já estava no cadastro de ' + c.nome;
     const ex = Array.isArray(M.telefones_extra) ? M.telefones_extra : []; if (M.telefone) ex.unshift(M.telefone);
     M.telefone = d; M.telefones_extra = [...new Set(ex.map(digF))].filter(x => x && x !== d);
-    await q(`update carteira.clientes set manual=$2, atualizado_em=now() where id=$1`, [c.id, M]); MAPA_CAMP = null;
+    await q(`update carteira.clientes set manual=$2, atualizado_em=now() where id=$1`, [c.id, M]); MAPA_CAMP = null; await agregaNoAsaas(c.id, quem).catch(() => null);
     await log(quem, 'cliente_editado', { id: c.id, telefone_novo: d, via: 'IA' }); await anota(`Telefone novo no cadastro de ${c.nome}: ${d}`);
     return `Telefone ${d} incluído no cadastro de ${c.nome}`;
   }
   if (a.tipo === 'alterar_email' || a.tipo === 'alterar_endereco') {
     const c = await cliente(); const M = { ...(c.manual || {}) }, campo = a.tipo === 'alterar_email' ? 'email' : 'endereco', v = String(a.valor || '').trim();
     if (!v || (campo === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v))) throw new Error('Valor inválido');
-    M[campo] = v; await q(`update carteira.clientes set manual=$2, atualizado_em=now() where id=$1`, [c.id, M]);
+    M[campo] = v; await q(`update carteira.clientes set manual=$2, atualizado_em=now() where id=$1`, [c.id, M]); if (campo === 'email') await agregaNoAsaas(c.id, quem).catch(() => null);
     await log(quem, 'cliente_editado', { id: c.id, [campo]: v, via: 'IA' }); await anota(`${campo === 'email' ? 'E-mail' : 'Endereço'} de ${c.nome} atualizado: ${v}`);
     return `${campo === 'email' ? 'E-mail' : 'Endereço'} de ${c.nome} atualizado`;
   }
@@ -3138,4 +3148,37 @@ async function rotasIA(p, m, body, url, real) {
     return json({ ok: true, ...r });
   }
   return json({ erro: 'Rota da IA não existe' }, 404);
+}
+
+/* ================= cadastro: o sistema é a autoridade; no Asaas só se AGREGA (preenche o que está vazio, nunca apaga nem troca) ================= */
+const emailsDe = (...v) => [...new Set(v.flatMap(e => String(e || '').split(/[,;\s]+/)).map(e => e.trim().toLowerCase()).filter(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)))];
+function oQueAgregar(c, a) {
+  const M = c.manual || {}, P = c.planilha || {};
+  const fones = [M.telefone, P.fone, P.fone_com, P.fone_ref].map(digF).filter(d => d.length >= 10 && d.length <= 11);
+  const temF = [a.mobilePhone, a.phone].map(digF).filter(Boolean).map(x => x.slice(-8));
+  const novos = [...new Set(fones.filter(f => !temF.includes(f.slice(-8))))];
+  const upd = {};
+  if (!digF(a.mobilePhone)) { const cel = novos.find(f => f.length === 11 && f[2] === '9'); if (cel) upd.mobilePhone = cel; }
+  if (!digF(a.phone)) { const f = novos.find(x => x !== upd.mobilePhone); if (f) upd.phone = f; }
+  const add = emailsDe(a.additionalEmails), principal = String(a.email || '').trim().toLowerCase();
+  const novosE = emailsDe(M.email, P.email).filter(e => e !== principal && !add.includes(e));
+  if (novosE.length) { if (!principal) upd.email = novosE.shift(); if (novosE.length) upd.additionalEmails = [...add, ...novosE].join(','); }
+  return upd;
+}
+async function agregaNoAsaas(cid, quem) {
+  const [c] = await q(`select * from carteira.clientes where id=$1`, [cid]);
+  if (!c || !c.cpf) return { pulado: 'sem CPF' };
+  const r = await asaas(`/customers?cpfCnpj=${c.cpf}&limit=10`).catch(() => null);
+  const lista = (r?.data || []).filter(x => !x.deleted);
+  if (!lista.length) return { pulado: 'não está no Asaas' };
+  const feitos = [];
+  for (const a of lista) {
+    const upd = oQueAgregar(c, a);
+    if (!Object.keys(upd).length) continue;
+    const novo = await asaasReq('POST', '/customers/' + a.id, upd);
+    if (c.asaas?.id === a.id || !c.asaas) await q(`update carteira.clientes set asaas=$2 where id=$1`, [c.id, novo]);
+    feitos.push({ asaas: a.id, agregado: upd });
+  }
+  if (feitos.length) await log(quem || 'sistema', 'asaas_cliente_agregado', { cliente: c.id, nome: c.nome, feitos });
+  return { feitos };
 }
