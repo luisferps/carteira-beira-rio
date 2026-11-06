@@ -2695,7 +2695,7 @@ export async function importaWhatsPasso(limiteMs = 20000) {
     const fones = await fonesDoContrato(c.contrato);
     if (!fones.length) { estado.feitos.push(c.id); estado.log.push(`${c.contrato}: sem telefone`); continue; }
     const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 25000);
-    const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?numeros=${fones.slice(0, 10).join(',')}&desde=${WHATS_DESDE}${tent > 2 ? '&audio=0' : ''}`, { headers: { Authorization: 'CBR tok:' + tok }, signal: ctl.signal }).catch(e => ({ ok: false, status: e.message }));
+    const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?numeros=${encodeURIComponent(fones.slice(0, 10).map(foneParaWhats).join(','))}&desde=${WHATS_DESDE}${tent > 2 ? '&audio=0' : ''}`, { headers: { Authorization: 'CBR tok:' + tok }, signal: ctl.signal }).catch(e => ({ ok: false, status: e.message }));
     clearTimeout(tm);
     if (!r.ok) { estado.log.push(`${c.contrato}: falhou (${r.status}), tentativa ${tent}`); if (tent >= 5) { estado.feitos.push(c.id); estado.log.push(`${c.contrato}: desisti depois de 5 tentativas`); } break; }
     const j = await r.json().catch(() => ({}));
@@ -2806,6 +2806,9 @@ async function garanteIA() {
   await q(`alter table carteira.cobranca_casos add column if not exists ia_situacao text`);
   await q(`alter table carteira.cobranca_casos add column if not exists ia_em timestamptz`);
 }
+const foneBRok = d => /^[1-9][1-9]/.test(d) && ((d.length === 11 && d[2] === '9') || (d.length === 10 && /[2-5]/.test(d[2])));
+/* telefone para o sistema do WhatsApp: estrangeiro vai com "+" para não ganhar o 55 do Brasil */
+const foneParaWhats = f => foneBRok(f) ? f : '+' + f;
 function docValido(v) {
   const c = String(v || '').replace(/\D/g, '');
   if (c.length === 14) { if (/^(\d)\1+$/.test(c)) return false; const dv = n => { let s = 0, p = n - 7; for (let i = 0; i < n; i++) { s += +c[i] * p--; if (p < 2) p = 9; } const r = s % 11; return r < 2 ? 0 : 11 - r; }; return dv(12) === +c[12] && dv(13) === +c[13]; }
@@ -2823,7 +2826,7 @@ async function clientesDoContrato(n, cl) {
   return cl.filter(c => comp.some(x => (c.cpf && digF(x.cpf) === c.cpf) || (normNome(c.nome) && normNome(x.nome) === normNome(c.nome))));
 }
 /* telefones escritos num texto (a IA às vezes erra um dígito: o número vale só se estiver escrito igual no texto) */
-const fonesNoTexto = t => [...String(t || '').matchAll(/(?:\+?55[\s.-]*)?\(?\d{2}\)?[\s.-]*9?[\s.-]*\d{4}[\s.-]*\d{4}/g)].map(m => digF(m[0])).filter(d => d.length >= 10 && d.length <= 11);
+const fonesNoTexto = t => [...[...String(t || '').matchAll(/(?:\+?55[\s.-]*)?\(?\d{2}\)?[\s.-]*9?[\s.-]*\d{4}[\s.-]*\d{4}/g)].map(m => digF(m[0])).filter(d => d.length >= 10 && d.length <= 11), ...[...String(t || '').matchAll(/\+\s?[1-9][\d\s.-]{8,16}\d/g)].map(m => digF(m[0])).filter(d => d.length >= 10 && d.length <= 15)];
 const confereFone = (n, texto) => { const d = digF(n), L = [...new Set(fonesNoTexto(texto))]; if (L.includes(d)) return d; const m = L.filter(x => x.slice(-8) === d.slice(-8)); if (m.length === 1) return m[0]; return L.length === 1 ? L[0] : null; };
 let MAPA_CAMP = null;
 async function mapaFonesCampanha() {
@@ -2855,7 +2858,7 @@ async function importaConversaCaso(casoId, contrato, dias = 4) {
   let desde = somaDias(hojeBR(), -dias); if (desde < WHATS_DESDE) desde = WHATS_DESDE;
   const tok = await tokenSistemaWhats();
   const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 20000);
-  const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?numeros=${fones.slice(0, 10).join(',')}&desde=${desde}`, { headers: { Authorization: 'CBR tok:' + tok }, signal: ctl.signal }).catch(e => ({ ok: false, status: e.message }));
+  const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?numeros=${encodeURIComponent(fones.slice(0, 10).map(foneParaWhats).join(','))}&desde=${desde}`, { headers: { Authorization: 'CBR tok:' + tok }, signal: ctl.signal }).catch(e => ({ ok: false, status: e.message }));
   clearTimeout(tm);
   if (!r.ok) throw new Error('WhatsApp respondeu ' + r.status);
   const j = await r.json().catch(() => ({}));
