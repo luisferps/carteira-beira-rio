@@ -118,10 +118,17 @@ window.emitirTermo=async function(A0,modo,htmlPronto){
   const {c,num,nome1}=d;const html=htmlPronto||window.htmlTermo(d.A);
   const blob=await htmlParaDocx(html,num);
   const pastaNome=`${num} - Q${c.quadra} L${c.lote} - ${nome1}`.replace(/[\\/:*?"<>|]/g,''),arq=`${num} - Termo de Renegociação - ${nome1}.docx`.replace(/[\\/:*?"<>|]/g,'');
-  const h=modo==='pasta'?(window._pastaTermo||await pasta()):null;window._pastaTermo=null;
+  const h=null;window._pastaTermo=null;
   if(h){try{const sub=await h.getDirectoryHandle(pastaNome,{create:true});const f=await sub.getFileHandle(arq,{create:true});const w=await f.createWritable();await w.write(blob);await w.close();
       alert(`Termo ${num} salvo em Renegociações\\${pastaNome}\\${arq}.`);return true}catch(e){console.error(e)}}
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=arq;a.click();
-  if(modo==='pasta')alert(`Não consegui gravar na pasta. O termo foi baixado (${arq}); mova para Renegociações\\${pastaNome}.`);return true};
+  return true};
 window.escolhePastaTermo=async()=>{window._pastaTermo=await pasta();return !!window._pastaTermo};
+/* PDF do termo: abre o termo numa janela já com a marca d'água e manda imprimir — escolher "Salvar como PDF" */
+window.pdfDoTermo=async function(A0,htmlPronto,w){
+  let d;try{d=dadosTermo(A0)}catch(e){if(w)w.close();alert(e.message);return}
+  const {c,num,nome1}=d;const html=htmlPronto||window.htmlTermo(d.A);
+  const titulo=`${num} - Termo de Renegociação - ${nome1}`.replace(/[\\/:*?"<>|]/g,'');
+  w=w||window.open('','_blank');if(!w)return alert('Libere as janelas (pop-ups) para este site para gerar o PDF.');
+  w.document.open();w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${titulo}</title><style>body{font-family:Arial;font-size:12.5px;line-height:1.45;text-align:justify;margin:0}p{margin:0 0 8px}table{border-collapse:collapse;width:100%;margin:6px 0}td,th{border:1px solid #999;padding:3px 5px;font-size:11px}th{background:#e8eef4}.wm{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:330px;z-index:-1;opacity:.9}@page{size:A4;margin:20mm}</style></head><body><img class="wm" src="${location.origin}/ferramentas/wm.png">${html}<script>onload=()=>setTimeout(()=>print(),400)<\/script></body></html>`);w.document.close();return true};
 })();
