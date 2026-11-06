@@ -157,6 +157,7 @@ window.gravaTermoNaPasta=async function(A0,htmlPronto,h){
     return {ok:true,caminho:'Renegociações\\'+F.pastaNome}}
   catch(e){return {erro:(e.name||'')+': '+(e.message||e)}}};
 window.pastaRenegociacoes=pasta;
+window.termoBlobs=async(A0,htmlPronto)=>{const F=arquivosTermo(A0,htmlPronto);const f=await F;return {pastaNome:f.pastaNome,base:f.base,docx:await htmlParaDocx(f.html,f.num),pdf:await pdfBlob(f.html)}};
 /* PDF do termo: abre o termo numa janela já com a marca d'água e manda imprimir — escolher "Salvar como PDF" */
 window.pdfDoTermo=async function(A0,htmlPronto,w){
   let d;try{d=dadosTermo(A0)}catch(e){if(w)w.close();alert(e.message);return}
