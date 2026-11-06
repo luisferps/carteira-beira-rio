@@ -33,8 +33,45 @@ function quem(req) {
 }
 
 async function q(sql, params = []) {
+  /* alteração feita por uma pessoa: marca quem foi, para o registro de antes/depois (auditoria) */
+  if (ATOR && /^\s*(insert|update|delete)/i.test(sql)) {
+    const c = await pool.connect();
+    try { await c.query('begin'); await c.query(`select set_config('app.ator', $1, true)`, [String(ATOR)]); const r = await c.query(sql, params); await c.query('commit'); return r.rows; }
+    catch (e) { await c.query('rollback').catch(() => null); throw e; } finally { c.release(); }
+  }
   const r = await pool.query(sql, params);
   return r.rows;
+}
+/* auditoria: guarda o antes e o depois de toda alteração e exclusão nas tabelas principais (só os campos que mudaram) */
+let auditOk = false;
+async function garanteAuditoria() {
+  if (auditOk) return;
+  try {
+    await pool.query(`create table if not exists carteira.auditoria(id bigserial primary key, em timestamptz default now(), tabela text, operacao text, registro text, ator text, antes jsonb, depois jsonb)`);
+    await pool.query(`create index if not exists auditoria_reg on carteira.auditoria(tabela, registro)`);
+    await pool.query(`create or replace function carteira.audita() returns trigger language plpgsql as $f$
+      declare a jsonb; d jsonb; aa jsonb; dd jsonb; quem text := coalesce(nullif(current_setting('app.ator', true), ''), 'sistema');
+      begin
+        if TG_OP = 'DELETE' then
+          a := to_jsonb(OLD);
+          insert into carteira.auditoria(tabela, operacao, registro, ator, antes) values (TG_TABLE_NAME, 'exclusão', coalesce(a->>'id', a->>'numero', a->>'id_asaas'), quem, a);
+          return OLD;
+        end if;
+        a := to_jsonb(OLD); d := to_jsonb(NEW);
+        select jsonb_object_agg(k, a->k), jsonb_object_agg(k, d->k) into aa, dd
+          from jsonb_object_keys(d) k where (a->k) is distinct from (d->k) and k not in ('atualizado_em', 'salvo_em', 'dados', 'senha_hash');
+        if aa is not null then
+          insert into carteira.auditoria(tabela, operacao, registro, ator, antes, depois) values (TG_TABLE_NAME, 'alteração', coalesce(d->>'id', d->>'numero', d->>'id_asaas'), quem, aa, dd);
+        end if;
+        return NEW;
+      end $f$`);
+    for (const t of ['clientes', 'pagamentos', 'acordos', 'titulos', 'propostas', 'eventos', 'cobranca_casos', 'contratos', 'cessoes', 'boletos', 'usuarios'])
+      await pool.query(`do $d$ begin
+        if to_regclass('carteira.${t}') is not null and not exists (select 1 from pg_trigger where tgname = 'audita_${t}') then
+          execute 'create trigger audita_${t} after update or delete on carteira.${t} for each row execute function carteira.audita()';
+        end if; end $d$`);
+    auditOk = true;
+  } catch (e) { console.error('garanteAuditoria', e.message); }
 }
 
 let ATOR = null;
@@ -1727,7 +1764,7 @@ const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a), asaas, asa
 const DEV = criaDevolucoes({ q, asaas, json, log: (...a) => log(...a) });
 const rotasAcerto = criaAcerto({ q, asaas, json, log: (...a) => log(...a), dev: DEV });
 export default async (req) => {
-  await garanteEsquema();
+  await garanteEsquema(); await garanteAuditoria();
   const url = new URL(req.url);
   const p = url.pathname.replace(/^\/(\.netlify\/functions\/api|api)/, '').split('/').filter(Boolean);
   if (p[0] === 'asaas-webhook' && req.method === 'POST') return webhookAsaas(req);
@@ -2371,6 +2408,13 @@ export default async (req) => {
     /* boletos no nome de outra pessoa: exceção só do administrador */
     if (real !== 'luis' && body && typeof body === 'object' && ['acordo', 'proposta'].includes(p[0])) { delete body.pagador; if (body.dados && typeof body.dados === 'object') delete body.dados.pagador; }
     /* anotações internas (exceções, correções do Luis) ficam só no banco, fora da tela: tira da observação e guarda em nota_interna */
+    if (p[0] === 'manutencao' && p[1] === 'auditoria' && m === 'GET' && real === 'luis') {
+      const sp = url.searchParams, cond = [], par = [];
+      if (sp.get('tabela')) { par.push(sp.get('tabela')); cond.push(`tabela=$${par.length}`); }
+      if (sp.get('registro')) { par.push(sp.get('registro')); cond.push(`registro=$${par.length}`); }
+      if (sp.get('texto')) { par.push('%' + sp.get('texto') + '%'); cond.push(`(antes::text ilike $${par.length} or depois::text ilike $${par.length})`); }
+      return json(await q(`select * from carteira.auditoria ${cond.length ? 'where ' + cond.join(' and ') : ''} order by id desc limit ${Math.min(+sp.get('limite') || 100, 500)}`, par));
+    }
     if (p[0] === 'manutencao' && p[1] === 'asaas-trocar-celular' && m === 'POST' && real === 'luis') {
       /* troca de celular pedida pelo administrador: o celular novo passa a receber os avisos do Asaas; o antigo sai do Asaas */
       const [c] = await q(`select * from carteira.clientes where id=$1`, [body.cliente_id]);
