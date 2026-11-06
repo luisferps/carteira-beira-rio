@@ -59,7 +59,7 @@ async function garanteAuditoria() {
         end if;
         a := to_jsonb(OLD); d := to_jsonb(NEW);
         select jsonb_object_agg(k, a->k), jsonb_object_agg(k, d->k) into aa, dd
-          from jsonb_object_keys(d) k where (a->k) is distinct from (d->k) and k not in ('atualizado_em', 'salvo_em', 'dados', 'senha_hash');
+          from jsonb_object_keys(d) k where (a->k) is distinct from (d->k) and k not in ('atualizado_em', 'salvo_em', 'dados', 'senha_hash', 'ultimo_acesso');
         if aa is not null then
           insert into carteira.auditoria(tabela, operacao, registro, ator, antes, depois) values (TG_TABLE_NAME, 'alteração', coalesce(d->>'id', d->>'numero', d->>'id_asaas'), quem, aa, dd);
         end if;
@@ -777,7 +777,7 @@ function mesmoNome(a, b) {
   const perto = (x, y) => { if (x === y) return true; if (Math.abs(x.length - y.length) > 1 || Math.min(x.length, y.length) < 4) return false; let i = 0, j = 0, d = 0; while (i < x.length && j < y.length) { if (x[i] === y[j]) { i++; j++; continue; } if (++d > 1) return false; if (x.length > y.length) i++; else if (y.length > x.length) j++; else { i++; j++; } } return d + (x.length - i) + (y.length - j) <= 1; };
   if (A[0] !== B[0] || !perto(A[A.length - 1], B[B.length - 1])) return false; /* primeiro nome igual e último sobrenome igual (ou 1 letra) */
   const [m, M] = A.length <= B.length ? [A, B] : [B, A];
-  return m.filter(x => M.some(y => perto(x, y))).length >= Math.max(2, m.length - 1);
+  return m.length >= 2 && m.every(x => M.some(y => perto(x, y))); /* todos os nomes do mais curto aparecem no outro */
 }
 /* titular para os boletos depois da cessão: SEMPRE o primeiro cessionário; os outros só se o primeiro não existir em lugar nenhum */
 async function clienteCessionario(n) {
@@ -787,7 +787,7 @@ async function clienteCessionario(n) {
   const nomes = String(e.t).replace(/[\[\]"]/g, '').split(/\s+e\s+|,|;/i).map(x => x.trim()).filter(x => x.length > 5);
   const locais = await q(`select cpf, nome, asaas->>'id' aid from carteira.clientes where nome is not null`).catch(() => []);
   for (const nome of nomes) {
-    for (const k of locais.filter(x => mesmoNome(x.nome, nome))) {
+    for (const k of locais.filter(x => mesmoNome(x.nome, nome)).sort((a, b) => (normNome(b.nome) === normNome(nome)) - (normNome(a.nome) === normNome(nome)))) {
       const d = String(k.cpf || '').replace(/\D/g, '');
       if (d.length >= 11) { const r2 = await asaas('/customers?cpfCnpj=' + d).catch(() => null); const c2 = (r2?.data || []).find(x => !x.deleted); if (c2) return { tem: true, id: c2.id, nome: k.nome }; }
       if (k.aid) return { tem: true, id: k.aid, nome: k.nome };
