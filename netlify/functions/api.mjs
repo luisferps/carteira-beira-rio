@@ -2727,7 +2727,7 @@ ${conversa}`;
     if (!ult || ult.texto !== t) { await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'IA')`, [c.id, c.contrato, t]); await q(`update carteira.cobranca_casos set proximo_contato=$2::date where id=$1`, [c.id, hoje]); }
   }
   if (J.numero_novo?.numero) {
-    const d = digF(J.numero_novo.numero);
+    const d = confereFone(J.numero_novo.numero, conversa) || '';
     const conhecidos = (await clientesDoContrato(c.contrato)).flatMap(fonesDoCliente).map(f => f.slice(-8));
     if (d.length >= 10 && d.length <= 11 && !conhecidos.includes(d.slice(-8)))
       await sugereIA(c.contrato, c.id, { tipo: 'adicionar_telefone', contrato: c.contrato, nome: J.numero_novo.de_quem || '', numero: d }, `Incluir o telefone ${d} no cadastro de ${J.numero_novo.de_quem || 'cliente'} (visto na conversa)`, 'conversa', 'IA');
@@ -2764,6 +2764,9 @@ async function clientesDoContrato(n, cl) {
   cl = cl || await q(`select id, cpf, nome, planilha, asaas, manual from carteira.clientes`);
   return cl.filter(c => comp.some(x => (c.cpf && digF(x.cpf) === c.cpf) || (normNome(c.nome) && normNome(x.nome) === normNome(c.nome))));
 }
+/* telefones escritos num texto (a IA às vezes erra um dígito: o número vale só se estiver escrito igual no texto) */
+const fonesNoTexto = t => [...String(t || '').matchAll(/(?:\+?55[\s.-]*)?\(?\d{2}\)?[\s.-]*9?[\s.-]*\d{4}[\s.-]*\d{4}/g)].map(m => digF(m[0])).filter(d => d.length >= 10 && d.length <= 11);
+const confereFone = (n, texto) => { const d = digF(n), L = [...new Set(fonesNoTexto(texto))]; if (L.includes(d)) return d; const m = L.filter(x => x.slice(-8) === d.slice(-8)); if (m.length === 1) return m[0]; return L.length === 1 ? L[0] : null; };
 let MAPA_CAMP = null;
 async function mapaFonesCampanha() {
   if (MAPA_CAMP && Date.now() - MAPA_CAMP.t < 120000) return MAPA_CAMP;
@@ -2948,7 +2951,9 @@ Pedido do usuário: ${String(texto).slice(0, 2000)}`;
   if (r.erro) return { erro: r.erro };
   const acoes = (Array.isArray(r.J.acoes) ? r.J.acoes : []).filter(a => a && ACOES_IA[a.tipo]).slice(0, 6);
   const ids = [];
-  for (const a of acoes) { a.contrato = String(a.contrato || contrato || '').padStart(4, '0'); ids.push(await sugereIA(a.contrato, null, a, a.descricao || ACOES_IA[a.tipo], 'assistente', quem)); }
+  for (const a of acoes) {
+    if (a.numero) { const ok = confereFone(a.numero, texto); if (!ok) continue; a.numero = ok; }
+    a.contrato = String(a.contrato || contrato || '').padStart(4, '0'); ids.push(await sugereIA(a.contrato, null, a, a.descricao || ACOES_IA[a.tipo], 'assistente', quem)); }
   return { resposta: r.J.resposta || '', sugestoes: ids.length ? await q(`select * from carteira.ia_sugestoes where id = any($1) order by id`, [ids]) : [] };
 }
 async function rotasIA(p, m, body, url, real) {
