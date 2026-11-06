@@ -3002,42 +3002,95 @@ async function contratosCitados(texto, pagina) {
   }
   return out.sort((a, b) => b.pts - a.pts).slice(0, 6);
 }
+/* ferramentas de consulta da IA (só leitura): ela olha o sistema antes de propor, como uma pessoa faria */
+async function ferramentaIA(nome, ent, pagina) {
+  if (nome === 'buscar_clientes') {
+    const t = String(ent.texto || ''), d = t.replace(/\D/g, ''), tk = normNome(t).split(' ').filter(x => x.length >= 3);
+    const cl = await q(`select id, cpf, nome, planilha, asaas, manual from carteira.clientes`);
+    const cts = await q(`select numero, compradores from carteira.contratos`);
+    const camp = new Set((await q(`select contrato from carteira.cobranca_casos where encerrado_em is null`)).map(x => x.contrato));
+    const hits = cl.map(c => {
+      const nn = normNome(c.nome), fs = fonesDoCliente(c), em = [(c.manual || {}).email, (c.asaas || {}).email, (c.planilha || {}).email].filter(Boolean).join(' ').toLowerCase();
+      let pts = tk.filter(x => nn.split(' ').includes(x)).length; if (d.length >= 6 && ((c.cpf || '').includes(d) || fs.some(f => f.includes(d.slice(-8))))) pts += 5; if (t.includes('@') && em.includes(t.toLowerCase().trim())) pts += 5;
+      return { c, pts, fs };
+    }).filter(x => x.pts > 0).sort((a, b) => b.pts - a.pts).slice(0, 8);
+    return hits.map(({ c, fs }) => { const ks = cts.filter(k => (k.compradores || []).some(x => (c.cpf && digF(x.cpf) === c.cpf) || normNome(x.nome) === normNome(c.nome))).map(k => k.numero + (camp.has(k.numero) ? ' (na cobrança)' : ''));
+      return { nome: c.nome, cpf: c.cpf, telefones: [...new Set(fs)], email_atual: (c.manual || {}).email || (c.asaas || {}).email || (c.planilha || {}).email || null, outros_emails: [...new Set([(c.manual || {}).email, (c.asaas || {}).email, (c.planilha || {}).email].filter(Boolean))], endereco: (c.manual || {}).endereco || null, contratos: ks }; });
+  }
+  if (nome === 'ver_contrato') {
+    const n = String(ent.numero || '').replace(/\D/g, '').padStart(4, '0');
+    const [ct] = await q(`select numero, quadra, lote, compradores from carteira.contratos where numero=$1`, [n]);
+    if (!ct) return { erro: 'Contrato não existe' };
+    const cs = await clientesDoContrato(n);
+    const d = (await dividas([n]))[n];
+    const fut = await q(`select rotulo, vencimento::text v, valor_face from carteira.titulos t where contrato=$1 and conferente is null and grupo<>'acordo' and vencimento >= $2::date and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis') order by vencimento limit 5`, [n, hojeBR()]);
+    const props = await q(`select dados->>'termo' termo, dados->>'valor_acordado' valor, jsonb_array_length(coalesce(dados->'parcelas','[]'::jsonb)) parcelas from carteira.propostas where contrato=$1 and conferente='luis'`, [n]);
+    const acs = await q(`select a.termo, a.data_acordo::text data, a.valor_acordado, count(t.id)::int total, count(t.id) filter (where exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis'))::int pagas from carteira.acordos a join carteira.titulos t on t.acordo_id=a.id where a.contrato=$1 and a.conferente='luis' group by a.id order by a.id desc limit 5`, [n]);
+    const [caso] = await q(`select id, etapa, proximo_contato::text px, criado_em::date::text entrou, ia_situacao from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [n]);
+    const regs = caso ? await q(`select em::date::text dia, tipo, resultado, left(texto, 200) texto from carteira.cobranca_registros where caso_id=$1 order by em desc limit 6`, [caso.id]) : [];
+    const bols = await q(`select b.valor, b.vencimento::text v, b.tipo, t.rotulo from carteira.boletos b left join carteira.titulos t on t.id=b.titulo_id where b.contrato=$1 and b.status = any($2)`, [n, ATIVOS_B]);
+    return { contrato: n, quadra: ct.quadra, lote: ct.lote, clientes: cs.map(c => ({ nome: c.nome, cpf: c.cpf, telefones: [...new Set(fonesDoCliente(c))], email_atual: (c.manual || {}).email || (c.asaas || {}).email || (c.planilha || {}).email || null })),
+      em_atraso: { total: d?.total || 0, parcelas: (d?.parcelas || []).map(x => `${x.rotulo} venc. ${x.vencimento} (${x.dias} dias) R$ ${x.total}`) },
+      proximas_a_vencer: fut.map(x => `${x.rotulo} venc. ${x.v} R$ ${x.valor_face}`), propostas_pendentes: props, acordos: acs, boletos_em_aberto: bols.map(b => `${b.rotulo || b.tipo} venc. ${b.v} R$ ${b.valor}`),
+      cobranca: caso ? { etapa: caso.etapa, proximo_contato: caso.px, entrou: caso.entrou, situacao_ia: caso.ia_situacao, ultimos_registros: regs } : 'não está na campanha de cobrança' };
+  }
+  if (nome === 'casos_cobranca') {
+    const cs = await q(`select contrato, etapa, proximo_contato::text px from carteira.cobranca_casos where encerrado_em is null order by contrato`);
+    const D = await dividas(cs.map(c => c.contrato));
+    return cs.map(c => ({ contrato: c.contrato, cliente: D[c.contrato]?.titular || '', etapa: c.etapa, divida: D[c.contrato]?.total || 0, proximo_contato: c.px }));
+  }
+  return { erro: 'ferramenta desconhecida' };
+}
+const FERRAMENTAS_IA = [
+  { name: 'buscar_clientes', description: 'Procura clientes no cadastro por nome, CPF, telefone ou e-mail. Devolve nome exato, CPF, telefones, e-mails e contratos.', input_schema: { type: 'object', properties: { texto: { type: 'string' } }, required: ['texto'] } },
+  { name: 'ver_contrato', description: 'Mostra tudo de um contrato: clientes (telefones, e-mails), parcelas em atraso, próximas a vencer, propostas, acordos, boletos em aberto e situação na cobrança com os últimos registros.', input_schema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] } },
+  { name: 'casos_cobranca', description: 'Lista os contratos que estão na campanha de cobrança, com cliente, etapa e dívida.', input_schema: { type: 'object', properties: {} } },
+  { name: 'responder', description: 'Resposta final ao usuário, com as ações propostas para ele aprovar. Chame sempre no fim.', input_schema: { type: 'object', properties: { resposta: { type: 'string', description: 'resumo BREVE (no máximo 2 frases) do que o usuário pediu e do que você vai mexer, ou por que não pode / o que precisa saber' }, acoes: { type: 'array', items: { type: 'object' } }, cancelar: { type: 'array', items: { type: 'integer' } } }, required: ['resposta'] } }
+];
 async function assistenteIA(texto, contrato, quem, pagina, historico) {
-  const ctx = await contextoContratoIA(contrato);
+  const key = (process.env.ANTHROPIC_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  if (!key) return { erro: 'sem chave da IA' };
   const pend = await q(`select id, descricao from carteira.ia_sugestoes where status='pendente' order by id desc limit 10`);
   const hist = (Array.isArray(historico) ? historico : []).slice(-8).map(m => (m.eu ? 'Usuário: ' : 'Você: ') + String(m.t || '').slice(0, 400)).join('\n');
-  const cit = contrato ? [] : await contratosCitados(texto, pagina);
-  const ctxCit = cit.length ? `Contratos que podem ser o citado (em ordem de prioridade; o usuário está na página "${pagina || 'início'}", então dê preferência aos ${pagina === 'cobranca' ? 'que estão na cobrança' : 'primeiros'}; se houver dúvida real entre mais de um, pergunte qual é em vez de propor ação):\n` + (await Promise.all(cit.slice(0, 3).map(c => contextoContratoIA(c.numero)))).join('\n') : '';
-  const prompt = `Você é o assistente do sistema da carteira de recebíveis do loteamento Beira Rio. O usuário (${quem}) escreve um recado ou pedido. Você NÃO executa nada: só propõe ações para ele aprovar.
-Você só pode propor estas ações (nada além disso; nunca mexa em estrutura, design, regras, cálculos, configurações ou funcionamento do sistema — se pedirem isso, responda que não pode e que isso é com o desenvolvedor):
-- adicionar_telefone: {"tipo":"adicionar_telefone","contrato":"0000","nome":"nome do cliente","numero":"DDD+número só dígitos"}
-- alterar_email: {"tipo":"alterar_email","contrato":"0000","nome":"...","valor":"email"}
-- alterar_endereco: {"tipo":"alterar_endereco","contrato":"0000","nome":"...","valor":"endereço completo"}
-- marcar_numero_ruim: {"tipo":"marcar_numero_ruim","contrato":"0000","numero":"..."}
-- registrar_contato: {"tipo":"registrar_contato","contrato":"0000","como":"ligacao|whatsapp|email|visita","resultado":"Atendeu|Não atendeu|Sem resposta|Número errado|Solicitou valores|Pediu proposta|Prometeu pagar|Recusou|Vai procurar o escritório","texto":"o que aconteceu"}
-- registrar_promessa: {"tipo":"registrar_promessa","contrato":"0000","data":"AAAA-MM-DD","valor":número ou null,"texto":"..."}
-- mudar_etapa: {"tipo":"mudar_etapa","contrato":"0000","etapa":"fila|contato1|contato2|contato3|negociando|promessa|proposta|acordo|sem_retorno|notificacao|retomada"}
-- anotar: {"tipo":"anotar","contrato":"0000","texto":"..."}
-- emitir_boleto: {"tipo":"emitir_boleto","contrato":"0000","parcela":"rótulo exato da parcela a vencer, ex.: Mensal 52/120"}
-Hoje é ${hojeBR()}. Use o contrato do contexto quando o usuário não disser outro. Não invente números, datas ou valores que o usuário não disse.
-Leia a conversa anterior: o pedido atual pode ser continuação ou correção do anterior (ex.: "não, é com s" corrige a grafia do que foi pedido antes). Use o contexto do cadastro para entender: nomes de clientes e e-mails já cadastrados mostram a grafia certa. Se a correção substitui uma sugestão pendente, coloque o número dela em "cancelar" e proponha a ação corrigida.
-${pend.length ? 'Sugestões ainda pendentes:\n' + pend.map(x => `#${x.id}: ${x.descricao}`).join('\n') : ''}
+  const sistema = `Você é o assistente do sistema da carteira de recebíveis do loteamento Beira Rio (Inerente). O usuário (${quem}) escreve um recado ou pedido. Você NÃO executa nada: só propõe ações para ele aprovar.
+Antes de propor, CONSULTE o sistema com as ferramentas, como uma pessoa faria: se o pedido fala de cadastro, busque o cliente; se fala de contrato, parcela, boleto ou cobrança, veja o contrato. Use o que encontrar para acertar nomes (grafia exata do cadastro), números, parcelas e para saber se o pedido é possível. Se encontrar mais de um cliente/contrato possível e não der para saber qual, pergunte em vez de propor.
+${lista}Hoje é ${hojeBR()}. O usuário está na página "${pagina || 'início'}"${contrato ? ` com o contrato ${contrato} aberto (é dele que está falando, salvo se disser outro)` : ''}. Dê prioridade ao que é da página atual${pagina === 'cobranca' ? ' (contratos que estão na cobrança)' : ''} e depois ao resto do sistema.
+Não invente números, datas ou valores. O pedido pode ser continuação ou correção do anterior (ex.: "não, é com s"): leia a conversa anterior. Se a correção substitui uma sugestão pendente, ponha o número dela em "cancelar" e proponha a corrigida.
+${pend.length ? 'Sugestões ainda pendentes:\n' + pend.map(x => `#${x.id}: ${x.descricao}`).join('\n') : 'Nenhuma sugestão pendente.'}
 ${hist ? 'Conversa anterior (mais antiga primeiro):\n' + hist : ''}
-${ctx ? 'Contrato aberto na tela (é dele que o usuário está falando, salvo se disser outro):\n' + ctx : ctxCit || 'Nenhum contrato identificado: se o pedido precisar de contrato e ele não disser, pergunte.'}
-Devolva SOMENTE um JSON: {"resposta":"resumo BREVE (no máximo 2 frases) do que o usuário pediu e do que você vai mexer, ou por que não pode / o que precisa saber","acoes":[{...}],"cancelar":[números das sugestões pendentes que ficaram erradas ou foram substituídas]}
-
-Pedido do usuário: ${String(texto).slice(0, 2000)}`;
-  const r = await chamaIA(prompt, 1500, process.env.ANTHROPIC_MODEL_ASSISTENTE || 'claude-sonnet-5-5');
-  if (r.erro) return { erro: r.erro };
-  for (const id of (Array.isArray(r.J.cancelar) ? r.J.cancelar : [])) await q(`update carteira.ia_sugestoes set status='substituida', resolvido_em=now() where id=$1 and status='pendente'`, [+id || 0]);
-  const acoes = (Array.isArray(r.J.acoes) ? r.J.acoes : []).filter(a => a && ACOES_IA[a.tipo]).slice(0, 6);
-  const ids = [];
+No fim, chame a ferramenta "responder" (cada ação no formato acima).`;
+  const msgs = [{ role: 'user', content: String(texto).slice(0, 2000) }];
+  const t0 = Date.now(), modelo = process.env.ANTHROPIC_MODEL_ASSISTENTE || 'claude-sonnet-5-5';
+  let fim = null;
+  for (let volta = 0; volta < 6 && !fim; volta++) {
+    const ultima = volta === 5 || Date.now() - t0 > 16000;
+    const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: modelo, max_tokens: 1500, system: sistema, tools: FERRAMENTAS_IA, tool_choice: ultima ? { type: 'tool', name: 'responder' } : { type: 'any' }, messages: msgs }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) return { erro: d.error?.message || 'IA respondeu ' + r.status };
+    msgs.push({ role: 'assistant', content: d.content });
+    const usos = (d.content || []).filter(c => c.type === 'tool_use');
+    const res = [];
+    for (const u of usos) {
+      if (u.name === 'responder') { fim = u.input || {}; break; }
+      let out; try { out = await ferramentaIA(u.name, u.input || {}, pagina); } catch (e) { out = { erro: e.message }; }
+      res.push({ type: 'tool_result', tool_use_id: u.id, content: JSON.stringify(out).slice(0, 12000) });
+    }
+    if (fim) break;
+    if (!res.length) { fim = { resposta: (d.content || []).map(c => c.text || '').join(' ').trim() || 'Não entendi, pode explicar melhor?' }; break; }
+    msgs.push({ role: 'user', content: res });
+  }
+  fim = fim || { resposta: 'Não consegui terminar a consulta a tempo. Tente de novo ou dê mais detalhes.' };
+  for (const id of (Array.isArray(fim.cancelar) ? fim.cancelar : [])) await q(`update carteira.ia_sugestoes set status='substituida', resolvido_em=now() where id=$1 and status='pendente'`, [+id || 0]);
+  const acoes = (Array.isArray(fim.acoes) ? fim.acoes : []).filter(a => a && ACOES_IA[a.tipo]).slice(0, 6);
+  const ids = [], textoTodo = texto + '\n' + hist;
   for (const a of acoes) {
     if (!a.contrato && !contrato) continue;
-    if (a.numero) { const ok = confereFone(a.numero, texto); if (!ok) continue; a.numero = ok; }
+    if (a.numero) { const ok = confereFone(a.numero, textoTodo); if (!ok) continue; a.numero = ok; }
     a.contrato = String(a.contrato || contrato || '').padStart(4, '0'); delete a.descricao; const desc = await previaAcaoIA(a);
-    const id = await sugereIA(a.contrato, null, a, desc, 'assistente', quem); if (!ids.includes(id)) ids.push(id); }
-  return { resposta: r.J.resposta || '', sugestoes: ids.length ? await q(`select * from carteira.ia_sugestoes where id = any($1) order by id`, [ids]) : [] };
+    const id = await sugereIA(a.contrato, null, a, desc, 'assistente', quem); if (!ids.includes(id)) ids.push(id);
+  }
+  return { resposta: fim.resposta || '', sugestoes: ids.length ? await q(`select * from carteira.ia_sugestoes where id = any($1) order by id`, [ids]) : [] };
 }
 async function rotasIA(p, m, body, url, real) {
   if (p[0] !== 'ia') return null;
