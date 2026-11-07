@@ -2,7 +2,13 @@
   "name": "carteira-beira-rio",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "mcp:local": "node ferramentas/mcp-local.mjs"
+  },
   "dependencies": {
-    "pg": "^8.13.1"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "pg": "^8.13.1",
+    "zod": "^4.6.7"
   }
 }
