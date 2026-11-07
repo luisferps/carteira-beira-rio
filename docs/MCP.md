@@ -1,6 +1,6 @@
 # Primeiro MCP da carteira Beira Rio
 
-Versão 0.1.0, implementada localmente em 07/11/2026. Ainda não publicada nem conectada ao Codex.
+Versão 0.1.0, publicada em 07/11/2026 com autorização do Luis. Deploy `6aeee4db57c52a8768ff56ca`, commit `8c90443`. Endpoint ativo e conexão ao Codex validada com descoberta das três ferramentas pelo cliente nativo.
 
 ## O que foi reaproveitado
 
@@ -28,9 +28,9 @@ As decisões de cobrança mudaram ao longo dos meses, inclusive em novembro. Ant
 
 ## Configuração para publicar
 
-1. Gerar token aleatório de 32 bytes ou mais e cadastrar `MCP_BEARER_TOKEN` como segredo no escopo Functions do site correto. Nada disso foi gravado em produção nesta implementação.
-2. Manter `DATABASE_URL` e `DB_PASSWORD` existentes. O conector confirmou que estão cadastrados, mas devolve valores mascarados; por isso não houve teste local contra o banco de produção.
-3. Publicar esta branch após revisão. Endpoint previsto: `https://papaya-cocada-88fc90.netlify.app/mcp`.
+1. Gerar token aleatório de 32 bytes ou mais e cadastrar `MCP_BEARER_TOKEN` como segredo no escopo Functions do site correto. O segredo exclusivo já foi cadastrado em produção no escopo Functions, sem incluir o valor neste documento.
+2. Manter `DATABASE_URL` e `DB_PASSWORD` existentes. O conector confirmou que estão cadastrados, mas devolve valores mascarados; o teste contra dados reais foi feito pelo endpoint remoto publicado.
+3. Publicar esta branch após revisão. Endpoint ativo: `https://papaya-cocada-88fc90.netlify.app/mcp`.
 4. Fazer teste remoto autenticado com o cliente oficial: conectar, listar ferramentas e consultar um contrato conhecido, confrontando com a tela.
 5. Configurar no cliente o URL e o token por variável de ambiente ou armazenamento de segredos.
 
@@ -54,6 +54,13 @@ O limite declarativo de 60 requisições por minuto está no config da função,
 
 ## Evolução prevista
 
-Após validar a consulta real: expor preparação de ações pelo mecanismo existente de proposta/aprovação; integrar leitura atual de WhatsApp; coordenar contatos pela Evolution e encaminhar a negociação ao Luis. O MCP fornece as ferramentas; a coordenação contínua depende do agente e do agendador. Esta versão não implementa essa coordenação.
+Próxima ampliação: expor preparação de ações pelo mecanismo existente de proposta/aprovação; integrar leitura atual de WhatsApp; coordenar contatos pela Evolution e encaminhar a negociação ao Luis. O MCP fornece as ferramentas; a coordenação contínua depende do agente e do agendador. Esta versão não implementa essa coordenação.
 
 Referência técnica: [SDK MCP oficial](https://ts.sdk.modelcontextprotocol.io/server).
+
+
+## Validação em produção (07/11/2026)
+
+As três ferramentas responderam no endpoint autenticado. Na comparação com a tela, o contrato 0002, Q03 L09, apresentou R$ 12.911,98 em 13 parcelas vencidas, etapa Na fila; o contrato 0015 apresentou dívida vencida zero e acordo 0015-001 de R$ 6.596,75 em cinco parcelas. A campanha retornou 30 casos. A busca de cliente localizou o contrato esperado. Sem token, o endpoint retorna 401; a página inicial segue respondendo 200. Nenhuma ação financeira foi executada pelo teste.
+
+Neste computador, a conexão usa `http_headers_helper` em vez de depender de uma variável de ambiente herdada pelo aplicativo. O helper lê uma credencial protegida pelo Windows DPAPI CurrentUser, fora do repositório. O arquivo de configuração não contém o token em texto claro. O cliente nativo do Codex descobriu as três ferramentas sem erro. A evidência detalhada fica no registro local de validação da migração, sem telefones, CPF ou credenciais.
