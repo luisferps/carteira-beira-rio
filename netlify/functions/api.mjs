@@ -2337,7 +2337,7 @@ export default async (req) => {
                (select fechado_em from carteira.fechamentos f where f.contrato=c.numero and f.conferente=$1) as fechado_em,
                exists(select 1 from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='encerramento') as cancelado,
                (select e.motivo from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='encerramento' order by e.id desc limit 1) as motivo_enc,
-               (select string_agg(coalesce(e.obs,''),' | ' order by e.id) from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='pendencia') as pendencia,
+               (select string_agg(coalesce(e.obs,''),' | ' order by e.id) from carteira.eventos e where e.contrato=c.numero and e.conferente=$1 and e.tipo='pendencia' and coalesce(e.dados->>'status','aberta')<>'resolvida') as pendencia,
                ea.n as em_atraso, ea.v as em_atraso_valor
         from carteira.contratos c cross join lateral (select count(*) as n, coalesce(sum(t.valor_face),0) as v from carteira.titulos t
                   where t.contrato=c.numero and (t.conferente is null or t.conferente=$1) and t.vencimento <= (now() at time zone 'America/Sao_Paulo')::date
