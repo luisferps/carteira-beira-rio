@@ -624,7 +624,7 @@ function desenhaClientes(){
     return t.includes(q)||(qd.length>=3&&(digs(d.cpf).includes(qd)||d.tel.some(x=>digs(x.v).includes(qd))||c.contratos.some(k=>k.numero.includes(qd.padStart(4,'0'))||k.numero===qd.padStart(4,'0'))))});
   const at=CLI.filter(c=>c.contratos.some(k=>k.atual)).length;
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
-  <div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Clientes (${CLI.length})</h3>${EU==='luis'?'<button onclick="sincAsaas()">Atualizar com o Asaas</button>':''}</div>
+  <div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Clientes (${CLI.length})</h3>${EU==='luis'?'<button onclick="novoCliente()">Novo cliente</button><button onclick="sincAsaas()">Atualizar com o Asaas</button>':''}</div>
   <div class="bt" style="margin-top:10px;align-items:center"><input id="cq" placeholder="Buscar por nome, CPF, telefone, e-mail ou nº do contrato" value="${esc(CLIQ)}" style="flex:1;min-width:240px">
    <select id="cf"><option value="todos">Todos</option><option value="ativos" ${CLIF==='ativos'?'selected':''}>Só quem tem contrato ativo (${at})</option><option value="semtel" ${CLIF==='semtel'?'selected':''}>Sem telefone</option></select></div>
   ${CPFERR.some(x=>x.certo)?`<div class="aviso" style="margin-top:8px"><b>${CPFERR.filter(x=>x.certo).length} cliente(s) estão duplicados por CPF digitado errado na planilha</b> (o mesmo nome aparece também com o CPF certo):<div style="font-size:12px;margin:4px 0">${CPFERR.filter(x=>x.certo).map(x=>`${esc(x.errado.nome)}: <s>${cpfF(x.errado.cpf)}</s> → ${cpfF(x.certo.cpf)}`).join('<br>')}</div><button class="pri" onclick="juntaCpf()">Juntar no CPF certo</button></div>`:''}
@@ -635,6 +635,18 @@ function desenhaClientes(){
   </tbody></table></div>${L.length>400?'<div class="mut">Mostrando 400. Use a busca para achar os outros.</div>':''}</div>`;
   const cq=$('#cq');cq.oninput=()=>{CLIQ=cq.value;const p=cq.selectionStart;desenhaClientes();const n=$('#cq');n.focus();n.setSelectionRange(p,p)};
   $('#cf').onchange=e=>{CLIF=e.target.value;desenhaClientes()}}
+function novoCliente(){abreModal(`<div class="bt"><h3 style="flex:1">Novo cliente</h3><button onclick="fechaModal()">Fechar</button></div>
+  <label>Nome completo</label><input id="nc_nome"><label>CPF ou CNPJ</label><input id="nc_cpf">
+  <label>RG e órgão emissor</label><input id="nc_rg"><label>Estado civil</label><input id="nc_estado">
+  <label>Nacionalidade</label><input id="nc_nacionalidade"><label>Endereço completo</label><input id="nc_endereco">
+  <label>Telefone (se conhecido)</label><input id="nc_fone"><label>E-mail (se conhecido)</label><input id="nc_email">
+  <label>Fonte dos dados</label><input id="nc_fonte"><div class="bt"><button class="pri" onclick="salvaNovoCliente(this)">Cadastrar cliente</button></div>`)}
+async function salvaNovoCliente(btn){const cpf=digs($('#nc_cpf').value),n=$('#nc_nome').value.trim();
+  if(!n||!docOk(cpf))return alert('Informe o nome completo e um CPF/CNPJ válido.');
+  const ex=CLI.find(c=>digs(c.cpf)===cpf);if(ex){fechaModal();location.hash='cl/'+ex.id;return}
+  btn.disabled=true;try{const linha={nome:n,cpf,rg:$('#nc_rg').value.trim(),estado_civil:$('#nc_estado').value.trim(),nacionalidade:$('#nc_nacionalidade').value.trim(),logradouro:$('#nc_endereco').value.trim(),fone:$('#nc_fone').value.trim(),email:$('#nc_email').value.trim(),origem:$('#nc_fonte').value.trim()};
+    await api('clientes/planilha',{method:'POST',body:{linhas:[linha]}});CLI=await api('clientes');const c=CLI.find(c=>digs(c.cpf)===cpf);if(!c)throw new Error('Cadastro não encontrado após salvar.');fechaModal();location.hash='cl/'+c.id;
+  }catch(e){alert('Não foi possível cadastrar: '+e.message);btn.disabled=false}}
 async function sincAsaas(){let off=0,n=0;const b=event.target;b.disabled=true;
   try{while(off!=null){b.textContent='Buscando no Asaas… '+n;const r=await api('clientes/asaas',{method:'POST',body:{offset:off}});n+=r.n;off=r.proximo}}finally{b.disabled=false}
   alert(n+' clientes atualizados com o Asaas.');telaClientes()}
@@ -674,9 +686,11 @@ let LSEL=false,LSEL_GO=false;const LSELS=new Set();let COBAT={};
 const passaFiltro=c=>!FILTRO.size||[...FILTRO].some(f=>f==='fech'?!!c.fechado_em:f==='pend'?!!c.pendencia:GRP(statusC(c))===f);
 async function avisoPagadores(){if(EU!=='luis')return;const L=await api('manutencao/pagadores').catch(()=>[]);window._PGO=L;const el=$('#pgorg');if(!el||!L.length)return;
   el.innerHTML=`<div class="aviso" style="margin-top:8px"><b>${L.length} contrato(s) com boleto saindo em nome de quem não é o 1º titular</b>, sem troca registrada. A regra agora é: sempre o 1º titular, salvo troca registrada no contrato. <button class="pri" onclick="modalPagadores()">Organizar</button></div>`}
-async function avisoTermos(){if(EU!=='luis')return;const L=await api('manutencao/termos').catch(()=>[]);const el=$('#tmorg');if(!el||!Array.isArray(L)||!L.length)return;
-  el.innerHTML=`<div class="aviso" style="margin-top:8px"><b>${L.length} termo(s) de renegociação ainda não gravados na pasta do OneDrive</b> (${L.map(x=>x.termo).join(', ')}). Os novos vão sozinhos ao efetivar o acordo. <button class="pri" onclick="registraTermosPasta()">Gravar agora</button></div>`}
-async function registraTermosPasta(){await carregaTermo();const hP=await window.pastaRenegociacoes().catch(()=>null);if(!hP)return alert('Pasta Renegociações não escolhida.');
+async function avisoTermos(){if(EU!=='luis')return;const L=await api('manutencao/termos').catch(()=>[]);const el=$('#tmorg');if(!el||!Array.isArray(L))return;
+  el.innerHTML='<div class="bt" style="margin-top:8px"><span class="mut">Termos: Documentos / Contratos / Negociações</span><button onclick="configuraPastaTermos()">Escolher pasta dos termos</button></div>';if(!L.length)return;
+  el.innerHTML+=`<div class="aviso" style="margin-top:8px"><b>${L.length} termo(s) de renegociação ainda não gravados na pasta do OneDrive</b> (${L.map(x=>x.termo).join(', ')}). Os novos vão sozinhos ao efetivar o acordo. <button class="pri" onclick="registraTermosPasta()">Gravar agora</button></div>`}
+async function configuraPastaTermos(){await carregaTermo();if(await window.escolhePastaTermo())alert('Pasta Negociações configurada. Os próximos termos serão gravados nela ao efetivar o acordo.');avisoTermos()}
+async function registraTermosPasta(){await carregaTermo();const hP=await window.pastaRenegociacoes().catch(()=>null);if(!hP)return alert('Pasta Negociações não escolhida.');
   const L=await api('manutencao/termos');if(!Array.isArray(L)||!L.length)return alert('Nenhum termo de renegociação encontrado.');const C0=C,ok=[],er=[];const el=$('#tmorg');if(el)el.innerHTML='<div class="aviso" style="margin-top:8px">Gravando os termos na pasta (Word e PDF)… aguarde, leva uns segundos por termo.</div>';
   for(const x of L){try{C=await api('contrato/'+x.contrato);C.clientes=await api('clientes?contrato='+x.contrato).catch(()=>[]);const d=acordoParaTermo(x.id);if(!d){er.push(x.termo+': acordo não encontrado');continue}
     const h=await htmlSalvo(x.termo);const r=await window.gravaTermoNaPasta(d,h||undefined,hP);if(r.ok){ok.push(r.caminho);await api('manutencao/termos',{method:'POST',body:{termo:x.termo}}).catch(()=>{})}else er.push(x.termo+': '+r.erro)}catch(e){er.push(x.termo+': '+e.message)}}

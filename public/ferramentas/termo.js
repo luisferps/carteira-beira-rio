@@ -9,13 +9,14 @@ function ext(n){const u=['','um','dois','três','quatro','cinco','seis','sete','
   const int=x=>{if(!x)return'zero';const p=[];const mi=Math.floor(x/1e6),mil=Math.floor(x%1e6/1000),r=x%1000;if(mi)p.push(mi===1?'um milhão':ate999(mi)+' milhões');if(mil)p.push(mil===1?'mil':ate999(mil)+' mil');if(r)p.push(ate999(r));return p.length>1&&(r<100||r%100===0)&&r?p.slice(0,-1).join(' ')+' e '+p[p.length-1]:p.join(' ')};
   const v=Math.round(n*100),re=Math.floor(v/100),ce=v%100;let s='';if(re)s=int(re)+(re===1?' real':(re%1e6===0?' de reais':' reais'));if(ce)s+=(s?' e ':'')+int(ce)+(ce===1?' centavo':' centavos');return s||'zero real'}
 
-async function pasta(){if(!window.showDirectoryPicker)return null;
+async function pasta(trocar=false){if(!window.showDirectoryPicker)return null;
   const db=await new Promise(r=>{const o=indexedDB.open('cbr-termos',1);o.onupgradeneeded=()=>o.result.createObjectStore('h');o.onsuccess=()=>r(o.result);o.onerror=()=>r(null)});
   const get=()=>db?new Promise(r=>{const q=db.transaction('h').objectStore('h').get('pasta');q.onsuccess=()=>r(q.result);q.onerror=()=>r(null)}):null;
-  let h=await get();
+  let h=await get();if(trocar||h?.name!=='Negociações')h=null;
   if(h){const p=await h.requestPermission({mode:'readwrite'}).catch(()=>'denied');if(p!=='granted')h=null}
-  if(!h){alert('Escolha a pasta "Renegociações" (OneDrive > Beira Rio > Beira Rio ADM > Documentos > Renegociações). Só precisa fazer isso uma vez.');
-    h=await window.showDirectoryPicker({mode:'readwrite',id:'renegociacoes'}).catch(()=>null);
+  if(!h){alert('Escolha a pasta "Negociações" (OneDrive > Beira Rio > Beira Rio ADM > Documentos > Contratos > Negociações). Só precisa fazer isso uma vez.');
+    h=await window.showDirectoryPicker({mode:'readwrite',id:'negociacoes'}).catch(()=>null);
+    if(h&&h.name!=='Negociações'){alert('Selecione a pasta Negociações dentro de Documentos > Contratos.');return null}
     if(h&&db)db.transaction('h','readwrite').objectStore('h').put(h,'pasta')}
   return h}
 
@@ -123,10 +124,10 @@ window.emitirTermo=async function(A0,modo,htmlPronto){
       alert(`Termo ${num} salvo em Renegociações\\${pastaNome}\\${arq}.`);return true}catch(e){console.error(e)}}
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=arq;a.click();
   return true};
-window.escolhePastaTermo=async()=>{window._pastaTermo=await pasta();return !!window._pastaTermo};
+window.escolhePastaTermo=async()=>{window._pastaTermo=await pasta(true);return !!window._pastaTermo};
 /* ===== arquivos do termo: Word e PDF (o PDF é gerado aqui mesmo, com a marca d'água) ===== */
 const carregaJS=src=>new Promise((ok,er)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=er;document.head.appendChild(s)});
-const CSS_PDF=`*{box-sizing:border-box}body{margin:0;background:#fff}#t{width:643px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.45;text-align:justify;color:#000}p{margin:0 0 8px}h1{font-size:17px;text-align:center;margin:0 0 8px}table{border-collapse:collapse;width:100%;margin:6px 0}td,th{border:1px solid #999;padding:3px 4px;font-size:9.5px;white-space:nowrap}th{background:#e8eef4;white-space:normal}tr.tot td{background:#f1f5f9}`;
+const CSS_PDF=`*{box-sizing:border-box}body{margin:0;background:#fff}#t{width:643px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.45;text-align:justify;color:#000}p{margin:0 0 8px}h1{font-size:17px;text-align:center;margin:0 0 8px}table{display:table!important;table-layout:fixed;border-collapse:collapse;width:100%!important;margin:6px 0}thead{display:table-header-group!important}tbody{display:table-row-group!important}tr{display:table-row!important}td,th{display:table-cell!important;width:auto!important;border:1px solid #999;padding:3px 4px;font-size:9.5px;white-space:normal!important;overflow-wrap:break-word}th{background:#e8eef4;white-space:normal}tr.tot td{background:#f1f5f9}`;
 async function pdfBlob(html){
   if(!window.html2canvas)await carregaJS('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
   if(!window.jspdf)await carregaJS('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
@@ -166,11 +167,11 @@ window.salvaTermoComo=async function(A0,htmlPronto,tipo){
 /* registra o termo (Word + PDF) na pasta Renegociações do OneDrive: Renegociações\<nº - Qx Ly - Nome>\ */
 window.gravaTermoNaPasta=async function(A0,htmlPronto,h){
   let F;try{F=await arquivosTermo(A0,htmlPronto)}catch(e){return {erro:e.message}}
-  h=h||await pasta();if(!h)return {erro:'pasta Renegociações não escolhida'};
+  h=h||await pasta();if(!h)return {erro:'pasta Negociações não escolhida'};
   try{const p=await h.queryPermission({mode:'readwrite'});if(p!=='granted'){const p2=await h.requestPermission({mode:'readwrite'});if(p2!=='granted')return {erro:'sem permissão para gravar na pasta'}}}catch(e){}
   try{const sub=await h.getDirectoryHandle(F.pastaNome,{create:true});
     for(const [ext,blob] of [['.docx',await htmlParaDocx(F.html,F.num)],['.pdf',await pdfBlob(F.html)]]){const f=await sub.getFileHandle(F.base+ext,{create:true});const w=await f.createWritable();await w.write(blob);await w.close()}
-    return {ok:true,caminho:'Renegociações\\'+F.pastaNome}}
+    return {ok:true,caminho:h.name+'\\'+F.pastaNome}}
   catch(e){return {erro:(e.name||'')+': '+(e.message||e)}}};
 window.pastaRenegociacoes=pasta;
 window.termoBlobs=async(A0,htmlPronto)=>{const F=arquivosTermo(A0,htmlPronto);const f=await F;return {pastaNome:f.pastaNome,base:f.base,docx:await htmlParaDocx(f.html,f.num),pdf:await pdfBlob(f.html)}};
@@ -180,5 +181,5 @@ window.pdfDoTermo=async function(A0,htmlPronto,w){
   const {c,num,nome1}=d;const html=htmlPronto||window.htmlTermo(d.A);
   const titulo=`${num} - Termo de Renegociação - ${nome1}`.replace(/[\\/:*?"<>|]/g,'');
   w=w||window.open('','_blank');if(!w)return alert('Libere as janelas (pop-ups) para este site para gerar o PDF.');
-  w.document.open();w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${titulo}</title><style>body{font-family:Arial;font-size:12.5px;line-height:1.45;text-align:justify;margin:0}p{margin:0 0 8px}table{border-collapse:collapse;width:100%;margin:6px 0}td,th{border:1px solid #999;padding:3px 5px;font-size:11px}th{background:#e8eef4}.wm{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:330px;z-index:-1;opacity:.9}@page{size:A4;margin:20mm}</style></head><body><img class="wm" src="${location.origin}/ferramentas/wm.png">${html}<script>onload=()=>setTimeout(()=>print(),400)<\/script></body></html>`);w.document.close();return true};
+  w.document.open();w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${titulo}</title><style>body{font-family:Arial;font-size:12.5px;line-height:1.45;text-align:justify;margin:0}p{margin:0 0 8px}table{display:table!important;table-layout:fixed;border-collapse:collapse;width:100%!important;margin:6px 0}thead{display:table-header-group!important}tbody{display:table-row-group!important}tr{display:table-row!important}td,th{border:1px solid #999;padding:3px 5px;font-size:11px}th{background:#e8eef4}.wm{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:330px;z-index:-1;opacity:.9}@page{size:A4;margin:20mm}</style></head><body><img class="wm" src="${location.origin}/ferramentas/wm.png">${html}<script>onload=()=>setTimeout(()=>print(),400)<\/script></body></html>`);w.document.close();return true};
 })();
