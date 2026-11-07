@@ -14,6 +14,11 @@ export function criaConsultasIA({ q, normNome, fonesDoCliente, digF, clientesDoC
     const cl = await q(`select id, cpf, nome, planilha, asaas, manual from carteira.clientes`);
     const cts = await q(`select numero, compradores from carteira.contratos`);
     const cess = new Map((await cessoesAtuais()).map(e => [e.contrato, e]));
+    // Cessões históricas podem ter sido registradas sem criar ficha de cliente.
+    // Localize o titular pelo evento, sem inventar CPF ou reutilizar contatos do cedente.
+    for (const e of cess.values()) {
+      if (!cl.some(c => nomeNaCessao(c.nome, e.nt))) cl.push({ nome: e.nt, cpf: null, cadastro_localizado: false });
+    }
     const camp = new Set((await q(`select contrato from carteira.cobranca_casos where encerrado_em is null`)).map(x => x.contrato));
     const hits = cl.map(c => {
       const nn = normNome(c.nome), fs = fonesDoCliente(c), em = [(c.manual || {}).email, (c.asaas || {}).email, (c.planilha || {}).email].filter(Boolean).join(' ').toLowerCase();
@@ -27,7 +32,7 @@ export function criaConsultasIA({ q, normNome, fonesDoCliente, digF, clientesDoC
         return original || atual ? [{ numero: k.numero, titular_atual: atual, comprador_original: original, cessao_em: e?.data || null, na_cobranca: camp.has(k.numero) }] : [];
       });
       const ks = vinculos.map(k => k.numero + (k.cessao_em ? k.titular_atual ? ' (titular atual)' : ' (comprador original; titularidade transferida)' : '') + (k.na_cobranca ? ' (na cobrança)' : ''));
-      return { nome: c.nome, cpf: c.cpf, telefones: [...new Set(fs)], email_atual: (c.manual || {}).email || (c.asaas || {}).email || (c.planilha || {}).email || null, outros_emails: [...new Set([(c.manual || {}).email, (c.asaas || {}).email, (c.planilha || {}).email].filter(Boolean))], endereco: (c.manual || {}).endereco || null, contratos: ks, vinculos_contratos: vinculos }; });
+      return { nome: c.nome, cpf: c.cpf, cadastro_localizado: c.cadastro_localizado !== false, telefones: [...new Set(fs)], email_atual: (c.manual || {}).email || (c.asaas || {}).email || (c.planilha || {}).email || null, outros_emails: [...new Set([(c.manual || {}).email, (c.asaas || {}).email, (c.planilha || {}).email].filter(Boolean))], endereco: (c.manual || {}).endereco || null, contratos: ks, vinculos_contratos: vinculos }; });
   }
   if (nome === 'ver_contrato') {
     const n = String(ent.numero || '').replace(/\D/g, '').padStart(4, '0');

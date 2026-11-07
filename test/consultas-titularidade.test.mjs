@@ -61,3 +61,13 @@ test('cessionária sem cadastro não recebe os contatos da cedente nem de nome p
   assert.deepEqual(r.clientes[0].telefones, []);
   assert.equal(r.clientes[0].cpf, null);
 });
+
+test('busca encontra titular da cessão mesmo quando não existe ficha de cliente', async () => {
+  const [r] = await consulta({ cadastro: [anterior] })('buscar_clientes', { texto: 'Karina Ribeiro de Moraes' });
+  assert.equal(r.nome, atual.nome);
+  assert.equal(r.cadastro_localizado, false);
+  assert.equal(r.cpf, null);
+  assert.deepEqual(r.telefones, []);
+  assert.equal(r.vinculos_contratos[0].numero, '0218');
+  assert.equal(r.vinculos_contratos[0].titular_atual, true);
+});
