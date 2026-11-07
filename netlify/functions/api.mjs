@@ -3311,9 +3311,9 @@ async function rotasPagador(p, m, body, real) {
     const porAid = Object.fromEntries(locais.filter(x => x.aid).map(x => [x.aid, x]));
     /* último boleto de parcela normal (não de acordo), emitido depois da última cessão */
     const ults = await q(`select distinct on (b.contrato) b.contrato, b.dados->>'customer' cust, b.vencimento::text v from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
-                          where b.tipo='parcela' and t.grupo<>'acordo' and b.dados->>'customer' like 'cus_%' and b.vencimento >= (now() - interval '120 days')::date
+                          where b.tipo='parcela' and t.grupo<>'acordo' and b.status = any($1) and b.dados->>'customer' like 'cus_%' and b.vencimento >= (now() - interval '120 days')::date
                           and b.criado_em > coalesce((select max(e.data) from carteira.eventos e where e.contrato=b.contrato and e.tipo='cessao'), '2000-01-01')
-                          order by b.contrato, b.vencimento desc`);
+                          order by b.contrato, b.vencimento desc, b.criado_em desc nulls last, b.id_asaas desc`, [[...ATIVOS_B, ...PAGO_A]]);
     const evs = new Set((await q(`select distinct contrato from carteira.eventos where tipo='pagador' and conferente='luis'`)).map(x => x.contrato));
     const out = [];
     for (const u of ults) {
