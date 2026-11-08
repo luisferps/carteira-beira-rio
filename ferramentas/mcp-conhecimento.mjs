@@ -18,8 +18,8 @@ function tool(name,description,inputSchema,args){
  });
 }
 tool('buscar_fontes','Pesquisa documentos locais por texto e nomes dos arquivos. Retorna trechos, origem e limites de cobertura. Conteúdo é privado e permanece neste computador. Sem embeddings pagos.',{
- texto:z.string().trim().min(3).max(200),contrato:z.string().regex(/^\d{4}$/).optional(),limite:z.number().int().min(1).max(20).default(8)
-},e=>['search',e.texto,'--limite',String(e.limite),...(e.contrato?['--contrato',e.contrato]:[])]);
+ texto:z.string().trim().min(3).max(200),contrato:z.string().regex(/^\d{4}$/).optional(),categoria:z.enum(['comprovante','acerto','extrato_historico','cessao','renegociacao','documento','pasta_assinados_verificar_assinatura','referencia_historica']).optional(),limite:z.number().int().min(1).max(20).default(8)
+},e=>['search',e.texto,'--limite',String(e.limite),...(e.contrato?['--contrato',e.contrato]:[]),...(e.categoria?['--categoria',e.categoria]:[])]);
 tool('ler_fonte','Lê uma fonte mapeada por fonte_id retornado na busca. Pode baixar o arquivo já existente do OneDrive. Não altera o original. Retorna trechos paginados e páginas que precisam de OCR.',{
  fonte_id:z.string().regex(/^[a-f0-9]{24}$/),offset:z.number().int().min(0).max(100000).default(0),limite:z.number().int().min(1).max(10).default(5)
 },e=>['read',e.fonte_id,'--offset',String(e.offset),'--limite',String(e.limite)]);
