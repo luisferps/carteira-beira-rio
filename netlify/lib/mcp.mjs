@@ -39,6 +39,11 @@ export function criaServidorMcp(consulta, registra = console.info) {
     const filtrados = etapa ? todos.filter(c => c.etapa === etapa) : todos;
     return { total: filtrados.length, casos: filtrados.slice(offset, offset + limite), proximo_offset: offset + limite < filtrados.length ? offset + limite : null };
   });
+  registraFerramenta('buscar_registros', 'Recupera fontes atuais de um contrato: pendências, eventos, termos em texto e registros de cobrança. Consulte buscar_clientes antes de escolher o contrato. Cite fonte_id e data. Não equivale a pesquisa nos PDFs do OneDrive, nem comprova pagamento.', {
+    contrato: z.string().regex(/^\d{1,4}$/).transform(n => n.padStart(4, '0')),
+    texto: z.string().trim().max(200).default(''),
+    limite: z.number().int().min(1).max(30).default(12)
+  }, ent => consulta('buscar_registros', ent));
   return server;
 }
 

@@ -1,4 +1,5 @@
 import { criaConsultasIA } from './consultas-ia-lib.mjs';
+import { criaBuscaRegistros } from './registros-rag.mjs';
 import crypto from 'node:crypto';
 import pg from 'pg';
 import { criaAcerto } from './acerto-lib.mjs';
@@ -3119,6 +3120,7 @@ async function contratosCitados(texto, pagina) {
 }
 /* ferramentas de consulta da IA (só leitura): ela olha o sistema antes de propor, como uma pessoa faria */
 export const ferramentaIA = criaConsultasIA({ q, normNome, fonesDoCliente, digF, clientesDoContrato, dividas, hojeBR, ATIVOS_B });
+export const buscarRegistros = criaBuscaRegistros(q);
 const FERRAMENTAS_IA = [
   { name: 'buscar_clientes', description: 'Procura clientes no cadastro por nome, CPF, telefone ou e-mail. Devolve nome exato, CPF, telefones, e-mails e contratos.', input_schema: { type: 'object', properties: { texto: { type: 'string' } }, required: ['texto'] } },
   { name: 'ver_contrato', description: 'Mostra tudo de um contrato: clientes (telefones, e-mails), parcelas em atraso, próximas a vencer, propostas, acordos, boletos em aberto e situação na cobrança com os últimos registros.', input_schema: { type: 'object', properties: { numero: { type: 'string' } }, required: ['numero'] } },

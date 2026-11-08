@@ -2,7 +2,8 @@ import { criaHandlerMcp } from '../lib/mcp.mjs';
 
 // O import só ocorre após autenticar e quando uma consulta é realmente chamada.
 const consulta = async (nome, entrada) => {
-  const { ferramentaIA } = await import('./api.mjs');
+  const { ferramentaIA, buscarRegistros } = await import('./api.mjs');
+  if (nome === 'buscar_registros') return buscarRegistros(entrada);
   return ferramentaIA(nome, entrada);
 };
 

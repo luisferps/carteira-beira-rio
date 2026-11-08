@@ -64,3 +64,7 @@ Referência técnica: [SDK MCP oficial](https://ts.sdk.modelcontextprotocol.io/s
 As três ferramentas responderam no endpoint autenticado. Na comparação com a tela, o contrato 0002, Q03 L09, apresentou R$ 12.911,98 em 13 parcelas vencidas, etapa Na fila; o contrato 0015 apresentou dívida vencida zero e acordo 0015-001 de R$ 6.596,75 em cinco parcelas. A campanha retornou 30 casos. A busca de cliente localizou o contrato esperado. Sem token, o endpoint retorna 401; a página inicial segue respondendo 200. Nenhuma ação financeira foi executada pelo teste.
 
 Neste computador, a conexão usa `http_headers_helper` em vez de depender de uma variável de ambiente herdada pelo aplicativo. O helper lê uma credencial protegida pelo Windows DPAPI CurrentUser, fora do repositório. O arquivo de configuração não contém o token em texto claro. O cliente nativo do Codex descobriu as três ferramentas sem erro. A evidência detalhada fica no registro local de validação da migração, sem telefones, CPF ou credenciais.
+
+## Recuperação de conhecimento em 08/11/2026
+
+Além das três consultas originais, `buscar_registros` recupera pendências, eventos, textos de termos e registros de cobrança do contrato atual, com ID de fonte e data. Continua somente leitura e sem recalcular valores. O servidor local `inerente_conhecimento` pesquisa arquivos do OneDrive e referências históricas, separado do banco atual. Mapa, cobertura e limites em [RAG.md](RAG.md).

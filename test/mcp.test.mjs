@@ -45,7 +45,7 @@ test('cliente oficial conecta, lista ferramentas, consulta, pagina e rejeita par
   try {
     await client.connect(transport);
     const lista = await client.listTools();
-    assert.deepEqual(lista.tools.map(t => t.name).sort(), ['buscar_clientes', 'casos_cobranca', 'ver_contrato']);
+    assert.deepEqual(lista.tools.map(t => t.name).sort(), ['buscar_clientes', 'buscar_registros', 'casos_cobranca', 'ver_contrato']);
     assert.ok(lista.tools.every(t => t.annotations.readOnlyHint && !t.annotations.destructiveHint));
     const busca = await client.callTool({ name: 'buscar_clientes', arguments: { texto: 'Cliente teste' } });
     assert.equal(JSON.parse(busca.content[0].text)[0].nome, 'Cliente de teste');
@@ -123,7 +123,7 @@ test('entrypoint Netlify publica a rota e permite descoberta sem conectar no ban
     assert.equal(config.path, '/mcp');
     assert.equal(config.rateLimit.windowLimit, 60);
     await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { Authorization: `Bearer ${token}` } }, fetch: (u, i) => handler(new Request(u, i)) }));
-    assert.equal((await client.listTools()).tools.length, 3);
+    assert.equal((await client.listTools()).tools.length, 4);
   } finally {
     await client.close();
     if (anterior === undefined) delete globalThis.Netlify; else globalThis.Netlify = anterior;
