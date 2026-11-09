@@ -760,6 +760,10 @@ function fatoresMensais(){const ms=C.correcoes.filter(c=>c.grupo==='mensal').sor
   for(const k of ms){const t=C.titulos.find(x=>x.grupo==='mensal'&&!x.conferente&&+x.numero===+k.a_partir);const data=t?.vencimento||k.data;const nv=+k.novo_valor;
     if(!/^Diluição/.test(k.obs||'')&&prev>0)out.push({data,f:nv/prev});prev=nv}return out}
 function acrDil(t){let a=0;for(const e of C.eventos||[])if(e.tipo==='repactuacao'&&e.dados?.subtipo==='diluicao')for(const i of e.dados.itens||[])if(+i.titulo_id===+t.id)a+=+i.valor||0;return a}
+/* valor da parcela sem correção: valor do contrato + ajustes que não são correção (anuais diluídas, mudança nos primeiros 12 meses, diluição de dívida) */
+function baseContratual(t,v0){const ass=String(C.contrato?.data_assinatura||'').slice(0,10);let lim='';if(ass){const d=new Date(ass+'T12:00:00');d.setMonth(d.getMonth()+12);lim=d.toISOString().slice(0,10)}
+  let v=v0||+t.valor_face||0;for(const c of C.correcoes.filter(c=>c.grupo===t.grupo&&+c.a_partir<=+t.numero).sort((a,b)=>a.a_partir-b.a_partir)){const tk=C.titulos.find(x=>x.grupo===t.grupo&&!x.conferente&&+x.numero===+c.a_partir);const dt=String(tk?.vencimento||c.data||'').slice(0,10);
+    if(+c.a_partir===1||/dilu/i.test(c.obs||'')||(lim&&dt&&dt<lim))v=+c.novo_valor}return Math.round((v+acrDil(t))*100)/100}
 function valorAno(t){const v0=valorAno0(t);const a=acrDil(t);return a?Math.round((v0+a)*100)/100:v0}
 function valorAno0(t){
   if(t.grupo!=='mensal'&&t.grupo!=='anual')return Number(t.valor_face||0);
@@ -1525,7 +1529,7 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
     const rows=its.map(({p,t:t0,a})=>{let t=t0;if(a&&!p)return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td>${dbr(a.data_acordo)}</td><td>Pago pelo ${esc(nomeAc(a))}</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">R$ 0,00</td></tr>`;let mu=+p.multa_paga||0,ju=+p.juros_pago||0,ho=+p.honorarios_pago||0;const pg=+p.valor_pago||0;
       if(tituloSegVia(t)){const sa=C.acordos.find(a=>a.id==t.acordo_id),f=+sa.valor_acordado>0&&!(mu+ju+ho>0.004)?(pg-mu-ju-ho)/+sa.valor_acordado:0;mu=r2(mu+(+sa.multa||0)*f);ju=r2(ju+(+sa.juros||0)*f);ho=r2(ho+(+sa.honorarios||0)*f);const o=C.titulos.find(x=>x.id==sa.titulos_origem[0]);if(o)t={...o,rotulo:o.rotulo+' (2ª via)'}}
       const parte=r2(pg-mu-ju-ho);
-      const b=(t.grupo==='mensal'||t.grupo==='anual')?baseG(t.grupo):0,or=b&&parte>b?b:parte,co=r2(parte-or);T.or+=or;T.co+=co;T.mu+=mu;T.ju+=ju;T.ho+=ho;T.pg+=pg;
+      const b=(t.grupo==='mensal'||t.grupo==='anual')?baseContratual(t,baseG(t.grupo)):0,or=b&&parte>b?b:parte,co=r2(parte-or);T.or+=or;T.co+=co;T.mu+=mu;T.ju+=ju;T.ho+=ho;T.pg+=pg;
       return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td>${dbr(p.confirmada_em)}</td><td>${esc(p.forma||'')}</td><td class="n">${brl(or)}</td><td class="n">${co?brl(co):'—'}</td><td class="n">${mu?brl(mu):'—'}</td><td class="n">${ju?brl(ju):'—'}</td><td class="n">${ho?brl(ho):'—'}</td><td class="n"><b>${brl(pg)}</b></td></tr>`}).join('');
     corpo=`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th>Pago em</th><th>Forma</th><th class="n">Valor original</th><th class="n">Correção</th><th class="n">Multa</th><th class="n">Juros</th><th class="n">Custo cobr.</th><th class="n">Total pago</th></tr></thead><tbody>${rows}</tbody>
      <tfoot><tr><td colspan="4">Total (${ls.length} pagamentos)</td><td class="n">${brl(T.or)}</td><td class="n">${brl(T.co)}</td><td class="n">${brl(T.mu)}</td><td class="n">${brl(T.ju)}</td><td class="n">${brl(T.ho)}</td><td class="n">${brl(T.pg)}</td></tr></tfoot></table>`}
