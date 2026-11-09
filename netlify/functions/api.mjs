@@ -1555,7 +1555,9 @@ async function rotasCobranca(p, m, body, url, real) {
     const foraM = Object.fromEntries((await q(`select contrato, motivo, em from carteira.cobranca_fora`).catch(() => [])).map(x => [x.contrato, x]));
     const graves = Object.values(D).filter(d => d.total > 5000 && !casos.some(c => c.contrato === d.contrato)).map(d => ({ ...d, fora: foraM[d.contrato] || null }))
       .filter(d => !d.parcelas.every(x => x.grupo === 'acordo' && false));
-    const enc = await q(`select id, contrato, motivo_encerramento, encerrado_em, criado_em from carteira.cobranca_casos where encerrado_em is not null order by encerrado_em desc limit 100`);
+    const enc = await q(`select c.id, c.contrato, c.motivo_encerramento, c.encerrado_em, c.criado_em, k.quadra, k.lote from carteira.cobranca_casos c left join carteira.contratos k on k.numero=c.contrato where c.encerrado_em is not null order by c.encerrado_em desc limit 100`);
+    try { const locais = await q(`select cpf, nome, asaas->>'id' aid from carteira.clientes where nome is not null`); const lim = new Date(Date.now() - 40 * 864e5).toISOString().slice(0, 10);
+      for (const e of enc) if (String(e.encerrado_em instanceof Date ? e.encerrado_em.toISOString() : e.encerrado_em).slice(0, 10) >= lim) e.titular = (await titularesAtuais(e.contrato, locais)).map(x => x.nome).join(' e '); } catch (e) { }
     const [rec] = await q(`select coalesce(sum(g.valor_pago),0)::numeric v from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
                            where g.conferente='luis' and g.confirmada_em >= date_trunc('month', (now() at time zone 'America/Sao_Paulo')::date) and exists (select 1 from carteira.cobranca_casos c where c.contrato=t.contrato and g.confirmada_em >= c.criado_em::date)`);
     return json({ hoje: hojeBR(), casos: casos.map(c => ({ ...c, divida: D[c.contrato] || { total: 0, parcelas: [], dias: 0 }, pago_na_campanha: pagos.find(x => x.contrato === c.contrato) || null })),
