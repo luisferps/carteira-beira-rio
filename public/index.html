@@ -792,10 +792,10 @@ function estado(t){
   if(sit&&sit.situacao==='cancelada'||enc)return 'cancelada';
   if(pags.length){const tarde=pags.some(p=>Number(p.multa_paga||0)+Number(p.juros_pago||0)+Number(p.honorarios_pago||0)>0.009||(p.confirmada_em&&(p.vencimento_boleto||t.vencimento)&&diasUteisDepois(p.vencimento_boleto||t.vencimento,p.confirmada_em)>3));return t.grupo!=='acordo'&&tarde?'paga_atraso':'paga'}
   const ac=C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)));
-  if(ac&&!ehSegVia(ac)){const pago=C.titulos.some(x=>x.acordo_id==ac.id&&C.pagamentos.some(p=>p.titulo_id==x.id));return ehRep(ac)?(pago?'quitada_repact':'em_repact'):(pago?'quitada_acordo':'em_acordo')}
+  if(ac&&!ehSegVia(ac)){const pago=acordoEfetivo(ac);return ehRep(ac)?(pago?'quitada_repact':'em_repact'):(pago?'quitada_acordo':'em_acordo')}
   if(ac&&C.titulos.some(x=>x.acordo_id==ac.id&&C.pagamentos.some(p=>p.titulo_id==x.id)))return 'paga_atraso';
   if(sit&&sit.situacao==='em_atraso')return 'em_atraso';
-  if(t.vencimento&&t.vencimento<=hoje)return 'vencida';
+  if(t.vencimento&&String(t.vencimento).slice(0,10)<hoje)return 'vencida';
   return 'futura';
 }
 function codTit(t){if(!t)return'?';if(t.grupo==='acordo'){const a=C.acordos.find(x=>x.id==t.acordo_id);return 'R'+(a?numAc(a):'')+(t.total>1?'.'+t.numero:'')}
@@ -809,6 +809,11 @@ function numAc(a){const l=[...C.acordos].filter(x=>ehRep(x)===ehRep(a)&&ehSegVia
 function ehSegVia(a){return !!a&&!ehRep(a)&&(a.titulos_origem||[]).length===1&&C.titulos.filter(t=>t.acordo_id==a.id).length===1}
 function tituloSegVia(t){return t&&t.grupo==='acordo'&&ehSegVia(C.acordos.find(a=>a.id==t.acordo_id))}
 function segViaDe(t){const a=t&&t.grupo!=='acordo'?C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id))):null;return a&&ehSegVia(a)?a:null}
+/* acordo só vale (parcelas de origem saem do vermelho) depois de paga a 1ª parcela e anexado o termo assinado.
+   Acordos com termo feitos antes de 01/11/2026 contam como assinados (termos em papel, de antes do anexo no sistema). */
+const termoAssinado=a=>!a.termo||String(a.data_acordo).slice(0,10)<'2026-11-01'||(C.termosAssinados||[]).includes(String(a.termo).replace(/[^\w.-]/g,'_'));
+function acordoEfetivo(a){if(ehRep(a))return C.titulos.some(x=>x.acordo_id==a.id&&C.pagamentos.some(p=>p.titulo_id==x.id));
+  const t1=C.titulos.filter(x=>x.acordo_id==a.id).sort((x,y)=>x.numero-y.numero)[0];return !!t1&&C.pagamentos.some(p=>p.titulo_id==t1.id)&&termoAssinado(a)}
 function acordoDe(t){return C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)))}
 const NOMES={paga:'Paga em dia',paga_atraso:'Paga com atraso',quitada_acordo:'Paga em cobrança (acordo)',em_acordo:'Não paga, em acordo aguardando pagamento',quitada_repact:'Paga por repactuação',em_repact:'Repactuada (boletos em aberto)',cancelada:'Cancelada',diluida:'Diluída nas parcelas seguintes (não paga; o valor foi somado às próximas)',em_atraso:'Não paga',vencida:'Não paga',futura:'A vencer'};
 const FATOR_ANO={2024:1.02,2025:1.0854,2026:1.02};
@@ -822,8 +827,10 @@ function correcoesAno(){const fm=fatoresMensais(),m0=C.titulos.find(x=>x.grupo==
 /* atraso, na ordem do tempo: principal (valor cobrado no vencimento) -> multa 2% -> juros 1% a.m. dia a dia sobre o principal
    -> com mais de 60 dias, custo de cobrança 10%. Em todo 1º de janeiro depois do vencimento, a correção do ano incide sobre TUDO
    o que está devido naquele dia (principal, multa, juros e custo de cobrança, se já passou de 60 dias); depois disso os juros seguem sobre o principal corrigido. */
+/* 1ª parcela (entrada) de acordo nunca leva multa, juros nem custo de cobrança: o acordo depende do termo assinado e do pagamento dela */
+const entradaAcordo=t=>t&&t.grupo==='acordo'&&+t.numero===1&&!tituloSegVia(t);
 function atrasoDe(t,ate){const v=valorAno(t),dias=Math.max(0,Math.round((new Date(ate)-new Date(t.vencimento))/864e5));
-  if(!dias)return embute(t,{v,co:0,mu:0,ju:0,ho:0,dias,tot:v});
+  if(!dias||entradaAcordo(t))return embute(t,{v,co:0,mu:0,ju:0,ho:0,dias,tot:v,isenta:!!dias});
   const corr=t.grupo==='mensal'||t.grupo==='anual',venc=String(t.vencimento).slice(0,10),fim=String(ate).slice(0,10);
   const fa={};for(const k of correcoesAno()){const y=+k.data.slice(0,4);if(!(y in fa))fa[y]=k.f}
   const mu=v*.02;let pr=v,ju=0,co=0,coH=0,cur=venc;
@@ -1291,7 +1298,7 @@ function modalAcordo(aid,pid){
   const mostraB=(skip)=>{for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])if(id!==skip)$('#'+id).value=brl(B[k]);
     const c=calc();$('#a_calc').textContent=brl(c.total);B.de=0;if(skip!=='a_de')$('#a_de').value=brl(B.de);$('#a_som2').textContent=brl(r2(B.pr+B.mu+B.ju+B.ho));
     $('#a_ate').textContent=`— multa e juros calculados até ${dbr($('#a_data').value)}, a data do acordo`;
-    $('#a_det').innerHTML=orig.map(t=>{const k={...atrasoDe(t,$('#a_data').value)};if(k.dias>0&&!(k.ho>0.004)){k.ho=(k.v+k.co+k.mu+k.ju)*0.10;k.tot+=k.ho}return `${esc(t.rotulo)}: ${brl(k.v)} + correção ${brl(k.co)} · venceu ${dbr(t.vencimento)} · ${k.dias} dia(s) de atraso · multa ${brl(k.mu)} · juros ${brl(k.ju)} · cobrança ${brl(k.ho)} · total ${brl(k.tot)}`}).join('<br>');
+    $('#a_det').innerHTML=orig.map(t=>{const k={...atrasoDe(t,$('#a_data').value)};if(k.dias>0&&!k.isenta&&!(k.ho>0.004)){k.ho=(k.v+k.co+k.mu+k.ju)*0.10;k.tot+=k.ho}return `${esc(t.rotulo)}: ${brl(k.v)} + correção ${brl(k.co)} · venceu ${dbr(t.vencimento)} · ${k.dias} dia(s) de atraso · multa ${brl(k.mu)} · juros ${brl(k.ju)} · cobrança ${brl(k.ho)} · total ${brl(k.tot)}`}).join('<br>');
     $('#a_av').innerHTML=num($('#a_val').value)<B.pr-0.009?`<div class="aviso">O valor acordado é menor que o principal. Ele quita as parcelas mesmo assim (vai todo para o principal).</div>`:''};
   const deCalc=()=>{const c=calc();B={pr:c.principal,mu:c.multa,ju:c.juros,ho:c.honorarios,de:0};$('#a_val').value=brl(c.total)};
   const peloValor=()=>{const c=calc(),v=num($('#a_val').value),q=repartir({principal:c.principal,multa:c.multa,juros:c.juros},v);B={pr:Math.min(c.principal,v),mu:q.multa,ju:q.juros,ho:q.honorarios,de:q.desconto}};
@@ -1527,7 +1534,7 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
   else{titulo='Relatório de valores em atraso';
     const ts=C.titulos.filter(t=>t.vencimento&&t.vencimento<=hoje&&['vencida','em_atraso'].includes(estado(t))).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
     let T={v:0,co:0,mu:0,ju:0,ho:0,tot:0};
-    const rows=ts.map(t=>{const k0=atrasoDe(t,hoje),k={v:k0.v,mu:k0.mu,ju:k0.ju,co:k0.co,ho:k0.ho,tot:k0.tot,dias:k0.dias};if(RELNEG&&k.dias>0&&!(k.ho>0.004)){k.ho=(k.v+k.co+k.mu+k.ju)*0.10;k.tot+=k.ho}for(const x in T)T[x]+=k[x];
+    const rows=ts.map(t=>{const k0=atrasoDe(t,hoje),k={v:k0.v,mu:k0.mu,ju:k0.ju,co:k0.co,ho:k0.ho,tot:k0.tot,dias:k0.dias};if(RELNEG&&k.dias>0&&!k0.isenta&&!(k.ho>0.004)){k.ho=(k.v+k.co+k.mu+k.ju)*0.10;k.tot+=k.ho}for(const x in T)T[x]+=k[x];
       return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td class="n">${k.dias}</td><td class="n">${brl(k.v)}</td><td class="n">${brl(k.mu)}</td><td class="n">${brl(k.ju)}</td><td class="n">${brl(k.co)}</td><td class="n">${brl(k.ho)}</td><td class="n"><b>${brl(k.tot)}</b></td></tr>`}).join('');
     corpo=ts.length?`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th class="n">Dias de atraso</th><th class="n">Valor da parcela</th><th class="n">Multa</th><th class="n">Juros</th><th class="n">Correção</th><th class="n">Custo cobr.</th><th class="n">Total</th></tr></thead><tbody>${rows}</tbody>
      <tfoot><tr><td colspan="3">Total (${ts.length} parcela${ts.length==1?'':'s'})</td><td class="n">${brl(T.v)}</td><td class="n">${brl(T.mu)}</td><td class="n">${brl(T.ju)}</td><td class="n">${brl(T.co)}</td><td class="n">${brl(T.ho)}</td><td class="n">${brl(T.tot)}</td></tr></tfoot></table>`:'<p><b>Nenhuma parcela em atraso nesta data.</b></p>'}

@@ -168,7 +168,8 @@ async function carregar(n, conf) {
   const termosArq = await q('select termo, nome, enviado_em from carteira.termos_arq where contrato=$1 order by termo', [n]).catch(() => []);
   const boletos = await q(`select id_asaas, titulo_id, tipo, fatura, valor, vencimento::text vencimento, status, link, origem, motivo, composicao, criado_em from carteira.boletos where contrato=$1 order by vencimento desc, criado_em desc`, [n]).catch(() => []);
   const cessoes = await q(`select id, numero, status, datas, dados - 'textos' dados from carteira.cessoes where contrato=$1 order by numero`, [n]).catch(() => []);
-  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, boletos, cessoes, fechamento: fechamento || null, hoje: hojeBR(), conferente: conf };
+  const termosAssinados = (await q(`select distinct substr(chave, 16) termo from carteira.documentos where contrato=$1 and chave like 'termo_assinado_%'`, [n]).catch(() => [])).map(x => x.termo);
+  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, termosAssinados, boletos, cessoes, fechamento: fechamento || null, hoje: hojeBR(), conferente: conf };
 }
 
 /* ---------- cruzamento ---------- */
@@ -976,7 +977,7 @@ async function emitirBoleto(tituloId, conf) {
     if (partes.length) linhaF = `${linha} (${partes.join(' e ')})`;
   }
   const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: R2(+t.valor), dueDate: venc,
-    description: descricaoBoleto(ct, linhaF), externalReference: 'cbr-titulo-' + t.id, fine: { value: 2, type: 'PERCENTAGE' }, interest: { value: 1 } });
+    description: descricaoBoleto(ct, linhaF), externalReference: 'cbr-titulo-' + t.id, ...(entradaAcordo(t) ? { fine: { value: 0 }, interest: { value: 0 } } : { fine: { value: 2, type: 'PERCENTAGE' }, interest: { value: 1 } }) });
   await gravaBoleto(g, { contrato: t.contrato, titulo_id: t.id, tipo: t.grupo === 'acordo' ? 'acordo' : 'parcela', origem: 'sistema' });
   await log(conf, 'boleto_gerado', { contrato: t.contrato, titulo: t.id, id: g.id, valor: g.value, venc: g.dueDate });
   return { titulo_id: tituloId, ok: true, id_asaas: g.id, fatura: g.invoiceNumber, valor: g.value, vencimento: g.dueDate, link: g.bankSlipUrl || g.invoiceUrl };
@@ -1002,8 +1003,11 @@ async function editarBoleto(id, b, conf) {
   return { ok: true, valor: g.value, vencimento: g.dueDate };
 }
 /* atraso no servidor (mesma régua da tela): multa 2%, juros 1% a.m. dia a dia, correção de janeiro sobre tudo */
-function compoAtraso(v, venc, ate, corr = true, fa = null) {
+/* 1ª parcela (entrada) de acordo de verdade nunca leva multa, juros nem custo de cobrança */
+const entradaAcordo = t => t && t.grupo === 'acordo' && +t.numero === 1 && !t.ac_um;
+function compoAtraso(v, venc, ate, corr = true, fa = null, isento = false) {
   const dias = Math.max(0, Math.round((new Date(ate) - new Date(venc)) / 864e5));
+  if (isento) return { principal: R2(v), correcao: 0, multa: 0, juros: 0, dias, isento: true };
   const mu = dias ? v * .02 : 0; let pr = v, ju = 0, co = 0, cur = venc;
   const cresce = d2 => { const d = Math.max(0, Math.round((new Date(d2) - new Date(cur)) / 864e5)); ju += pr * (Math.pow(1.01, d / 30) - 1); cur = d2; };
   if (dias && corr) for (let y = +venc.slice(0, 4) + 1; y <= +ate.slice(0, 4); y++) { const dj = `${y}-01-01`; if (dj > ate) break; const f = (fa && fa[y]) || FATOR_ANO_S[y] || 1; cresce(dj); co += (v + co + mu + ju) * (f - 1); pr *= f; }
@@ -1020,6 +1024,7 @@ async function candidatosCobranca(inicioAuto) {
                        and (t.grupo <> 'acordo' or not exists (select 1 from carteira.acordos a where a.id=t.acordo_id and coalesce(a.tipo,'')<>'repactuacao' and cardinality(a.titulos_origem)=1
                               and (select count(*) from carteira.titulos t2 where t2.acordo_id=a.id)=1))
                        and (t.grupo = 'acordo' or coalesce(b.descricao,'') !~* 'renegocia|acordo|inclus')
+                       and not (t.grupo = 'acordo' and t.numero = 1)
                        and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')
                        and not exists (select 1 from carteira.acordos a where a.contrato=t.contrato and a.conferente='luis' and t.id = any(a.titulos_origem))
                        and not exists (select 1 from carteira.propostas pr where pr.contrato=t.contrato and pr.conferente='luis' and pr.dados->'titulos_origem' @> to_jsonb(t.id))
@@ -1040,8 +1045,8 @@ async function segundaVia(tituloId, data, conf, opts = {}) {
   if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto (paga, em acordo, em proposta ou cancelada)' };
   if (t.vencimento >= hoje && !opts.previa) return { titulo_id: tituloId, erro: 'Essa parcela ainda não venceu — use "Gerar boleto"' };
   const ehAcordo = t.grupo === 'acordo';
-  const c = compoAtraso(R2(+t.valor), t.vencimento, data, !ehAcordo && t.grupo !== 'entrada', t._fa);
-  c.cobranca = !t.ac_um && !opts.semCobranca && c.dias > 60 ? R2((c.principal + c.correcao + c.multa + c.juros) * .10) : 0;
+  const c = compoAtraso(R2(+t.valor), t.vencimento, data, !ehAcordo && t.grupo !== 'entrada', t._fa, entradaAcordo(t));
+  c.cobranca = !t.ac_um && !c.isento && !opts.semCobranca && c.dias > 60 ? R2((c.principal + c.correcao + c.multa + c.juros) * .10) : 0;
   c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca);
   c.data = data; c.emitido_em = hoje; c.vencimento_original = t.vencimento;
   if (opts.previa) return { previa: true, rotulo: t.rotulo, ...c };
@@ -1050,7 +1055,7 @@ async function segundaVia(tituloId, data, conf, opts = {}) {
   const rot = ehAcordo ? rotuloBoleto(t) : rotuloBoleto(t).replace(/^Anual /, 'anual ').replace(/^Entrada /, 'entrada ');
   const linha = `${c.cobranca ? 'Renegociação' : '2ª via'} ${rot} (original vencido em ${t.vencimento.split('-').reverse().join('/')})`;
   const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: c.total, dueDate: data,
-    description: descricaoBoleto({ numero: t.contrato, quadra: t.quadra, lote: t.lote }, linha, false), externalReference: 'cbr-titulo-' + t.id, interest: { value: 1 }, fine: { value: 0 } });
+    description: descricaoBoleto({ numero: t.contrato, quadra: t.quadra, lote: t.lote }, linha, false), externalReference: 'cbr-titulo-' + t.id, interest: { value: c.isento ? 0 : 1 }, fine: { value: 0 } });
   const tipo = c.cobranca ? 'cobranca' : 'segunda_via';
   await gravaBoleto(g, { contrato: t.contrato, titulo_id: t.id, tipo, origem: 'sistema', composicao: c, motivo: opts.motivo || (c.cobranca ? 'Cobrança (mais de 60 dias vencida)' : '2ª via atualizada') });
   await q(`update carteira.boletos set tipo=$2 where id_asaas=$1`, [g.id, tipo]);
@@ -1477,8 +1482,8 @@ async function dividas(contratos) {
   const out = {};
   for (const t of r) {
     const ac = t.grupo === 'acordo';
-    const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada', t._fa);
-    const cob = !t.ac_um && c.dias > 60 ? R2((c.principal + c.correcao + c.multa + c.juros) * .10) : 0;
+    const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada', t._fa, entradaAcordo(t));
+    const cob = !t.ac_um && !c.isento && c.dias > 60 ? R2((c.principal + c.correcao + c.multa + c.juros) * .10) : 0;
     const tot = R2(c.principal + c.correcao + c.multa + c.juros + cob);
     const d = out[t.contrato] || (out[t.contrato] = { contrato: t.contrato, quadra: t.quadra, lote: t.lote, titular: t.cessionario || t.titular, parcelas: [], total: 0, principal: 0, dias: 0 });
     d.parcelas.push({ id: t.id, rotulo: t.rotulo, grupo: t.grupo, vencimento: t.vencimento, dias: c.dias, principal: R2(c.principal + c.correcao), multa: c.multa, juros: c.juros, cobranca: cob, total: tot, boleto: t.boleto });
@@ -2079,8 +2084,8 @@ export default async (req) => {
       const bs = await q(`select titulo_id, tipo, fatura, valor, vencimento::text v from carteira.boletos where status = any($1)`, [ATIVOS_B]);
       const out = r.map(t => {
         const ac = t.grupo === 'acordo';
-        const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada', t._fa);
-        const cob = t.ac_um ? 0 : R2((c.principal + c.correcao + c.multa + c.juros) * .10);
+        const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada', t._fa, entradaAcordo(t));
+        const cob = t.ac_um || c.isento ? 0 : R2((c.principal + c.correcao + c.multa + c.juros) * .10);
         const b = bs.find(x => String(x.titulo_id) === String(t.id));
         return { contrato: t.contrato, quadra: t.quadra, lote: t.lote, titular: t.cessionario || t.titular, parcela: t.rotulo, vencimento: t.vencimento, dias: c.dias,
           principal: c.principal, correcao: c.correcao, multa: c.multa, juros: c.juros, cobranca: cob, total: R2(c.principal + c.correcao + c.multa + c.juros + cob),
@@ -2547,7 +2552,7 @@ export default async (req) => {
       const partes = ['entrada', 'mensal', 'anual', 'acordo'].map(gr => { const xs = os.filter(o => o.grupo === gr); return xs.length ? `${gr} ${xs.map(o => o.numero).join(', ')}/${xs[0].total}` : null; }).filter(Boolean);
       const linha = `Renegociação 01 de ${String(ps.length).padStart(2, '0')}${partes.length ? ' (' + partes.join(' e ') + ')' : ''}`;
       const g = await asaasReq('POST', '/payments', { customer: cliente, billingType: 'BOLETO', value: R2(+ps[0].valor), dueDate: venc,
-        description: descricaoBoleto(ct, linha), externalReference: 'cbr-proposta-' + pr.id, fine: { value: 2, type: 'PERCENTAGE' }, interest: { value: 1 } });
+        description: descricaoBoleto(ct, linha), externalReference: 'cbr-proposta-' + pr.id, fine: { value: 0 }, interest: { value: 0 } });
       await gravaBoleto(g, { contrato: pr.contrato, tipo: 'proposta', origem: 'sistema' });
       await q(`update carteira.propostas set dados = dados || $2::jsonb where id=$1`, [pr.id, JSON.stringify({ boleto: { id_asaas: g.id, link: g.bankSlipUrl || g.invoiceUrl, valor: g.value, vencimento: g.dueDate } })]);
       await log(conf, 'proposta_boleto', { proposta: pr.id, id: g.id, valor: g.value });
