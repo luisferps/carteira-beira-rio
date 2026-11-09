@@ -859,7 +859,7 @@ function totais(){
     const mu=Number(p.multa_paga||0),ju=Number(p.juros_pago||0),ho=Number(p.honorarios_pago||0),cp=Number(p.compensacao||0),base=v-mu-ju-ho-cp;
     pg.mu+=mu;pg.ju+=ju;pg.ho+=ho;pg.cp+=cp;pg.de+=Number(p.desconto_dado||0);
     const t=C.titulos.find(x=>x.id==p.titulo_id),a=t&&t.grupo==='acordo'?C.acordos.find(x=>x.id==t.acordo_id):null;
-    if(a&&Number(a.valor_acordado)>0){const f=base/Number(a.valor_acordado);pg.pr+=Number(a.principal||0)*f;pg.mu+=Number(a.multa||0)*f;pg.ju+=Number(a.juros||0)*f;pg.ho+=Number(a.honorarios||0)*f}
+    if(a&&Number(a.valor_acordado)>0&&!(tituloSegVia(t)&&mu+ju+ho>0.004)){const f=base/Number(a.valor_acordado);pg.pr+=Number(a.principal||0)*f;pg.mu+=Number(a.multa||0)*f;pg.ju+=Number(a.juros||0)*f;pg.ho+=Number(a.honorarios||0)*f}
     else pg.pr+=base}
   at.tot=at.pr+at.co+at.mu+at.ju+at.ho;
   return {qv,esp,rec,pend,pg,at};
@@ -1522,7 +1522,7 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
     const qa=C.titulos.filter(t=>['quitada_acordo','quitada_repact'].includes(estado(t))).map(t=>({t,a:acordoDe(t)}));
     const its=[...ls.map(x=>({...x,d:String(x.p.confirmada_em||x.t.vencimento)})),...qa.map(x=>({...x,d:String(x.a.data_acordo)}))].sort((x,y)=>x.d.localeCompare(y.d)||String(x.t.vencimento).localeCompare(String(y.t.vencimento)));
     const rows=its.map(({p,t:t0,a})=>{let t=t0;if(a&&!p)return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td>${dbr(a.data_acordo)}</td><td>Pago pelo ${esc(nomeAc(a))}</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">R$ 0,00</td></tr>`;let mu=+p.multa_paga||0,ju=+p.juros_pago||0,ho=+p.honorarios_pago||0;const pg=+p.valor_pago||0;
-      if(tituloSegVia(t)){const sa=C.acordos.find(a=>a.id==t.acordo_id),f=+sa.valor_acordado>0?(pg-mu-ju-ho)/+sa.valor_acordado:0;mu=r2(mu+(+sa.multa||0)*f);ju=r2(ju+(+sa.juros||0)*f);ho=r2(ho+(+sa.honorarios||0)*f);const o=C.titulos.find(x=>x.id==sa.titulos_origem[0]);if(o)t={...o,rotulo:o.rotulo+' (2ª via)'}}
+      if(tituloSegVia(t)){const sa=C.acordos.find(a=>a.id==t.acordo_id),f=+sa.valor_acordado>0&&!(mu+ju+ho>0.004)?(pg-mu-ju-ho)/+sa.valor_acordado:0;mu=r2(mu+(+sa.multa||0)*f);ju=r2(ju+(+sa.juros||0)*f);ho=r2(ho+(+sa.honorarios||0)*f);const o=C.titulos.find(x=>x.id==sa.titulos_origem[0]);if(o)t={...o,rotulo:o.rotulo+' (2ª via)'}}
       const parte=r2(pg-mu-ju-ho);
       const b=(t.grupo==='mensal'||t.grupo==='anual')?baseG(t.grupo):0,or=b&&parte>b?b:parte,co=r2(parte-or);T.or+=or;T.co+=co;T.mu+=mu;T.ju+=ju;T.ho+=ho;T.pg+=pg;
       return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td>${dbr(p.confirmada_em)}</td><td>${esc(p.forma||'')}</td><td class="n">${brl(or)}</td><td class="n">${co?brl(co):'—'}</td><td class="n">${mu?brl(mu):'—'}</td><td class="n">${ju?brl(ju):'—'}</td><td class="n">${ho?brl(ho):'—'}</td><td class="n"><b>${brl(pg)}</b></td></tr>`}).join('');

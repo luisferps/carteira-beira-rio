@@ -1093,6 +1093,8 @@ function destrinchaAcordo(a, s) {
   const pr = +a.principal || 0, mu = +a.multa || 0, ju = +a.juros || 0, ho = +a.honorarios || 0, S = pr + mu + ju + ho;
   const face = +s.valor_cobranca || 0;
   if (!(S > 0) || !(face > 0) || !(mu + ju + ho > 0)) return s;
+  /* 2ª via: o pagamento já veio com os encargos do próprio acordo separados — não soma de novo */
+  if (Math.abs((+s.multa_paga || 0) - mu) < 0.02 && Math.abs((+s.juros_pago || 0) - ju) < 0.02 && Math.abs((+s.honorarios_pago || 0) - ho) < 0.02) return s;
   /* encargos repartidos pelo total das parcelas do acordo (com juros de financiamento, a soma das parcelas passa do valor acordado) */
   const T = Math.max(S, +a.soma_parcelas || 0), f = face / T;
   /* regra do Luis: sobre os juros de financiamento a Inerente também leva 10% de custo de cobrança */
