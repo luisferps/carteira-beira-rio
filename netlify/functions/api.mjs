@@ -2329,7 +2329,9 @@ export default async (req) => {
       return json({ ok: true, novos: n });
     }
     if (p[0] === 'cliente' && p[1] && m === 'PUT') {
+      const [ant] = await q(`select manual from carteira.clientes where id=$1`, [p[1]]);
       await q(`update carteira.clientes set manual=$2, atualizado_em=now() where id=$1`, [p[1], body.manual || null]);
+      if (digF(body.manual?.telefone) && digF(body.manual?.telefone) !== digF(ant?.manual?.telefone)) await principalNoAsaas(p[1], real).catch(() => null);
       await log(conf, 'cliente_editado', { id: p[1], manual: body.manual });
       const ag = await agregaNoAsaas(p[1], real).catch(e => ({ erro: e.message }));
       return json({ ok: true, asaas: ag });
@@ -3011,7 +3013,7 @@ async function sugereIA(contrato, casoId, acao, descricao, origem, por) {
 }
 /* ações que a IA pode propor: só coisas de quem usa o sistema, nunca estrutura */
 const ACOES_IA = {
-  adicionar_telefone: 'Incluir telefone no cadastro do cliente',
+  adicionar_telefone: 'Trocar o telefone principal do cliente (os outros viram antigos)',
   alterar_email: 'Trocar o e-mail no cadastro do cliente',
   alterar_endereco: 'Trocar o endereço no cadastro do cliente',
   marcar_numero_ruim: 'Marcar número como sem WhatsApp / mudou',
@@ -3029,12 +3031,12 @@ async function executaAcaoIA(a, quem) {
   if (a.tipo === 'adicionar_telefone') {
     const d = digF(a.numero); if (d.length < 10 || d.length > 11) throw new Error('Telefone inválido: ' + a.numero);
     const c = await cliente(); const M = { ...(c.manual || {}) };
-    if (fonesDoCliente(c).some(f => f.slice(-8) === d.slice(-8))) return 'O telefone já estava no cadastro de ' + c.nome;
+    if (digF(M.telefone) === d) return 'O telefone já era o principal de ' + c.nome;
     const ex = Array.isArray(M.telefones_extra) ? M.telefones_extra : []; if (M.telefone) ex.unshift(M.telefone);
     M.telefone = d; M.telefones_extra = [...new Set(ex.map(digF))].filter(x => x && x !== d);
-    await q(`update carteira.clientes set manual=$2, atualizado_em=now() where id=$1`, [c.id, M]); MAPA_CAMP = null; await agregaNoAsaas(c.id, quem).catch(() => null);
-    await log(quem, 'cliente_editado', { id: c.id, telefone_novo: d, via: 'IA' }); await anota(`Telefone novo no cadastro de ${c.nome}: ${d}`);
-    return `Telefone ${d} incluído no cadastro de ${c.nome}`;
+    await q(`update carteira.clientes set manual=$2, atualizado_em=now() where id=$1`, [c.id, M]); MAPA_CAMP = null; await principalNoAsaas(c.id, quem).catch(() => null); await agregaNoAsaas(c.id, quem).catch(() => null);
+    await log(quem, 'cliente_editado', { id: c.id, telefone_principal: d, via: 'IA' }); await anota(`Telefone principal de ${c.nome} passou a ser ${d}; os outros ficam como antigos`);
+    return `Telefone principal de ${c.nome}: ${d} (os outros ficaram como antigos)`;
   }
   if (a.tipo === 'alterar_email' || a.tipo === 'alterar_endereco') {
     const c = await cliente(); const M = { ...(c.manual || {}) }, campo = a.tipo === 'alterar_email' ? 'email' : 'endereco', v = String(a.valor || '').trim();
@@ -3086,7 +3088,7 @@ async function previaAcaoIA(a) {
     const [caso] = n ? await q(`select etapa from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [n]) : [];
     const ETN = { fila: 'Na fila', contato1: 'Contato 1', contato2: 'Contato 2', contato3: 'Contato 3', negociando: 'Negociando', promessa: 'Promessa de pagamento', proposta: 'Proposta de pagamento', acordo: 'Acordo feito', sem_retorno: 'Sem retorno', notificacao: 'Notificação / jurídico', retomada: 'Retomada do lote' };
     const dt = d => String(d || '').split('-').reverse().join('/');
-    if (a.tipo === 'adicionar_telefone') { const M = c?.manual || {}; return `Contrato ${n} · cadastro de ${c?.nome || '?'}: telefone principal passa a ser ${a.numero}${M.telefone ? ` (o ${M.telefone} fica guardado como anterior)` : ''}.`; }
+    if (a.tipo === 'adicionar_telefone') { const M = c?.manual || {}; return `Contrato ${n} · cadastro de ${c?.nome || '?'}: telefone principal passa a ser ${a.numero}; todos os outros números ficam marcados como antigos (guardados no histórico) e o celular do Asaas passa a ser ${a.numero}.`; }
     if (a.tipo === 'alterar_email') return `Contrato ${n} · cadastro de ${c?.nome || '?'}: e-mail de "${(c?.manual || {}).email || (c?.asaas || {}).email || 'vazio'}" para "${a.valor}".`;
     if (a.tipo === 'alterar_endereco') return `Contrato ${n} · cadastro de ${c?.nome || '?'}: endereço passa a ser "${a.valor}".`;
     if (a.tipo === 'marcar_numero_ruim') return `Número ${a.numero} marcado como "sem WhatsApp / mudou" (vai para Números com problema).`;
@@ -3146,7 +3148,7 @@ async function assistenteIA(texto, contrato, quem, pagina, historico) {
   const sistema = `Você é o assistente do sistema da carteira de recebíveis do loteamento Beira Rio (Inerente). O usuário (${quem}) escreve um recado ou pedido. Você NÃO executa nada: só propõe ações para ele aprovar.
 Antes de propor, CONSULTE o sistema com as ferramentas, como uma pessoa faria: se o pedido fala de cadastro, busque o cliente; se fala de contrato, parcela, boleto ou cobrança, veja o contrato. Use o que encontrar para acertar nomes (grafia exata do cadastro), números, parcelas e para saber se o pedido é possível. Se encontrar mais de um cliente/contrato possível e não der para saber qual, pergunte em vez de propor.
 Você só pode propor estas ações (nada além disso; nunca mexa em estrutura, design, regras, cálculos, configurações ou funcionamento do sistema — se pedirem isso, responda que não pode e que isso é com o desenvolvedor):
-- adicionar_telefone: {"tipo":"adicionar_telefone","contrato":"0000","nome":"nome do cliente","numero":"DDD+número só dígitos"}
+- adicionar_telefone (use sempre que o telefone principal mudar ou chegar número novo; o número informado vira o PRINCIPAL e todos os outros viram ANTIGOS, mesmo que o número já esteja no cadastro): {"tipo":"adicionar_telefone","contrato":"0000","nome":"nome do cliente","numero":"DDD+número só dígitos"}
 - alterar_email: {"tipo":"alterar_email","contrato":"0000","nome":"...","valor":"email"}
 - alterar_endereco: {"tipo":"alterar_endereco","contrato":"0000","nome":"...","valor":"endereço completo"}
 - marcar_numero_ruim: {"tipo":"marcar_numero_ruim","contrato":"0000","numero":"..."}
@@ -3246,6 +3248,15 @@ function oQueAgregar(c, a) {
   const novosE = emailsDe(M.email, P.email).filter(e => e !== principal && !add.includes(e));
   if (novosE.length) { if (!principal) upd.email = novosE.shift(); if (novosE.length) upd.additionalEmails = [...add, ...novosE].join(','); }
   return upd;
+}
+/* telefone principal trocado (pelo usuário ou pela IA aprovada): o celular do Asaas passa a ser o principal, para os avisos de boleto irem para o número certo */
+async function principalNoAsaas(cid, quem) {
+  const [c] = await q(`select * from carteira.clientes where id=$1`, [cid]); const d = digF(c?.manual?.telefone);
+  if (!c?.cpf || d.length !== 11 || d[2] !== '9') return null;
+  const r = await asaas(`/customers?cpfCnpj=${c.cpf}&limit=10`).catch(() => null); const out = [];
+  for (const a of (r?.data || []).filter(x => !x.deleted)) { if (digF(a.mobilePhone) === d) continue; const n2 = await asaasReq('POST', '/customers/' + a.id, { mobilePhone: d }).catch(e => ({ erro: e.message })); out.push({ asaas: a.id, antes: a.mobilePhone || null, depois: n2.mobilePhone || n2.erro }); }
+  if (out.length) await log(quem, 'asaas_celular_principal', { cliente: cid, out });
+  return out;
 }
 async function agregaNoAsaas(cid, quem) {
   const [c] = await q(`select * from carteira.clientes where id=$1`, [cid]);
