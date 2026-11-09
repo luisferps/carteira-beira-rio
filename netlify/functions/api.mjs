@@ -995,8 +995,8 @@ async function editarBoleto(id, b, conf) {
   if (b.valor != null) body.value = R2(+b.valor);
   if (b.vencimento) body.dueDate = b.vencimento;
   if (b.descricao != null) body.description = b.descricao;
-  const [tb] = await q(`select t.grupo, t.numero, (select count(*) from carteira.titulos t2 where t2.acordo_id=t.acordo_id)::int n from carteira.boletos x join carteira.titulos t on t.id=x.titulo_id where x.id_asaas=$1`, [id]).catch(() => []);
-  if (tb && tb.grupo === 'acordo' && +tb.numero === 1 && tb.n > 1) { body.fine = { value: 0 }; body.interest = { value: 0 }; }
+  const [tb] = await q(`select t.grupo, t.numero, (select count(*) from carteira.titulos t2 where t2.acordo_id=t.acordo_id)::int n, (select cardinality(a.titulos_origem) from carteira.acordos a where a.id=t.acordo_id) o from carteira.boletos x join carteira.titulos t on t.id=x.titulo_id where x.id_asaas=$1`, [id]).catch(() => []);
+  if (tb && tb.grupo === 'acordo' && +tb.numero === 1 && !(tb.n === 1 && +tb.o === 1)) { body.fine = { value: 0 }; body.interest = { value: 0 }; }
   let g;
   try { g = await asaasReq('POST', '/payments/' + id, body); }
   catch (e) { await new Promise(x => setTimeout(x, 2000)); g = await asaasReq('POST', '/payments/' + id, body); }
