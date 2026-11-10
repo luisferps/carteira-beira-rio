@@ -1564,11 +1564,14 @@ async function rotasCobranca(p, m, body, url, real) {
     const acs = await q(`select c.id caso, sum(a.valor_acordado)::numeric v from carteira.cobranca_casos c join carteira.acordos a on a.contrato=c.contrato and a.conferente='luis' and a.data_acordo >= c.criado_em::date
                          and (c.encerrado_em is null or a.data_acordo <= (c.encerrado_em at time zone 'America/Sao_Paulo')::date) group by c.id`).catch(() => []);
     const acM = Object.fromEntries(acs.map(x => [String(x.caso), +x.v]));
+    const [acMes] = await q(`select coalesce(sum(a.valor_acordado),0)::numeric v, count(distinct a.contrato)::int n from carteira.acordos a where a.conferente='luis'
+                             and a.data_acordo >= date_trunc('month', (now() at time zone 'America/Sao_Paulo')::date)
+                             and exists (select 1 from carteira.cobranca_casos c where c.contrato=a.contrato and a.data_acordo >= c.criado_em::date and (c.encerrado_em is null or a.data_acordo <= (c.encerrado_em at time zone 'America/Sao_Paulo')::date))`).catch(() => [{ v: 0, n: 0 }]);
     for (const e of enc) e.valor_acordo = acM[String(e.id)] || 0;
     const [rec] = await q(`select coalesce(sum(g.valor_pago),0)::numeric v from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
                            where g.conferente='luis' and g.confirmada_em >= date_trunc('month', (now() at time zone 'America/Sao_Paulo')::date) and exists (select 1 from carteira.cobranca_casos c where c.contrato=t.contrato and g.confirmada_em >= c.criado_em::date)`);
     return json({ hoje: hojeBR(), casos: casos.map(c => ({ ...c, divida: D[c.contrato] || { total: 0, parcelas: [], dias: 0 }, pago_na_campanha: pagos.find(x => x.contrato === c.contrato) || null, valor_acordo: acM[String(c.id)] || 0 })),
-      sugeridos: graves.sort((a, b) => b.total - a.total), encerrados: enc, recuperado_mes: +rec.v });
+      sugeridos: graves.sort((a, b) => b.total - a.total), encerrados: enc, recuperado_mes: +rec.v, acordos_mes: +acMes.v, acordos_mes_n: acMes.n });
   }
   if (p[1] === 'caso' && !p[2] && m === 'POST') {
     const ns = (body.contratos || [body.contrato]).filter(Boolean);
