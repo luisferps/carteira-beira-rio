@@ -2932,6 +2932,7 @@ ${conversa}`;
 /* ================= IA: cobrança em tempo real pelo WhatsApp + assistente com aprovação ================= */
 async function garanteIA() {
   await q(`create table if not exists carteira.cobranca_whats_pend(caso_id int primary key, ping timestamptz default now())`);
+  await q(`create table if not exists carteira.cobranca_whats_msgs(id text primary key, caso_id int, contrato text, fone text, ts bigint, eu boolean, tipo text, texto text, seg int, em timestamptz default now())`);
   await q(`create table if not exists carteira.cobranca_fone_novo(fone text primary key, nome text, caso_id int, contrato text, em timestamptz default now(), qtd int default 1)`);
   await q(`create table if not exists carteira.ia_sugestoes(id serial primary key, contrato text, caso_id int, acao jsonb not null, descricao text, origem text, status text default 'pendente', por text, em timestamptz default now(), resolvido_em timestamptz, resultado text)`);
   await q(`alter table carteira.cobranca_casos add column if not exists ia_situacao text`);
@@ -2974,7 +2975,13 @@ async function pingCobranca(b) {
   const fone = digF(b.fone); if (fone.length < 10) return json({ ok: true });
   const M = await mapaFonesCampanha();
   const caso = M.fones[fone.slice(-8)];
-  if (caso) { await q(`insert into carteira.cobranca_whats_pend(caso_id, ping) values ($1, now()) on conflict (caso_id) do update set ping=now()`, [caso.id]); return json({ ok: true }); }
+  if (caso) {
+    const g = b.msg;
+    if (g && g.id) await q(`insert into carteira.cobranca_whats_msgs(id, caso_id, contrato, fone, ts, eu, tipo, texto, seg) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                            on conflict (id) do update set texto=case when coalesce(excluded.texto,'')<>'' then excluded.texto else carteira.cobranca_whats_msgs.texto end`,
+      [String(g.id), caso.id, caso.contrato, fone, Number(g.ts) || Math.floor(Date.now() / 1000), !!g.eu, String(g.tipo || 'texto'), String(g.texto || '').slice(0, 4000), g.seg || null]).catch(() => null);
+    await q(`insert into carteira.cobranca_whats_pend(caso_id, ping) values ($1, now()) on conflict (caso_id) do update set ping=now()`, [caso.id]); return json({ ok: true, campanha: true });
+  }
   if (b.de_mim || !b.nome) return json({ ok: true });
   const tk = normNome(b.nome).split(' ').filter(t => t.length >= 3);
   /* nome do WhatsApp parecido com o de um cliente da campanha (William × Willian): vira sugestão de número novo, que você aprova */
@@ -2994,10 +3001,15 @@ async function importaConversaCaso(casoId, contrato, dias = 4) {
   const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 20000);
   const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?numeros=${encodeURIComponent(fones.slice(0, 10).map(foneParaWhats).join(','))}&desde=${desde}`, { headers: { Authorization: 'CBR tok:' + tok }, signal: ctl.signal }).catch(e => ({ ok: false, status: e.message }));
   clearTimeout(tm);
-  if (!r.ok) throw new Error('WhatsApp respondeu ' + r.status);
-  const j = await r.json().catch(() => ({}));
+  const j = r.ok ? await r.json().catch(() => ({})) : {};
   const vistos = new Set(), msgs = [];
   for (const [fone, lista] of Object.entries(j.conversas || {})) for (const m of lista) { const k = m.ts + '|' + m.eu + '|' + m.texto; if (vistos.has(k)) continue; vistos.add(k); msgs.push({ ...m, fone }); }
+  /* mensagens que chegaram pelo aviso em tempo real (o banco da Evolution às vezes não grava) */
+  const desdeTs = Math.floor(new Date(desde + 'T00:00:00-03:00').getTime() / 1000);
+  for (const g of await q(`select fone, ts, eu, tipo, texto, seg from carteira.cobranca_whats_msgs where caso_id=$1 and ts >= $2 order by ts`, [casoId, desdeTs]).catch(() => [])) {
+    const m = { ts: +g.ts, eu: g.eu, tipo: g.tipo, texto: g.texto || '', seg: g.seg }; if (msgs.some(x => Math.abs(x.ts - m.ts) <= 2 && x.eu === m.eu && (x.texto === m.texto || x.tipo === m.tipo))) continue;
+    msgs.push({ ...m, fone: g.fone });
+  }
   msgs.sort((a, b) => a.ts - b.ts);
   const porDia = {}; for (const m of msgs) (porDia[diaBR(m.ts)] ||= []).push(m);
   let mudou = 0;
