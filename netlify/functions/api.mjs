@@ -1602,6 +1602,15 @@ async function rotasCobranca(p, m, body, url, real) {
     const props = await q(`select id, dados->>'termo' termo, criado_em from carteira.propostas where contrato=$1 and conferente='luis'`, [c.contrato]);
     return json({ caso: c, registros: regs, divida: d, boletos: bol, pagamentos: pags, contrato: ct, acordos: acs, propostas: props });
   }
+  if (p[1] === 'caso' && p[2] && p[3] === 'whatsapp' && m === 'POST') {
+    /* buscar agora as conversas do WhatsApp do caso (últimos 30 dias) e dizer o que achou em cada telefone */
+    const [c] = await q(`select id, contrato from carteira.cobranca_casos where id=$1`, [p[2]]); if (!c) return json({ erro: 'Caso não encontrado' }, 404);
+    const fones = await fonesDoContrato(c.contrato);
+    const r = await importaConversaCaso(c.id, c.contrato, 30).catch(e => ({ erro: e.message }));
+    if (r.dias_mudados) await resumeCasoWhats(c.id).catch(() => null);
+    const novos = await q(`select fone, nome, em from carteira.cobranca_fone_novo where contrato=$1 order by em desc limit 5`, [c.contrato]).catch(() => []);
+    return json({ ...r, fones, numeros_novos: novos });
+  }
   if (p[1] === 'caso' && p[2] && p[3] === 'registro' && p[4] && p[5] === 'nao-enviado' && m === 'POST') {
     /* WhatsApp registrado como enviado, mas o número não tinha WhatsApp / mudou: desfaz o contato e marca o número */
     const [r] = await q(`select * from carteira.cobranca_registros where id=$1 and caso_id=$2 and tipo='whatsapp'`, [p[4], p[2]]);
@@ -2999,7 +3008,8 @@ async function importaConversaCaso(casoId, contrato, dias = 4) {
     else await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, por, em) values ($1,$2,'whatsapp',$3,$4,'importado do WhatsApp',$5::timestamptz)`, [casoId, contrato, resultado, cab + '\n\n' + linhas, dia + 'T12:00:00-03:00']);
     mudou++;
   }
-  return { msgs: msgs.length, dias_mudados: mudou };
+  const porFone = {}; for (const [f, l] of Object.entries(j.conversas || {})) porFone[f] = (l || []).length;
+  return { msgs: msgs.length, dias_mudados: mudou, por_fone: porFone };
 }
 /* roda a cada minuto: casos que tiveram mensagem nova (com 90 segundos de folga para a conversa assentar) */
 export async function processaWhatsPendentes(limiteMs = 20000) {
