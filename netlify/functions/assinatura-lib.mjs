@@ -11,7 +11,7 @@ import RAIZES_ICP from './raizes-icp.mjs';
 pkijs.setEngine('node', new pkijs.CryptoEngine({ name: 'node', crypto: crypto.webcrypto }));
 
 /* impressão digital (SHA-256) da raiz do gov.br — "AC Raiz do Governo Federal do Brasil v1" */
-export const RAIZ_GOVBR_SHA256 = (process.env.RAIZ_GOVBR_SHA256 || '').toLowerCase().replace(/[^0-9a-f]/g, '');
+export const RAIZ_GOVBR_SHA256 = (process.env.RAIZ_GOVBR_SHA256 || '163bd003bc0df2beab88174b6d5b450b6e1dc973a64b2dc2a33218544f49ef4e').toLowerCase().replace(/[^0-9a-f]/g, '');
 const fp = der => crypto.createHash('sha256').update(Buffer.from(der)).digest('hex');
 const ab = b => { const u = new Uint8Array(b); return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength); };
 const certDe = der => new pkijs.Certificate({ schema: asn1js.fromBER(ab(der)).result });
