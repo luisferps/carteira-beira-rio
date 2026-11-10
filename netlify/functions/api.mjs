@@ -3360,6 +3360,9 @@ async function rotasPagador(p, m, body, real) {
       return json({ ok: true });
     }
   }
+  if (p[0] === 'manutencao' && p[1] === 'whats-capturadas' && real === 'luis') {
+    return json(await q(`select contrato, count(*)::int n, max(to_timestamp(ts))::text ultima from carteira.cobranca_whats_msgs group by contrato order by max(ts) desc limit 20`).catch(e => ({ erro: e.message })));
+  }
   if (p[0] === 'manutencao' && p[1] === 'whats-cru' && real === 'luis') {
     const tok = await tokenSistemaWhats();
     const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?${p[3] === 'db' ? 'diagdb' : 'cru'}=${encodeURIComponent(p[2] || '')}${p[4] ? '&txt=' + encodeURIComponent(decodeURIComponent(p[4])) : ''}`, { headers: { Authorization: 'CBR tok:' + tok } }).catch(e => ({ ok: false, text: async () => e.message }));
