@@ -1565,7 +1565,6 @@ async function rotasCobranca(p, m, body, url, real) {
                          and (c.encerrado_em is null or a.data_acordo <= (c.encerrado_em at time zone 'America/Sao_Paulo')::date) group by c.id`).catch(() => []);
     const acM = Object.fromEntries(acs.map(x => [String(x.caso), +x.v]));
     const [acMes] = await q(`select coalesce(sum(a.valor_acordado),0)::numeric v, count(distinct a.contrato)::int n from carteira.acordos a where a.conferente='luis'
-                             and a.data_acordo >= date_trunc('month', (now() at time zone 'America/Sao_Paulo')::date)
                              and exists (select 1 from carteira.cobranca_casos c where c.contrato=a.contrato and a.data_acordo >= c.criado_em::date and (c.encerrado_em is null or a.data_acordo <= (c.encerrado_em at time zone 'America/Sao_Paulo')::date))`).catch(() => [{ v: 0, n: 0 }]);
     for (const e of enc) e.valor_acordo = acM[String(e.id)] || 0;
     const [rec] = await q(`select coalesce(sum(g.valor_pago),0)::numeric v from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
