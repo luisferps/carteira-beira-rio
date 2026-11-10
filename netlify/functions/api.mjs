@@ -1560,9 +1560,14 @@ async function rotasCobranca(p, m, body, url, real) {
     const enc = await q(`select c.id, c.contrato, c.motivo_encerramento, c.encerrado_em, c.criado_em, k.quadra, k.lote from carteira.cobranca_casos c left join carteira.contratos k on k.numero=c.contrato where c.encerrado_em is not null order by c.encerrado_em desc limit 100`);
     try { const locais = await q(`select cpf, nome, asaas->>'id' aid from carteira.clientes where nome is not null`); const lim = new Date(Date.now() - 40 * 864e5).toISOString().slice(0, 10);
       for (const e of enc) if (String(e.encerrado_em instanceof Date ? e.encerrado_em.toISOString() : e.encerrado_em).slice(0, 10) >= lim) e.titular = (await titularesAtuais(e.contrato, locais)).map(x => x.nome).join(' e '); } catch (e) { }
+    /* valor do acordo feito na campanha (o que a pessoa devia e renegociou), não o que já pagou */
+    const acs = await q(`select c.id caso, sum(a.valor_acordado)::numeric v from carteira.cobranca_casos c join carteira.acordos a on a.contrato=c.contrato and a.conferente='luis' and a.data_acordo >= c.criado_em::date
+                         and (c.encerrado_em is null or a.data_acordo <= (c.encerrado_em at time zone 'America/Sao_Paulo')::date) group by c.id`).catch(() => []);
+    const acM = Object.fromEntries(acs.map(x => [String(x.caso), +x.v]));
+    for (const e of enc) e.valor_acordo = acM[String(e.id)] || 0;
     const [rec] = await q(`select coalesce(sum(g.valor_pago),0)::numeric v from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
                            where g.conferente='luis' and g.confirmada_em >= date_trunc('month', (now() at time zone 'America/Sao_Paulo')::date) and exists (select 1 from carteira.cobranca_casos c where c.contrato=t.contrato and g.confirmada_em >= c.criado_em::date)`);
-    return json({ hoje: hojeBR(), casos: casos.map(c => ({ ...c, divida: D[c.contrato] || { total: 0, parcelas: [], dias: 0 }, pago_na_campanha: pagos.find(x => x.contrato === c.contrato) || null })),
+    return json({ hoje: hojeBR(), casos: casos.map(c => ({ ...c, divida: D[c.contrato] || { total: 0, parcelas: [], dias: 0 }, pago_na_campanha: pagos.find(x => x.contrato === c.contrato) || null, valor_acordo: acM[String(c.id)] || 0 })),
       sugeridos: graves.sort((a, b) => b.total - a.total), encerrados: enc, recuperado_mes: +rec.v });
   }
   if (p[1] === 'caso' && !p[2] && m === 'POST') {
