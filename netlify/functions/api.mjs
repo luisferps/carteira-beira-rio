@@ -2977,8 +2977,11 @@ async function pingCobranca(b) {
   if (caso) { await q(`insert into carteira.cobranca_whats_pend(caso_id, ping) values ($1, now()) on conflict (caso_id) do update set ping=now()`, [caso.id]); return json({ ok: true }); }
   if (b.de_mim || !b.nome) return json({ ok: true });
   const tk = normNome(b.nome).split(' ').filter(t => t.length >= 3);
-  if (tk.length >= 2) {
-    const hit = M.nomes.find(x => { const xs = x.nome.split(' '); return xs[0] === tk[0] && tk.slice(1).some(t => xs.includes(t)); });
+  /* nome do WhatsApp parecido com o de um cliente da campanha (William × Willian): vira sugestão de número novo, que você aprova */
+  const par = (a, c) => a === c || (a.length >= 5 && c.length >= 5 && a.slice(0, 5) === c.slice(0, 5) && Math.abs(a.length - c.length) <= 1);
+  if (tk.length) {
+    const cand = M.nomes.filter(x => { const xs = x.nome.split(' '); return par(xs[0], tk[0]) && (tk.length < 2 || tk.slice(1).some(t => xs.some(y => par(y, t)))); });
+    const hit = new Set(cand.map(x => x.caso.id)).size === 1 ? cand[0] : null;
     if (hit) await q(`insert into carteira.cobranca_fone_novo(fone, nome, caso_id, contrato) values ($1,$2,$3,$4) on conflict (fone) do update set nome=$2, caso_id=$3, contrato=$4, em=now(), qtd=carteira.cobranca_fone_novo.qtd+1`, [fone, String(b.nome).slice(0, 80), hit.caso.id, hit.caso.contrato]);
   }
   return json({ ok: true });
