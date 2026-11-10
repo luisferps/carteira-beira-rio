@@ -363,7 +363,8 @@ function escolheVencer(){const cc=CASO.cc,hoje=hojeL(),pg=new Set(cc.pagamentos.
    <div class="cgrid" style="margin-top:6px">${L.map(t=>`<label class="cb blk" style="cursor:pointer;border-left-color:#0ea5e9"><input type="checkbox" class="vxk" value="${t.id}" style="width:auto"> <b>${esc(t.rotulo)}</b><span class="cbl">vence ${dbr(t.vencimento)}</span><span class="cbl">${brl(valorAno(t))}</span></label>`).join('')}</div>
    <div class="bt" style="margin-top:10px"><button class="pri" onclick="negociarCaso([...[...SEL].filter(i=>!CASO.divida.parcelas.some(p=>+p.id===+i)),...[...document.querySelectorAll('.vxk:checked')].map(x=>+x.value)])">Incluir e continuar</button></div>`)}
 let RELNEG=false;
-function atrasoNeg(cc){const sv=C;C=cc;try{const h=cc.hoje;return C.titulos.filter(t=>t.vencimento&&t.vencimento<=h&&['vencida','em_atraso'].includes(estado(t))).reduce((a,t)=>{const k=atrasoDe(t,h);let tot=k.tot;if(k.dias>0&&!k.isenta&&!(k.ho>0.004))tot+=(k.v+k.co+k.mu+k.ju)*0.10;return a+tot},0)}finally{C=sv}}
+function parcNeg(cc){const sv=C;C=cc;try{const h=cc.hoje;return C.titulos.filter(t=>t.vencimento&&t.vencimento<=h&&['vencida','em_atraso'].includes(estado(t))).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).map(t=>{const k=atrasoDe(t,h);let tot=k.tot;if(k.dias>0&&!k.isenta&&!(k.ho>0.004))tot+=(k.v+k.co+k.mu+k.ju)*0.10;return {rotulo:t.rotulo,vencimento:t.vencimento,total:Math.round(tot*100)/100}})}finally{C=sv}}
+function atrasoNeg(cc){return parcNeg(cc).reduce((a,x)=>a+x.total,0)}
 /* relatório da cobrança = valores para renegociar: toda parcela vencida já com o custo de cobrança (10%), como entra no acordo */
 async function buscaWhatsCaso(id,b){const t=b.textContent;b.disabled=true;b.textContent='Buscando…';try{const r=await api('cobranca/caso/'+id+'/whatsapp',{method:'POST',body:{}});
   const L=Object.entries(r.por_fone||{}).map(([f,n])=>fone(f)+': '+n+' mensagem(ns)').join('\n');
@@ -389,7 +390,8 @@ function modalReg(pre){const hoje=hojeL();
 async function salvaReg(){const b={data:$('#rg_dt').value||null,tipo:$('#rg_t').value,resultado:$('#rg_r').value,texto:$('#rg_x').value,data_promessa:$('#rg_dp').value||null,valor_promessa:numBR($('#rg_vp').value)||null,proximo_contato:$('#rg_px').value||null,etapa:$('#rg_et').value||null};
   await api('cobranca/caso/'+CASO.caso.id+'/registro',{method:'POST',body:b});fechaModal();telaCaso(CASO.caso.id)}
 function preencheMsg(t,extra={},ctx){const X=ctx||CASO,d=X.divida,ct=X.contrato,nm=nome(d.titular||(ct.compradores||[]).map(x=>x.nome).join(' e ')||'');const hoje=hojeL();
-  const v={nome:nm,primeiro_nome:nm.split(' ')[0],contrato:ct.numero,quadra:ct.quadra,lote:ct.lote,qtd_parcelas:d.parcelas.length,valor_total:brl(d.total),parcelas:d.parcelas.map(p=>`• ${p.rotulo} (venc. ${dbr(p.vencimento)}): ${brl(p.total)}`).join('\n'),data_hoje:dbr(hoje),data_limite:dbr(somaDiasF(hoje,5)),valor_promessa:extra.valor_promessa||'',data_promessa:extra.data_promessa||''};
+  const PN=X.cc?parcNeg(X.cc):null,ps=PN&&PN.length?PN:d.parcelas,tt=PN&&PN.length?PN.reduce((a,x)=>a+x.total,0):d.total;
+  const v={nome:nm,primeiro_nome:nm.split(' ')[0],contrato:ct.numero,quadra:ct.quadra,lote:ct.lote,qtd_parcelas:ps.length,valor_total:brl(tt),parcelas:ps.map(p=>`• ${p.rotulo} (venc. ${dbr(p.vencimento)}): ${brl(p.total)}`).join('\n'),data_hoje:dbr(hoje),data_limite:dbr(somaDiasF(hoje,5)),valor_promessa:extra.valor_promessa||'',data_promessa:extra.data_promessa||''};
   return t.replace(/\{(\w+)\}/g,(m,k)=>k in v?v[k]:m)}
 /* mensagem sugerida pela etapa do caso */
 const MSG_ETAPA={fila:'Contato 1',contato1:'Contato 2',contato2:'Último aviso',contato3:'Último aviso',negociando:'Negociando',proposta:'Proposta enviada',promessa:'Lembrete de promessa',sem_retorno:'Notificação',notificacao:'Notificação',acordo:'Agradecimento'};
