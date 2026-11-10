@@ -7,6 +7,7 @@ import { criaDevolucoes } from './devolucoes-lib.mjs';
 import { criaCessoes } from './cessoes-lib.mjs';
 import { criaPainel } from './painel-lib.mjs';
 import { criaDocumentos } from './documentos-lib.mjs';
+import { verificaPdf, comparaDevedores, infoCadeiaGovBr } from './assinatura-lib.mjs';
 
 pg.types.setTypeParser(1082, v => v);
 
@@ -168,8 +169,9 @@ async function carregar(n, conf) {
   const termosArq = await q('select termo, nome, enviado_em from carteira.termos_arq where contrato=$1 order by termo', [n]).catch(() => []);
   const boletos = await q(`select id_asaas, titulo_id, tipo, fatura, valor, vencimento::text vencimento, status, link, origem, motivo, composicao, criado_em from carteira.boletos where contrato=$1 order by vencimento desc, criado_em desc`, [n]).catch(() => []);
   const cessoes = await q(`select id, numero, status, datas, dados - 'textos' dados from carteira.cessoes where contrato=$1 order by numero`, [n]).catch(() => []);
-  const termosAssinados = (await q(`select distinct substr(chave, 16) termo from carteira.documentos where contrato=$1 and chave like 'termo_assinado_%'`, [n]).catch(() => [])).map(x => x.termo);
-  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, termosAssinados, boletos, cessoes, fechamento: fechamento || null, hoje: hojeBR(), conferente: conf };
+  const tA = await q(`select distinct on (chave) substr(chave, 16) termo, verificacao->>'status' st from carteira.documentos where contrato=$1 and chave like 'termo_assinado_%' order by chave, enviado_em desc`, [n]).catch(() => []);
+  const termosAssinados = tA.map(x => x.termo), termosVerif = Object.fromEntries(tA.map(x => [x.termo, x.st || null]));
+  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, termosAssinados, termosVerif, boletos, cessoes, fechamento: fechamento || null, hoje: hojeBR(), conferente: conf };
 }
 
 /* ---------- cruzamento ---------- */
@@ -1798,7 +1800,12 @@ async function garanteEsquema() {
   } catch (e) { console.error('garanteEsquema', e.message); }
 }
 
-const rotasDocumentos = criaDocumentos({ q, json, log: (...a) => log(...a) });
+async function verificaTermoAssinado(contrato, b64) {
+  const r = await verificaPdf(Buffer.from(b64, 'base64'), q);
+  const dev = (await titularesAtuais(contrato)).map(x => ({ nome: x.nome, cpf: x.cpf }));
+  return { ...comparaDevedores(r, dev), assinaturas: r.assinaturas, conferido_em: new Date().toISOString() };
+}
+const rotasDocumentos = criaDocumentos({ q, json, log: (...a) => log(...a), verificaTermo: verificaTermoAssinado, infoCadeia: () => infoCadeiaGovBr(q) });
 const rotasPainel = criaPainel({ q, json, log: (...a) => log(...a) });
 const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a), asaas, asaasReq, gravaBoleto, garanteBoletos, refazBoletoPara });
 const DEV = criaDevolucoes({ q, asaas, json, log: (...a) => log(...a) });

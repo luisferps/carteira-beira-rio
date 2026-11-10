@@ -1,11 +1,12 @@
 /* Documentos do contrato e dos compradores: checklist (tem / falta) e arquivos anexados. */
 export const ITENS_CONTRATO = [['contrato_assinado', 'Contrato assinado'], ['firma', 'Firma reconhecida em cartório'], ['testemunhas', 'Testemunhas assinaram'], ['proposta', 'Proposta']];
 export const ITENS_PESSOA = [['rg', 'RG ou CNH'], ['cpf', 'CPF'], ['endereco', 'Comprovante de endereço'], ['estado_civil', 'Certidão de estado civil']];
-export function criaDocumentos({ q, json, log }) {
+export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia }) {
   let ok = false;
   async function garante() {
     if (ok) return;
     await q(`create table if not exists carteira.documentos(id serial primary key, contrato text not null, chave text not null, nome text, mime text, tamanho int, b64 text not null, por text, enviado_em timestamptz default now())`);
+    await q(`alter table carteira.documentos add column if not exists verificacao jsonb`).catch(() => null);
     await q(`create table if not exists carteira.doc_check(contrato text not null, chave text not null, status text, obs text, por text, em timestamptz default now(), primary key(contrato, chave))`);
     ok = true;
   }
@@ -29,12 +30,12 @@ export function criaDocumentos({ q, json, log }) {
         });
         return json(out);
       }
-      if (p[0] === 'documentos' && m === 'GET') {
+      if (p[0] === 'documentos' && m === 'GET' && p[1] !== 'cadeia') {
         const n = url.searchParams.get('contrato');
         const [c] = await q(`select numero, compradores from carteira.contratos where numero=$1`, [n]);
         return json({ itens_contrato: ITENS_CONTRATO, itens_pessoa: ITENS_PESSOA, pessoas: (Array.isArray(c?.compradores) ? c.compradores : []).map((x, i) => ({ i, nome: x.nome })),
           check: await q(`select chave, status, obs, por, em from carteira.doc_check where contrato=$1`, [n]),
-          arquivos: await q(`select id, chave, nome, mime, tamanho, por, enviado_em from carteira.documentos where contrato=$1 order by enviado_em`, [n]) });
+          arquivos: await q(`select id, chave, nome, mime, tamanho, por, enviado_em, verificacao from carteira.documentos where contrato=$1 order by enviado_em`, [n]) });
       }
       if (p[0] === 'documentos' && p[1] === 'importar' && m === 'POST') {
         /* planilha "Controle de Documentos": linhas por quadra e lote; marca só o que ainda não tem marcação */
@@ -62,8 +63,21 @@ export function criaDocumentos({ q, json, log }) {
         const tam = Math.round(b.b64.length * 3 / 4); if (tam > 4.2e6) return json({ erro: 'Arquivo grande demais (máximo 4 MB)' }, 400);
         const [r] = await q(`insert into carteira.documentos(contrato, chave, nome, mime, tamanho, b64, por) values ($1,$2,$3,$4,$5,$6,$7) returning id`, [b.contrato, b.chave, b.nome || null, b.mime || null, tam, b.b64, real]);
         await log(real, 'documento_anexado', { contrato: b.contrato, chave: b.chave, nome: b.nome });
-        return json(r);
+        let verificacao = null;
+        if (verificaTermo && String(b.chave).startsWith('termo_assinado_') && (/pdf/i.test(b.mime || '') || /\.pdf$/i.test(b.nome || ''))) {
+          verificacao = await verificaTermo(b.contrato, b.b64).catch(e => ({ status: 'erro', erro: e.message }));
+          await q(`update carteira.documentos set verificacao=$2 where id=$1`, [r.id, verificacao]);
+        }
+        return json({ ...r, verificacao });
       }
+      if (p[0] === 'documento' && p[1] && p[2] === 'verificacao') {
+        const [d] = await q(`select id, contrato, chave, nome, mime, b64, verificacao from carteira.documentos where id=$1`, [p[1]]); if (!d) return json({ erro: 'Não encontrado' }, 404);
+        if (d.verificacao && m === 'GET' && !url.searchParams.get('refaz')) return json(d.verificacao);
+        if (!(/pdf/i.test(d.mime || '') || /\.pdf$/i.test(d.nome || ''))) return json({ status: 'nao_pdf' });
+        const v = await verificaTermo(d.contrato, d.b64).catch(e => ({ status: 'erro', erro: e.message }));
+        await q(`update carteira.documentos set verificacao=$2 where id=$1`, [d.id, v]); return json(v);
+      }
+      if (p[0] === 'documentos' && p[1] === 'cadeia' && m === 'GET' && infoCadeia) return json(await infoCadeia());
       if (p[0] === 'documento' && p[1] && m === 'GET') { const [r] = await q(`select nome, mime, b64 from carteira.documentos where id=$1`, [p[1]]); return r ? json(r) : json({ erro: 'Não encontrado' }, 404); }
       if (p[0] === 'documento' && p[1] && m === 'DELETE') { await q(`delete from carteira.documentos where id=$1`, [p[1]]); await log(real, 'documento_apagado', { id: p[1] }); return json({ ok: true }); }
       return json({ erro: 'Rota não encontrada' }, 404);

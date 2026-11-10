@@ -1434,9 +1434,9 @@ async function efetivaPropostaOk(id){const d0=pDados(id);if(!d0)return;const f=$
   try{await carregaTermo();const hP=d0.termo?await window.pastaRenegociacoes().catch(()=>null):null;
     const d={...d0,parcelas:efParcelas(d0,dt),termo_assinado_em:dt};
     const na=await api('acordo',{method:'POST',body:{...d,tipo:'acordo'}});await api('proposta/'+id,{method:'DELETE'});
-    if(f){await api('documento',{method:'POST',body:{contrato:C.contrato.numero,chave:chaveTA(d.termo),nome:f.name,mime:f.type,b64:await leArq(f)}})}
+    let vf=null;if(f){const rd=await api('documento',{method:'POST',body:{contrato:C.contrato.numero,chave:chaveTA(d.termo),nome:f.name,mime:f.type,b64:await leArq(f)}});vf=rd?.verificacao||null}
     else{const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{responsavel:'Luis',status:'aberta'},obs:`Falta o termo de acordo ${d.termo||''} assinado.`}})}
-    await recarrega();fechaModal();let msg='Acordo '+(d.termo||'')+' efetivado.';
+    await recarrega();fechaModal();let msg='Acordo '+(d.termo||'')+' efetivado.'+(vf?'\n\n'+textoVerif(vf):'');
     if((EU==='luis'||EU==='assistente')&&!COMO){const r=await api('boletos/ligar-acordo',{method:'POST',body:{acordo_id:+na.id}});await recarrega();
       const ligados=new Set((C.boletos||[]).filter(b=>b.titulo_id&&['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS','RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(b.status)).map(b=>String(b.titulo_id)));
       let fila=C.titulos.filter(t=>t.acordo_id==na.id&&!ligados.has(String(t.id))).map(t=>+t.id),er=[],n=0;
@@ -1450,16 +1450,32 @@ async function preencheTermosAssinados(){const L=document.querySelectorAll('[dat
   L.forEach(el=>{const t=el.dataset.tass,a=(D.arquivos||[]).filter(x=>x.chave===chaveTA(t));
     el.innerHTML=a.length?`<button class="ok" style="background:#dcfce7;color:#166534" onclick="abreDoc(${a[a.length-1].id})">Ver assinado</button>`:`<button style="background:#fee2e2;color:#991b1b" onclick="anexaAssinado('${esc(t)}',${el.dataset.aid})">Anexar assinado</button>`})}
 const assinadoTA=a=>(C.termosAssinados||[]).includes(String(a.termo).replace(/[^\w.-]/g,'_'));
-function cardTermo(a){const ok=assinadoTA(a),antigo=String(a.data_acordo).slice(0,10)<'2026-11-01';
-  return `<button class="pc" style="background:#fff;color:#1f2937;border:2px solid ${ok||antigo?'#16a34a':'#dc2626'}" title="Termo do acordo: Word, PDF, pasta, editar e termo assinado" onclick="modalTermo(${a.id})"><b>📄 Termo</b><small>${esc(a.termo)}</small><small style="font-weight:700;color:${ok?'#15803d':antigo?'#6b7280':'#b91c1c'}">${ok?'assinado ✓':antigo?'em papel':'falta assinado'}</small></button>`}
+function cardTermo(a){const ok=assinadoTA(a),vst=(C.termosVerif||{})[String(a.termo).replace(/[^\w.-]/g,'_')],antigo=String(a.data_acordo).slice(0,10)<'2026-11-01';
+  return `<button class="pc" style="background:#fff;color:#1f2937;border:2px solid ${ok||antigo?'#16a34a':'#dc2626'}" title="Termo do acordo: Word, PDF, pasta, editar e termo assinado" onclick="modalTermo(${a.id})"><b>📄 Termo</b><small>${esc(a.termo)}</small><small style="font-weight:700;color:${ok?(vst&&vst!=='ok'?corVerif(vst):'#15803d'):antigo?'#6b7280':'#b91c1c'}">${ok?(vst==='ok'?'assinado ✓ conferido':vst==='falta_devedor'?'falta assinatura':vst==='invalida'?'assinatura com problema':vst==='sem_assinatura'?'sem assinatura digital':'assinado ✓'):antigo?'em papel':'falta assinado'}</small></button>`}
 async function modalTermo(aid){const a=C.acordos.find(x=>x.id==aid);if(!a)return;const t=a.termo,ok=assinadoTA(a);let arq=null;
   if(ok){try{const D=await api('documentos?contrato='+C.contrato.numero);arq=(D.arquivos||[]).filter(x=>x.chave===chaveTA(t)).pop()}catch(e){}}
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Termo ${esc(t)} — ${esc(nomeAc(a))} de ${dbr(a.data_acordo)}</h3><button onclick="fechaModal()">Fechar</button></div>
   <div class="bt" style="flex-wrap:wrap;margin-top:8px"><button onclick="fechaModal();termoComo(acordoParaTermo(${a.id}),'word')">Word</button><button onclick="fechaModal();termoComo(acordoParaTermo(${a.id}),'pdf')">PDF</button><button onclick="fechaModal();termoNaPastaClique(acordoParaTermo(${a.id}))">Registrar na pasta</button><button onclick="fechaModal();editaTermo(acordoParaTermo(${a.id}))">Editar</button></div>
-  <div style="margin-top:12px"><b>Termo assinado:</b> ${arq?`<button class="ok" style="background:#dcfce7;color:#166534" onclick="abreDoc(${arq.id})">Ver assinado</button> <button onclick="fechaModal();anexaAssinado('${esc(t)}',${a.id})">Trocar arquivo</button>`:`<button style="background:#fee2e2;color:#991b1b" onclick="fechaModal();anexaAssinado('${esc(t)}',${a.id})">Anexar assinado</button>`}</div>
+  <div style="margin-top:12px"><b>Termo assinado:</b> ${arq?`<button class="ok" style="background:#dcfce7;color:#166534" onclick="abreDoc(${arq.id})">Ver assinado</button> <button onclick="fechaModal();anexaAssinado('${esc(t)}',${a.id})">Trocar arquivo</button>${blocoVerif(arq.id,arq.verificacao)}`:`<button style="background:#fee2e2;color:#991b1b" onclick="fechaModal();anexaAssinado('${esc(t)}',${a.id})">Anexar assinado</button>`}</div>
   <div style="margin-top:10px">${tagTermo(t)}</div>`)}
+/* conferência das assinaturas digitais (gov.br / ICP-Brasil) do termo assinado */
+function textoVerif(v,html){if(!v)return '';const dt=x=>x?new Date(x).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+  const cpfM=c=>c?' (CPF '+String(c).replace(/^(\d{3})\d{5}(\d{3})$/,'$1.***.**$2')+')':'';
+  const ass=[...(v.presentes||[]).map(x=>x.nome+cpfM(x.cpf)+(x.quando?' em '+dt(x.quando):'')),...(v.outros||[]).map(x=>x.nome+cpfM(x.cpf)+(x.quando?' em '+dt(x.quando):'')+' (outro signatário)')];
+  const L=[];if(v.status==='ok')L.push('✅ Assinaturas digitais válidas — documento sem alteração depois de assinado.');
+  else if(v.status==='falta_devedor')L.push('⚠️ Assinaturas válidas, mas FALTA a assinatura de: '+(v.falta||[]).map(x=>x.nome).join(', ')+'.');
+  else if(v.status==='invalida')L.push('❌ Problema na assinatura: '+[...(v.problemas||[]).map(p=>p.nome+' — '+p.problema),...(v.alterado_depois?['o arquivo foi alterado depois da última assinatura']:[])].join('; ')+'.');
+  else if(v.status==='sem_assinatura')L.push('⚠️ O PDF não tem assinatura digital (foto, papel escaneado ou impressão do documento assinado).');
+  else if(v.status==='nao_pdf')L.push('Arquivo não é PDF — não dá para conferir assinatura digital.');
+  else if(v.status==='erro')L.push('Não consegui conferir: '+(v.erro||''));
+  if(ass.length)L.push('Assinaram: '+ass.join('; ')+'.');
+  return html?L.map(x=>esc(x)).join('<br>'):L.join('\n')}
+const corVerif=st=>st==='ok'?'#166534':st==='falta_devedor'||st==='sem_assinatura'?'#92400e':'#991b1b';
+async function reconfereAss(id,el){el.textContent='Conferindo…';try{const v=await api('documento/'+id+'/verificacao?refaz=1');el.closest('.verif').innerHTML=blocoVerif(id,v)}catch(e){el.textContent='Erro: '+e.message}}
+function blocoVerif(id,v){return `<div class="verif" style="margin-top:8px;padding:8px 10px;border-radius:8px;background:#f8fafc;border:1px solid var(--ln);color:${corVerif(v?.status)}">${v?textoVerif(v,true):'Ainda não conferido.'}<div class="bt" style="margin-top:6px"><button onclick="reconfereAss(${id},this)">Conferir de novo</button><a href="https://validar.iti.gov.br/" target="_blank" rel="noopener"><button>Conferir no ITI</button></a></div></div>`}
 function anexaAssinado(t,aid){const i=document.createElement('input');i.type='file';i.accept='.pdf,image/*,.doc,.docx';i.onchange=async()=>{const f=i.files[0];if(!f)return;if(f.size>4e6)return alert('Arquivo grande demais (máximo 4 MB).');
-  await api('documento',{method:'POST',body:{contrato:C.contrato.numero,chave:chaveTA(t),nome:f.name,mime:f.type,b64:await leArq(f)}});
+  const rd=await api('documento',{method:'POST',body:{contrato:C.contrato.numero,chave:chaveTA(t),nome:f.name,mime:f.type,b64:await leArq(f)}});
+  if(rd?.verificacao)alert('Termo '+t+' anexado.\n\n'+textoVerif(rd.verificacao));
   for(const e of C.eventos.filter(e=>e.tipo==='pendencia'&&e.dados?.status!=='resolvida'&&(e.obs||'').includes('termo de acordo '+t))){await api('evento/'+e.id,{method:'PUT',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:e.motivo||null,a_partir_titulo:e.a_partir_titulo||null,data:e.data,dados:{...(e.dados||{}),status:'resolvida',resolvida_em:C.hoje,resultado:'Termo assinado anexado.'},obs:e.obs}})}
   const ok=await gravaAssinadoNaPasta(acordoParaTermo(aid),f);await recarrega();alert('Termo '+t+' assinado anexado ao contrato'+(ok?' e gravado na pasta Negociações.':'.'))};i.click()}
 async function apagaProposta(id){const d=pDados(id);if(!confirm(d?.boleto?`Desfazer a proposta ${d.termo||''}? O boleto de ${brl(+d.boleto.valor)} (vence ${dbr(d.boleto.vencimento)}) é cancelado no Asaas e as parcelas voltam a ficar como antes (em atraso, com os boletos/cobrança que já tinham).`:'Excluir a proposta '+(d?.termo||'')+'? Ela some sem deixar nada no sistema.'))return;
