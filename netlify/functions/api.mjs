@@ -3348,6 +3348,11 @@ async function rotasPagador(p, m, body, real) {
       return json({ ok: true });
     }
   }
+  if (p[0] === 'manutencao' && p[1] === 'whats-cru' && real === 'luis') {
+    const tok = await tokenSistemaWhats();
+    const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?cru=${encodeURIComponent(url.searchParams.get('n') || '')}`, { headers: { Authorization: 'CBR tok:' + tok } }).catch(e => ({ ok: false, text: async () => e.message }));
+    return new Response(await r.text(), { headers: { 'content-type': 'application/json' } });
+  }
   if (p[0] === 'manutencao' && p[1] === 'procuradores' && real === 'luis') {
     /* quem assinou o contrato só como procurador (lido no PDF do contrato) não é comprador nem devedor */
     /* posição do procurador na lista de compradores de cada contrato (conferido no PDF do contrato) e quantos compradores a lista tem hoje */
