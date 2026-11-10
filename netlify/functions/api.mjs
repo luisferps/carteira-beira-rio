@@ -3350,7 +3350,7 @@ async function rotasPagador(p, m, body, real) {
   }
   if (p[0] === 'manutencao' && p[1] === 'whats-cru' && real === 'luis') {
     const tok = await tokenSistemaWhats();
-    const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?cru=${encodeURIComponent(p[2] || '')}`, { headers: { Authorization: 'CBR tok:' + tok } }).catch(e => ({ ok: false, text: async () => e.message }));
+    const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?${p[3] === 'db' ? 'diagdb' : 'cru'}=${encodeURIComponent(p[2] || '')}`, { headers: { Authorization: 'CBR tok:' + tok } }).catch(e => ({ ok: false, text: async () => e.message }));
     return new Response(await r.text(), { headers: { 'content-type': 'application/json' } });
   }
   if (p[0] === 'manutencao' && p[1] === 'procuradores' && real === 'luis') {
