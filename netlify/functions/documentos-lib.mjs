@@ -65,7 +65,7 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia }) {
         await log(real, 'documento_anexado', { contrato: b.contrato, chave: b.chave, nome: b.nome });
         let verificacao = null;
         if (verificaTermo && String(b.chave).startsWith('termo_assinado_') && (/pdf/i.test(b.mime || '') || /\.pdf$/i.test(b.nome || ''))) {
-          verificacao = await verificaTermo(b.contrato, b.b64).catch(e => ({ status: 'erro', erro: e.message }));
+          verificacao = await verificaTermo(b.contrato, b.b64, b.chave).catch(e => ({ status: 'erro', erro: e.message }));
           await q(`update carteira.documentos set verificacao=$2 where id=$1`, [r.id, verificacao]);
         }
         return json({ ...r, verificacao });
@@ -74,7 +74,7 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia }) {
         const [d] = await q(`select id, contrato, chave, nome, mime, b64, verificacao from carteira.documentos where id=$1`, [p[1]]); if (!d) return json({ erro: 'Não encontrado' }, 404);
         if (d.verificacao && m === 'GET' && !url.searchParams.get('refaz')) return json(d.verificacao);
         if (!(/pdf/i.test(d.mime || '') || /\.pdf$/i.test(d.nome || ''))) return json({ status: 'nao_pdf' });
-        const v = await verificaTermo(d.contrato, d.b64).catch(e => ({ status: 'erro', erro: e.message }));
+        const v = await verificaTermo(d.contrato, d.b64, d.chave).catch(e => ({ status: 'erro', erro: e.message }));
         await q(`update carteira.documentos set verificacao=$2 where id=$1`, [d.id, v]); return json(v);
       }
       if (p[0] === 'documentos' && p[1] === 'cadeia' && m === 'GET' && infoCadeia) return json(await infoCadeia());

@@ -26,12 +26,15 @@ function dadosTermo(A0){
   if(!A.parcelas||!A.parcelas.length)throw new Error('Defina as parcelas do acordo antes de emitir o termo.');
   let num=(A.termo||'').trim();if(!num){num=window.proxTermo();A.termo=num;const it=document.querySelector('#a_termo');if(it)it.value=num}
   const ces=(C.eventos||[]).filter(e=>e.tipo==='cessao'&&e.dados?.subtipo!=='credito'&&e.dados?.novos_titulares&&!/não informado/.test(e.dados.novos_titulares)).sort((a,b)=>String(b.data).localeCompare(String(a.data)))[0];
-  const dev=ces?ces.dados.novos_titulares.split(/\s+e\s+/).map(n=>({nome:n.trim().toUpperCase(),cpf:''})):(c.compradores||[]).map(x=>({nome:x.nome,cpf:x.cpf||''}));
+  const devT=ces?ces.dados.novos_titulares.split(/\s+e\s+/).map(n=>({nome:n.trim().toUpperCase(),cpf:''})):(c.compradores||[]).map(x=>({nome:x.nome,cpf:x.cpf||''}));
+  const nn=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim(),sg=Array.isArray(A.signatarios)?A.signatarios:[];
+  const sel=sg.length?devT.filter(d=>sg.some(n=>nn(n)===nn(d.nome))):devT;
+  const dev=sel.length?sel:devT,outros=sel.length&&sel.length<devT.length?devT.filter(d=>!sel.includes(d)):[];
   const nome1=(dev[0]?.nome||'').toLowerCase().replace(/(^|\s)\S/g,m=>m.toUpperCase()).replace(/\s(De|Da|Do|Dos|Das|E)\s/g,m=>m.toLowerCase());
-  return {A,c,num,dev,nome1}}
+  return {A,c,num,dev,outros,nome1}}
 /* texto do termo em HTML (é o que aparece no editor) */
 window.htmlTermo=function(A0){
-  const {A,c,num,dev}=dadosTermo(A0);
+  const {A,c,num,dev,outros}=dadosTermo(A0);
   const fcpf=s=>{const d=String(s||'').replace(/\D/g,'');return d.length===11?d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4'):'___.___.___-__'};
   const orig=A.titulos_origem.map(id=>C.titulos.find(t=>t.id==id)).filter(Boolean).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
   const L=orig.map(t=>{const k=atrasoDe(t,A.data_acordo);const r=x=>Math.round(x*100)/100;const o={rot:t.rotulo,venc:DBR(t.vencimento),dias:k.dias,v:r(k.v),co:r(k.co),mu:r(k.mu),ju:r(k.ju),ho:r(k.ho)};o.tot=r(o.v+o.co+o.mu+o.ju+o.ho);return o});
@@ -61,9 +64,15 @@ window.htmlTermo=function(A0){
     ...(()=>{const sp=Math.round(A.parcelas.reduce((s,x)=>s+Number(x.valor||0),0)*100)/100,jm=String(A.obs||'').match(/Juros de financiamento: ([\d.,]+)% a\.m\./);if(!(sp-tot>=0.01)||A.parcelas.length<2)return [];const e=Number(A.parcelas[0].valor||0);return [P(`A 1ª parcela, de R$ ${BRL(e)}, é paga sem acréscimo. Sobre o saldo de R$ ${BRL(tot-e)} incidem juros de financiamento${jm?` de ${jm[1]}% ao mês`:''}, calculados pela Tabela Price, distribuídos nas ${A.parcelas.length-1} parcelas seguintes, totalizando R$ ${BRL(sp-tot)} de juros e R$ ${BRL(sp)} a pagar.`)]})(),
     tab2,
     P('Parágrafo único. Nenhum valor é devido até o vencimento de cada parcela deste acordo; os encargos da Cláusula Quinta só incidem a partir do vencimento não pago.'),
+    ...(outros.length?[
+    T('CLÁUSULA QUARTA – DA AUSÊNCIA DE NOVAÇÃO E DA SOLIDARIEDADE'),
+    P('O presente Termo não importa novação (art. 361 do Código Civil). Trata-se de confissão e parcelamento das parcelas relacionadas na Cláusula Segunda, que continuam regidas pelo Contrato de Origem até o pagamento integral deste acordo, quando então serão consideradas quitadas. Os encargos já vencidos (multa, juros, correção e custo de cobrança) integram o valor confessado.'),
+    P(`Parágrafo primeiro. Permanece íntegra a responsabilidade solidária ${outros.length>1?'dos demais compradores':'do(a) demais comprador(a)'}, ${esc(outros.map(x=>x.nome+(x.cpf?', CPF '+fcpf(x.cpf):'')).join('; '))}, que não ${outros.length>1?'participam':'participa'} deste Termo e ${outros.length>1?'continuam obrigados':'continua obrigado(a)'} pela dívida nos termos do Contrato de Origem. O parcelamento aqui concedido não ${outros.length>1?'os':'o(a)'} exonera nem agrava a sua situação (art. 278 do Código Civil), podendo a CREDORA, em caso de inadimplemento, exigir o saldo de qualquer dos devedores (art. 275 do Código Civil).`),
+    P('Parágrafo segundo. Permanecem em pleno vigor todas as cláusulas do Contrato de Origem, inclusive as parcelas a vencer, a correção anual, a alienação fiduciária em garantia, que continua recaindo sobre a totalidade do imóvel, e as hipóteses de rescisão.')
+    ]:[
     T('CLÁUSULA QUARTA – DA NOVAÇÃO'),
     P('As partes declaram, com ânimo de novar (arts. 360, I, e 361 do Código Civil), que a presente renegociação substitui as parcelas relacionadas na Cláusula Segunda, que se extinguem e dão lugar à obrigação ora assumida. Os encargos já vencidos (multa, juros, correção e custo de cobrança) passam a integrar o valor desta nova obrigação.'),
-    P('Parágrafo único. A novação alcança somente as parcelas relacionadas na Cláusula Segunda. Permanecem em pleno vigor todas as demais cláusulas do Contrato de Origem, inclusive as parcelas a vencer, a correção anual, a alienação fiduciária em garantia e as hipóteses de rescisão.'),
+    P('Parágrafo único. A novação alcança somente as parcelas relacionadas na Cláusula Segunda. Permanecem em pleno vigor todas as demais cláusulas do Contrato de Origem, inclusive as parcelas a vencer, a correção anual, a alienação fiduciária em garantia e as hipóteses de rescisão.')]),
     T('CLÁUSULA QUINTA – DO ATRASO NO PAGAMENTO DESTE ACORDO'),
     P('O atraso no pagamento de qualquer parcela deste acordo sujeitará o(s) DEVEDOR(ES), sobre o valor da parcela em atraso, a: (i) multa moratória de 2% (dois por cento); (ii) juros de mora de 1% (um por cento) ao mês, desde o vencimento até o efetivo pagamento; e (iii) após 30 (trinta) dias de atraso, custo de cobrança de 10% (dez por cento) sobre o débito, ou de 20% (vinte por cento) se houver cobrança judicial, nos termos da cláusula 10.4 do Contrato de Origem.'),
     P('Parágrafo primeiro. O atraso superior a 30 (trinta) dias de qualquer parcela deste acordo, ou de qualquer parcela a vencer do Contrato de Origem, acarretará o vencimento antecipado de todo o saldo deste acordo, independentemente de notificação, que poderá ser exigido de uma só vez, com os encargos acima.'),

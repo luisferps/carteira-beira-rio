@@ -554,6 +554,7 @@ async function criaAcordo(b, conf) {
                            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) returning id`,
         [b.contrato, conf, b.data_acordo, b.titulos_origem, b.principal, b.multa, b.juros, b.honorarios, b.valor_calculado,
           b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), b.tipo === 'repactuacao' ? 'repactuacao' : 'acordo', limpa(b.termo), b.pagador?.cpf ? b.pagador : null]);
+      if (Array.isArray(b.signatarios) && b.signatarios.length) await q(`update carteira.acordos set signatarios=$2 where id=$1`, [a.id, JSON.stringify(b.signatarios)]);
       let i = 0;
       for (const par of b.parcelas) {
         i++;
@@ -1789,6 +1790,7 @@ async function garanteEsquema() {
     await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
     await q(`alter table carteira.acordos add column if not exists termo text`);
     await q(`alter table carteira.acordos add column if not exists pagador jsonb`);
+    await q(`alter table carteira.acordos add column if not exists signatarios jsonb`);
     await q(`alter table carteira.acordos add column if not exists nota_interna text`);
     await q(`alter table carteira.pagamentos add column if not exists nota_interna text`);
     await q(`create table if not exists carteira.propostas(id serial primary key, contrato text not null, conferente text not null, dados jsonb not null, criado_em timestamptz default now())`);
@@ -1800,9 +1802,12 @@ async function garanteEsquema() {
   } catch (e) { console.error('garanteEsquema', e.message); }
 }
 
-async function verificaTermoAssinado(contrato, b64) {
+async function verificaTermoAssinado(contrato, b64, chave) {
   const r = await verificaPdf(Buffer.from(b64, 'base64'), q);
-  const dev = (await titularesAtuais(contrato)).map(x => ({ nome: x.nome, cpf: x.cpf }));
+  let dev = (await titularesAtuais(contrato)).map(x => ({ nome: x.nome, cpf: x.cpf }));
+  const termo = String(chave || '').replace(/^termo_assinado_/, '');
+  if (termo) { const [a] = await q(`select signatarios from carteira.acordos where contrato=$1 and conferente='luis' and regexp_replace(coalesce(termo,''),'[^\\w.-]','_','g')=$2 order by id desc limit 1`, [contrato, termo]).catch(() => []);
+    if (Array.isArray(a?.signatarios) && a.signatarios.length) { const nn = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim(); dev = dev.filter(d => a.signatarios.some(n => nn(n) === nn(d.nome))); } }
   return { ...comparaDevedores(r, dev), assinaturas: r.assinaturas, conferido_em: new Date().toISOString() };
 }
 const rotasDocumentos = criaDocumentos({ q, json, log: (...a) => log(...a), verificaTermo: verificaTermoAssinado, infoCadeia: () => infoCadeiaGovBr(q) });
@@ -2636,6 +2641,7 @@ export default async (req) => {
                where id=$1 and conferente=$2`,
         [p[1], conf, b.data_acordo, b.titulos_origem, b.principal, b.multa, b.juros, b.honorarios, b.valor_calculado,
           b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), limpa(b.termo), 'pagador' in b, b.pagador?.cpf ? JSON.stringify(b.pagador) : null]);
+      if ('signatarios' in b) await q(`update carteira.acordos set signatarios=$2 where id=$1`, [p[1], Array.isArray(b.signatarios) && b.signatarios.length ? JSON.stringify(b.signatarios) : null]);
       const atuais = await q('select * from carteira.titulos where acordo_id=$1 and conferente=$2 order by numero', [p[1], conf]);
       for (let i = 0; i < b.parcelas.length; i++) {
         const par = b.parcelas[i], rot = `Acordo ${b.data_acordo.split('-').reverse().join('/')} — ${i + 1}/${b.parcelas.length}`;
