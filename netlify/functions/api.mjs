@@ -3345,6 +3345,21 @@ async function rotasPagador(p, m, body, real) {
       return json({ ok: true });
     }
   }
+  if (p[0] === 'manutencao' && p[1] === 'procuradores' && real === 'luis') {
+    /* quem assinou o contrato só como procurador (lido no PDF do contrato) não é comprador nem devedor */
+    /* posição do procurador na lista de compradores de cada contrato (conferido no PDF do contrato) e quantos compradores a lista tem hoje */
+    const PROC = { '0058': [2, 3], '0098': [1, 2], '0107': [1, 2], '0108': [1, 2] };
+    const out = [];
+    for (const [n, [pos, tam]] of Object.entries(PROC)) {
+      const [ct] = await q(`select compradores from carteira.contratos where numero=$1`, [n]); const comp = Array.isArray(ct?.compradores) ? ct.compradores : [];
+      if (comp.length !== tam) continue;
+      const fora = [comp[pos]], fica = comp.filter((x, i) => i !== pos);
+      if (!fora.length) continue;
+      if (m === 'POST' && (body?.contratos || []).includes(n)) { await q(`update carteira.contratos set compradores=$2 where numero=$1`, [n, JSON.stringify(fica)]); await log(real, 'procurador_retirado_dos_compradores', { contrato: n, procurador: fora[0].nome }); MAPA_CAMP = null; continue; }
+      out.push({ contrato: n, procurador: fora[0].nome, compradores: fica.map(x => x.nome) });
+    }
+    return json(out);
+  }
   if (p[0] === 'manutencao' && p[1] === 'termos' && real === 'luis') {
     await q(`create table if not exists carteira.termos_pasta(termo text primary key, gravado_em timestamptz default now(), por text)`);
     if (m === 'POST') { if (body?.termo) await q(`insert into carteira.termos_pasta(termo, por) values ($1,$2) on conflict (termo) do update set gravado_em=now(), por=$2`, [String(body.termo), real]); return json({ ok: true }); }
