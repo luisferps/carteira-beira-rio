@@ -3365,6 +3365,7 @@ async function rotasPagador(p, m, body, real) {
   }
   if (p[0] === 'manutencao' && p[1] === 'whats-cru' && real === 'luis') {
     const tok = await tokenSistemaWhats();
+    if (p[2] === 'raiox') { const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?raiox=1`, { headers: { Authorization: 'CBR tok:' + tok } }).catch(e => ({ text: async () => e.message })); return new Response(await r.text(), { headers: { 'content-type': 'application/json' } }); }
     if (p[2] === 'indices') { const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?indices=1`, { headers: { Authorization: 'CBR tok:' + tok } }).catch(e => ({ text: async () => e.message })); return new Response(await r.text(), { headers: { 'content-type': 'application/json' } }); }
     if (p[3] === 'evo') { const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?inst=${encodeURIComponent(p[2])}&evo=${encodeURIComponent(p[4] || 'info')}`, { headers: { Authorization: 'CBR tok:' + tok } }).catch(e => ({ text: async () => e.message })); return new Response(await r.text(), { headers: { 'content-type': 'application/json' } }); }
     const r = await fetch(`${WHATS_BACKEND}/cobranca/historico?${p[3] === 'db' ? 'diagdb' : 'cru'}=${encodeURIComponent(p[2] || '')}${p[4] ? '&txt=' + encodeURIComponent(decodeURIComponent(p[4])) : ''}`, { headers: { Authorization: 'CBR tok:' + tok } }).catch(e => ({ ok: false, text: async () => e.message }));
