@@ -2703,6 +2703,40 @@ export default async (req) => {
       return json({ ok: true });
     }
 
+    /* troca de lote: o cliente passa a ter outro lote no mesmo contrato (ex.: lote retomado de outro comprador).
+       Muda quadra/lote do contrato (relatórios, extratos e boletos novos) e corrige a descrição dos boletos em aberto no Asaas. */
+    if (p[0] === 'contrato' && p[2] === 'troca-lote' && m === 'POST') {
+      if (conf !== 'luis') return json({ erro: 'Só o Luis pode trocar o lote de um contrato.' }, 403);
+      const b = body, n = p[1], pad = x => String(x || '').trim().replace(/^\d$/, d => '0' + d);
+      const nq = pad(b.quadra), nl = pad(b.lote);
+      if (!nq || !nl) return json({ erro: 'Informe a quadra e o lote novos.' }, 400);
+      const [ct] = await q(`select numero, quadra, lote, rua, area from carteira.contratos where numero=$1`, [n]);
+      if (!ct) return json({ erro: 'Contrato não encontrado.' }, 404);
+      if (+ct.quadra === +nq && +ct.lote === +nl) return json({ erro: 'O contrato já está nessa quadra e lote.' }, 400);
+      const outros = await q(`select k.numero, k.rua, k.area, exists(select 1 from carteira.eventos e where e.contrato=k.numero and e.conferente='luis' and e.tipo='encerramento') encerrado
+                              from carteira.contratos k where k.numero<>$1 and k.quadra::int=$2::int and k.lote::int=$3::int`, [n, nq, nl]);
+      const ativo = outros.find(o => !o.encerrado);
+      if (ativo && !b.forcar) return json({ erro: `A Quadra ${nq} Lote ${nl} está no contrato ${ativo.numero}, que não está encerrado. Encerre aquele contrato antes (retomada/distrato) ou confirme que os dois ficam no mesmo lote.`, conflito: ativo.numero }, 409);
+      const ref = outros[0] || {};
+      const rua = limpa(b.rua) || ref.rua || ct.rua, area = b.area || ref.area || ct.area;
+      await q(`update carteira.contratos set quadra=$2, lote=$3, rua=$4, area=$5 where numero=$1`, [n, nq, nl, rua, area]);
+      const [ev] = await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','troca_lote',$2,$3,$4,$5,$6) returning id`,
+        [n, 'Troca de lote', b.a_partir_titulo || null, limpa(b.data) || hojeBR(), { de: { quadra: ct.quadra, lote: ct.lote, rua: ct.rua, area: ct.area }, para: { quadra: nq, lote: nl, rua, area }, lote_de_contrato: ref.numero || null }, limpa(b.obs)]);
+      const velho = new RegExp(`Q0?${+ct.quadra} L0?${+ct.lote}\\b`), novo = `Q${nq} L${nl}`, corrigidos = [], falhas = [];
+      for (const bo of await q(`select id_asaas from carteira.boletos where contrato=$1 and status = any($2)`, [n, ATIVOS_B]).catch(() => [])) {
+        try {
+          const g = await asaasReq('GET', '/payments/' + bo.id_asaas);
+          if (!g?.description || !velho.test(g.description)) continue;
+          const d = g.description.replace(velho, novo);
+          await asaasReq('POST', '/payments/' + bo.id_asaas, { description: d });
+          await q(`update carteira.boletos set descricao=$2, atualizado_em=now() where id_asaas=$1`, [bo.id_asaas, d]);
+          corrigidos.push(bo.id_asaas);
+        } catch (e) { falhas.push(bo.id_asaas + ': ' + e.message); }
+      }
+      await log(conf, 'troca_lote', { contrato: n, de: `Q${ct.quadra} L${ct.lote}`, para: novo, evento: ev.id, boletos: corrigidos.length });
+      return json({ ok: true, de: `Q${ct.quadra} L${ct.lote}`, para: novo, rua, area, boletos_corrigidos: corrigidos.length, falhas });
+    }
+
     if (p[0] === 'evento' && m === 'POST') {
       const b = body;
       if (b.tipo === 'encerramento') {
