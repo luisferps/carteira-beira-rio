@@ -1519,19 +1519,19 @@ function modalCorrecao(){
 async function salvaCorrecao(){const b=window._k();if(!b.a_partir||!b.novo_valor)return alert('Informe a parcela e o novo valor.');await api('correcao',{method:'POST',body:b});fechaModal();recarrega()}
 
 /* encerramento / cessão */
-function modalTrocaLote(){const c=C.contrato,T=C.titulos.filter(t=>t.grupo!=='acordo').sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
+function modalTrocaLote(){const c=C.contrato;
   abreModal(`<h3>Trocar de lote — contrato ${esc(c.numero)}</h3>
   <div class="info">Hoje o contrato está na <b>Quadra ${esc(c.quadra)} Lote ${esc(c.lote)}</b>. Use quando o cliente passou a ficar com outro lote no mesmo contrato (ex.: um lote retomado de outro comprador). Os pagamentos continuam todos neste contrato.</div>
   <div class="f2"><div><label>Nova quadra</label><input id="tl_q" inputmode="numeric"></div><div><label>Novo lote</label><input id="tl_l" inputmode="numeric"></div></div>
-  <div class="f2" style="margin-top:8px"><div><label>A partir de qual parcela vale o lote novo</label><select id="tl_t"><option value="">—</option>${T.map(t=>`<option value="${t.id}">${esc(t.rotulo)} (${dbr(t.vencimento)})</option>`).join('')}</select></div><div><label>Data da troca</label><input type="date" id="tl_d" value="${C.hoje}"></div></div>
+  <div style="margin-top:8px"><label>Data em que foi feita a troca</label><input type="date" id="tl_d" value="${C.hoje}" style="max-width:220px"><small class="mut" style="display:block">O sistema acha sozinho as parcelas que vencem a partir dessa data.</small></div>
   <div style="margin-top:8px"><label>Observação (ex.: lote retomado do contrato 0172; documento da troca)</label><input id="tl_o"></div>
   <div class="aviso" style="margin-top:10px">Ao confirmar: o contrato passa a mostrar o lote novo em tudo (tela, relatórios, extrato e boletos novos), os boletos em aberto no Asaas têm a descrição corrigida, e a troca fica registrada no histórico com o lote antigo.</div>
   <div class="bt" style="margin-top:10px"><button class="pri" id="tl_ok">Confirmar troca de lote</button><button onclick="fechaModal()">Cancelar</button></div>`);
   $('#tl_ok').onclick=async()=>{const q=$('#tl_q').value.trim(),l=$('#tl_l').value.trim();if(!q||!l)return alert('Informe a quadra e o lote novos.');
-    if(!confirm(`Trocar o contrato ${c.numero} de Quadra ${c.quadra} Lote ${c.lote} para Quadra ${q} Lote ${l}?`))return;
-    const body={quadra:q,lote:l,a_partir_titulo:$('#tl_t').value||null,data:$('#tl_d').value,obs:$('#tl_o').value.trim()};
+    if(!confirm(`Trocar o contrato ${c.numero} de Quadra ${c.quadra} Lote ${c.lote} para Quadra ${q} Lote ${l}, com a troca feita em ${dbr($('#tl_d').value)}?`))return;
+    if(!$('#tl_d').value)return alert('Informe a data da troca.');const body={quadra:q,lote:l,data:$('#tl_d').value,obs:$('#tl_o').value.trim()};
     let r;try{r=await api('contrato/'+c.numero+'/troca-lote',{method:'POST',body})}catch(e){return}
-    fechaModal();await recarrega();desenhaContrato();alert(`Pronto: contrato ${c.numero} agora é ${r.para} (era ${r.de}).\nBoletos em aberto com a descrição corrigida no Asaas: ${r.boletos_corrigidos}${r.falhas&&r.falhas.length?'\nNão consegui corrigir: '+r.falhas.length:''}`)};
+    fechaModal();await recarrega();desenhaContrato();alert(`Pronto: contrato ${c.numero} agora é ${r.para} (era ${r.de}).${r.a_partir?'\nVale a partir da parcela '+r.a_partir+'.':''}\nBoletos em aberto com a descrição corrigida no Asaas: ${r.boletos_corrigidos}${r.falhas&&r.falhas.length?'\nNão consegui corrigir: '+r.falhas.length:''}`)};
 }
 function modalEvento(tipo,eid,modo){
   const e=eid?C.eventos.find(x=>x.id==eid):null,d=e?.dados||{};
