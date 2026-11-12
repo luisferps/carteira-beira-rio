@@ -1,6 +1,4 @@
 /* Acerto mensal Inerente × FCA (Beira Rio). Base = data de CRÉDITO no extrato do Asaas. */
-import { cobrancaRecebida } from './cobranca-origens.mjs';
-
 const R2 = x => Math.round((+x || 0) * 100) / 100;
 const nm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -131,11 +129,8 @@ export function criaAcerto({ q, asaas, json, log, dev }) {
     if (!L.length) return;
     const ids = L.map(x => x.payment).filter(Boolean), fs = L.map(x => x.fatura).filter(Boolean);
     const rs = await q(`select g.id_asaas, g.conferente, regexp_replace(coalesce(g.fatura,''),'\\D','','g') fat, g.valor_pago, g.honorarios_pago, g.confirmada_em::text pago_em,
-                          t.id tid, t.contrato, t.rotulo, t.grupo, t.numero, t.valor_face,
-                          a.id acordo_id, a.data_acordo::text, a.principal, a.multa, a.juros, a.honorarios, a.cobranca_origens,
-                          (select sum(p.valor_face) from carteira.titulos p where p.acordo_id=a.id) soma_parcelas
+                          t.id tid, t.contrato, t.rotulo, t.grupo, t.numero, t.valor_face
                         from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
-                        left join carteira.acordos a on a.id=t.acordo_id
                         where (g.id_asaas = any($1) or regexp_replace(coalesce(g.fatura,''),'\\D','','g') = any($2))`, [ids, fs]).catch(() => []);
     for (const x of L) {
       let P = rs.filter(r => (x.payment && r.id_asaas === x.payment) || (x.fatura && r.fat === x.fatura));
@@ -152,10 +147,6 @@ export function criaAcerto({ q, asaas, json, log, dev }) {
       }
       const h = P.reduce((s2, r) => s2 + (+r.honorarios_pago || 0), 0);
       x.hon = R2(Math.min(h < 0.05 ? 0 : h, x.valor)); x.fca = R2(x.valor - x.hon);
-      const partes = P.flatMap(cobrancaRecebida);
-      if (partes.length && partes.reduce((s, parte) => s + parte.centavos, 0) === Math.round(x.hon * 100)) {
-        x.cobranca_origens = partes;
-      }
     }
   }
   /* comissão de venda da Inerente (5% do valor do contrato): no mês em que a entrada à vista do contrato vendido pela Inerente fica paga */
@@ -221,15 +212,8 @@ export function criaAcerto({ q, asaas, json, log, dev }) {
       if ((x.cat === 'mensal' || x.cat === 'anual') && !x.manual && x.hon > 0.5) { x.cat = x.auto = 'cobranca'; x.obs = 'Tem custo de cobrança lançado na parcela'; }
       if (x.cat === 'cobranca' && !x.sem_lancamento && x.hon != null && x.hon <= 0.5) { x.sem_custo = true; x.obs = (x.obs ? x.obs + ' · ' : '') + 'ATENÇÃO: sem custo de cobrança'; }
       delete x.lanc;
-      if (x.cat !== 'cobranca') { delete x.hon; delete x.fca; delete x.cobranca_origens; }
+      if (x.cat !== 'cobranca') { delete x.hon; delete x.fca; }
       else if (x.sem_lancamento || x.hon == null) { x.fca = R2(x.valor / 1.1); x.hon = R2(x.valor - x.fca); x.provisorio = true; x.obs = (x.obs ? x.obs + ' · ' : '') + 'Pagamento ainda não lançado na parcela (valor ÷ 1,10 provisório)'; }
-      else if (x.cobranca_origens?.length) {
-        const detalhe = x.cobranca_origens.map(parte => {
-          const data = parte.data.split('-').reverse().join('/');
-          return `${parte.adicional ? 'Cobrança por atraso do acordo' : 'Acordo'} de ${data}: R$ ${br(parte.centavos / 100)}`;
-        }).join(' · ');
-        x.obs = [x.obs, detalhe].filter(Boolean).join(' · ');
-      }
     }
     const soma = (L, f = x => x.valor) => R2(L.reduce((s, x) => s + f(x), 0));
     const E = {}; for (const k of Object.keys(CAT_E)) { const L = ent.filter(x => x.cat === k); E[k] = { rotulo: CAT_E[k], qtd: L.length, total: soma(L) }; }

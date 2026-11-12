@@ -49,23 +49,3 @@ export function reclassificaCobranca(dados, parcelas) {
     cobranca_origens: rateia(transferido, partes),
   };
 }
-
-export function cobrancaRecebida(pagamento) {
-  if (!pagamento.cobranca_origens?.length || !pagamento.honorarios_pago) return [];
-  const pago = Math.max(0, centavos(pagamento.honorarios_pago));
-  const custo = centavos(pagamento.honorarios);
-  const base = centavos(pagamento.principal) + centavos(pagamento.multa) + centavos(pagamento.juros) + custo;
-  const parcelas = Math.max(base, centavos(pagamento.soma_parcelas));
-  const financiamento = Math.max(0, parcelas - base) * 0.10;
-  const proporcao = parcelas > 0 ? centavos(pagamento.valor_face) / parcelas : 1;
-  const esperado = Math.round((custo + financiamento) * proporcao);
-  const distribuido = Math.min(pago, esperado);
-  const partes = origensCobranca({
-    ...pagamento,
-    honorarios: (custo + financiamento) / 100,
-  }, distribuido);
-  if (pago > esperado) {
-    partes.push({ data: String(pagamento.data_acordo).slice(0, 10), centavos: pago - esperado, adicional: true });
-  }
-  return partes;
-}

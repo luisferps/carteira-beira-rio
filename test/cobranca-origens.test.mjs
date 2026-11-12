@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cobrancaRecebida, reclassificaCobranca } from '../netlify/functions/cobranca-origens.mjs';
+import { origensCobranca, reclassificaCobranca } from '../netlify/functions/cobranca-origens.mjs';
 
 test('nova cobrança incide sobre a parcela inteira e preserva apenas a parte antiga em aberto', () => {
   const anterior = {
@@ -13,8 +13,7 @@ test('nova cobrança incide sobre a parcela inteira e preserva apenas a parte an
   );
   assert.equal(novo.principal, 515);
   assert.equal(novo.honorarios, 108.15);
-  const recebimento = { ...novo, honorarios_pago: 108.15, soma_parcelas: 623.15, valor_face: 623.15 };
-  assert.deepEqual(cobrancaRecebida(recebimento).map(parte => parte.centavos), [5150, 5665]);
+  assert.deepEqual(origensCobranca(novo).map(parte => parte.centavos), [5150, 5665]);
 });
 
 test('preserva cada custo de cobrança quando o saldo passa por três acordos', () => {
@@ -28,7 +27,7 @@ test('preserva cada custo de cobrança quando o saldo passa por três acordos', 
     [{ ...segundo, valor_face: 2750 }],
   );
   assert.equal(terceiro.principal + terceiro.honorarios, 6600);
-  const origens = cobrancaRecebida({ ...terceiro, honorarios_pago: 250, soma_parcelas: 6600, valor_face: 1650 });
+  const origens = origensCobranca(terceiro, 25000);
   assert.deepEqual(origens.map(({ acordo, centavos }) => [acordo, centavos]), [
     ['1', 3750], ['2', 6250], ['3', 15000],
   ]);
