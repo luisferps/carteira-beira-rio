@@ -5,7 +5,8 @@ const centavos = valor => Math.round(Number(valor) * 100);
 export const rateiosConferidos = {
   '0123-001': { atualBruta: 72508, herdado: 24094, multaHerdada: 482, jurosHerdados: 1674 },
   '0153-001': { atualBruta: 132050, herdado: 10552, multaHerdada: 212, jurosHerdados: 736 },
-  '0168-001': { atualBruta: 162425, herdado: 33828, multaHerdada: 676, jurosHerdados: 2358 },
+  // Os acertos das faturas 706633500 e 706634637 registram R$ 145 por parcela.
+  '0168-001': { atualBruta: 162425, herdado: 58000, multaHerdada: 1160, jurosHerdados: 4043 },
 };
 
 export function rateioConferido(acordo, parcelas, regra) {
