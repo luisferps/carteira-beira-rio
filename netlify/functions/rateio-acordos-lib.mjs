@@ -5,8 +5,8 @@ const centavos = valor => Math.round(Number(valor) * 100);
 export const rateiosConferidos = {
   '0123-001': { atualBruta: 72508, herdado: 24094, multaHerdada: 482, jurosHerdados: 1674 },
   '0153-001': { atualBruta: 132050, herdado: 10552, multaHerdada: 212, jurosHerdados: 736 },
-  // Quatro das seis parcelas do acordo de dezembro, com R$ 864,16 de cobrança negociada.
-  '0168-001': { atualBruta: 162425, herdado: 57611, multaHerdada: 1152, jurosHerdados: 4017 },
+  // Base de novembro e saldo de dezembro conferidos no fechamento do 0168.
+  '0168-001': { cobrancaNova: 74460 + 103296, herdado: 62118, multaHerdada: 1242, jurosHerdados: 4331 },
 };
 
 export function rateioConferido(acordo, parcelas, regra) {
@@ -15,9 +15,8 @@ export function rateioConferido(acordo, parcelas, regra) {
   if (total <= 0 || valorParcelas < total || !parcelas.length) return new Map();
   const entrada = centavos(parcelas[0].valor_face);
   const herdadoAtualizado = regra.herdado + regra.multaHerdada + regra.jurosHerdados;
-  // Nestes termos todas as parcelas de origem com custo herdado
-  // entraram na base da cobrança nova bruta. Retire a parte da Inerente.
-  const atual = regra.atualBruta - Math.round(herdadoAtualizado / 10);
+  // Os outros termos mantêm o cálculo já conferido sobre a parte da FCA.
+  const atual = regra.cobrancaNova ?? (regra.atualBruta - Math.round(herdadoAtualizado / 10));
   const custo = atual + herdadoAtualizado;
   const saldo = valorParcelas - entrada;
   const juros = valorParcelas - total;
