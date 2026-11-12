@@ -3,6 +3,7 @@ import { criaBuscaRegistros } from './registros-rag.mjs';
 import crypto from 'node:crypto';
 import pg from 'pg';
 import { criaAcerto } from './acerto-lib.mjs';
+import { reclassificaCobranca } from './cobranca-origens.mjs';
 import { criaDevolucoes } from './devolucoes-lib.mjs';
 import { criaCessoes } from './cessoes-lib.mjs';
 import { criaPainel } from './painel-lib.mjs';
@@ -549,11 +550,19 @@ async function criaAcordo(b, conf) {
                           where a.contrato=$1 and a.conferente=$2 and t.id = any($3)`, [b.contrato, conf, (b.titulos_origem || []).map(Number)]);
       if (ja.length) return ({ erro: 'Já existe negociação para: ' + ja.map(x => x.rotulo + ' (acordo de ' + x.d.split('-').reverse().join('/') + ')').join(', ') + '. Não é possível negociar a mesma parcela duas vezes.' });
       for (const id of b.titulos_origem || []) { const [tt] = await q('select * from carteira.titulos where id=$1', [id]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return { erro: b0 }; }
+      await garanteEsquema();
+      const parcelasOrigem = b.tipo === 'repactuacao' ? [] : await q(
+        `select a.*, t.valor_face from carteira.titulos t
+         join carteira.acordos a on a.id=t.acordo_id
+         where t.id=any($1::bigint[]) and t.contrato=$2 and a.conferente=$3
+           and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente=$3)`,
+        [(b.titulos_origem || []).map(Number), b.contrato, conf]);
+      b = reclassificaCobranca(b, parcelasOrigem);
       const [a] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios,
-                           valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo, termo, pagador)
-                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) returning id`,
+                           valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo, termo, pagador, cobranca_origens)
+                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) returning id`,
         [b.contrato, conf, b.data_acordo, b.titulos_origem, b.principal, b.multa, b.juros, b.honorarios, b.valor_calculado,
-          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), b.tipo === 'repactuacao' ? 'repactuacao' : 'acordo', limpa(b.termo), b.pagador?.cpf ? b.pagador : null]);
+          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), b.tipo === 'repactuacao' ? 'repactuacao' : 'acordo', limpa(b.termo), b.pagador?.cpf ? b.pagador : null, JSON.stringify(b.cobranca_origens)]);
       if (Array.isArray(b.signatarios) && b.signatarios.length) await q(`update carteira.acordos set signatarios=$2 where id=$1`, [a.id, JSON.stringify(b.signatarios)]);
       let i = 0;
       for (const par of b.parcelas) {
@@ -1099,7 +1108,11 @@ function destrinchaAcordo(a, s) {
   /* 2ª via: o pagamento já veio com os encargos do próprio acordo separados — não soma de novo */
   if (Math.abs((+s.multa_paga || 0) - mu) < 0.02 && Math.abs((+s.juros_pago || 0) - ju) < 0.02 && Math.abs((+s.honorarios_pago || 0) - ho) < 0.02) return s;
   /* encargos repartidos pelo total das parcelas do acordo (com juros de financiamento, a soma das parcelas passa do valor acordado) */
-  const T = Math.max(S, +a.soma_parcelas || 0), f = face / T;
+  const T = Math.max(S, +a.soma_parcelas || 0);
+  const recebido = a.cobranca_origens?.length && s.valor_pago != null
+    ? Math.max(0, Math.min(face, +s.valor_pago - (+s.multa_paga || 0) - (+s.juros_pago || 0) - (+s.honorarios_pago || 0)))
+    : face;
+  const f = recebido / T;
   /* regra do Luis: sobre os juros de financiamento a Inerente também leva 10% de custo de cobrança */
   const hoT = ho + (T > S + 0.01 ? (T - S) * 0.10 : 0);
   const m2 = R2(mu * f), j2 = R2(ju * f), h2 = R2(hoT * f), p2 = R2(face - m2 - j2 - h2);
@@ -1801,6 +1814,7 @@ async function garanteEsquema() {
     await q(`alter table carteira.acordos add column if not exists pagador jsonb`);
     await q(`alter table carteira.acordos add column if not exists signatarios jsonb`);
     await q(`alter table carteira.acordos add column if not exists nota_interna text`);
+    await q(`alter table carteira.acordos add column if not exists cobranca_origens jsonb`);
     await q(`alter table carteira.pagamentos add column if not exists nota_interna text`);
     await q(`create table if not exists carteira.propostas(id serial primary key, contrato text not null, conferente text not null, dados jsonb not null, criado_em timestamptz default now())`);
     await q(`create table if not exists carteira.termos_arq(termo text primary key, contrato text not null, nome text, b64 text not null, conferente text, enviado_em timestamptz default now())`);
@@ -2410,6 +2424,11 @@ export default async (req) => {
       const t = await tituloDoConferente(body.titulo_id, conf);
       if (!t) return json({ erro: 'Parcela não encontrada' }, 404);
       { const b0 = await bloqueioEncerrado(t, conf); if (b0) return json({ erro: b0 }, 409); }
+      if (t.acordo_id && Math.abs(+body.valor_cobranca - +t.valor_face) < 0.01) {
+        const [acordo] = await q(`select a.*, (select sum(p.valor_face) from carteira.titulos p where p.acordo_id=a.id) soma_parcelas
+          from carteira.acordos a where a.id=$1`, [t.acordo_id]);
+        if (acordo?.cobranca_origens?.length) Object.assign(body, destrinchaAcordo(acordo, body));
+      }
       const vals = CAMPOS_PAG.map(c => limpa(body[c]));
       const [g] = await q(`insert into carteira.pagamentos(conferente, titulo_id, ${CAMPOS_PAG.join(',')}, tem_print)
                            values ($1,$2,${CAMPOS_PAG.map((_, i) => '$' + (i + 3)).join(',')}, $${CAMPOS_PAG.length + 3}) returning id, salvo_em`,

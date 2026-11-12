@@ -917,6 +917,7 @@ function composicaoAcordo(a){const k=calcAcordo(a.titulos_origem.map(Number),Str
 /* acordo com composição impossível é refeito ao abrir o contrato: custo de cobrança acima de 10% (sobra jogada ali) ou principal abaixo do valor das parcelas com correção */
 async function acertaAcordos(){let mud=0;
   for(const a of C.acordos||[]){if(ehRep(a)||!a.conferente||!(a.titulos_origem||[]).length)continue;
+    if(a.cobranca_origens?.length)continue;
     const pr=+a.principal||0,mu=+a.multa||0,ju=+a.juros||0,ho=+a.honorarios||0,base=a.titulos_origem.map(Number).reduce((s,id)=>{const t=C.titulos.find(x=>x.id==id);return s+(t?valorAno(t):0)},0);
     if(!(ho>0.1001*(pr+mu+ju)+0.05||pr<base-1))continue;
     const c=composicaoAcordo(a);if(['principal','multa','juros','honorarios'].every(x=>Math.abs((+a[x]||0)-c[x])<0.05))continue;
