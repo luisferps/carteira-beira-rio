@@ -184,7 +184,14 @@ function route(){const h=location.hash.slice(1);COMO='';document.body.classList.
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='x'&&EU==='luis')telaCruzamento();
   else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
+  else if(h==='rateio-acordos'&&EU==='luis')telaRateioAcordos();
   else if(h.startsWith('c/')){const pp=h.slice(2).split('/');window._ABRE_DEV=pp[1]==='dev';abrirContrato(pp[0])}else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='destrinchar'&&EU==='luis')telaDestrinchar();else if(h==='devolucoes'&&EU==='luis')telaDevolucoes();else if(h==='cessoes'&&EU==='luis')telaCessoes();else if(h==='mapa')telaMapa();else if(h==='painel'&&EU==='luis')telaPainel();else if(h==='comissoes'&&EU==='luis')telaComissoes();else if(h==='documentos'&&(EU==='luis'||EU==='assistente'))telaDocumentos();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
+
+async function telaRateioAcordos(){
+  app.innerHTML='<div class="card"><h3>Conferência de rateio dos acordos</h3><pre id="rateio-dados">Carregando…</pre></div>';
+  const dados=await api('rateio-acordos');
+  if($('#rateio-dados'))$('#rateio-dados').textContent=JSON.stringify(dados);
+}
 
 function novaPend(id=null){const e=id?C.eventos.find(x=>x.id==id):null,d=e?.dados||{};
  abreModal(`<div class="bt"><h3 style="flex:1">${e?'Editar pendência':'Nova pendência'} do contrato ${esc(C.contrato.numero)}</h3><button onclick="fechaModal()">Fechar</button></div>

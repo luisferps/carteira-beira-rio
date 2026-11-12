@@ -1874,6 +1874,28 @@ export default async (req) => {
   { const ri = await rotasIA(p, m, body, url, real); if (ri) return ri; }
   { const rp = await rotasPagador(p, m, body, real); if (rp) return rp; }
   { const ra = await rotasAcerto(p, m, body, real); if (ra) return ra; }
+  if (p[0] === 'rateio-acordos' && m === 'GET') {
+    if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+    await garanteBoletos();
+    const abertas = await q(`select t.id, t.contrato, t.acordo_id, t.numero, t.valor_face, t.vencimento, b.id_asaas, b.fatura, b.valor, b.composicao
+      from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
+      join carteira.acordos a on a.id=t.acordo_id and a.conferente='luis'
+      where a.data_acordo >= '2026-10-01' and b.status=any($1)
+        and not exists (select 1 from carteira.pagamentos g where g.conferente='luis' and t.id=g.titulo_id)
+        and not exists (select 1 from carteira.conferencia_titulo ct where ct.conferente='luis' and t.id=ct.titulo_id and ct.situacao in ('paga','cancelada'))
+        and not exists (select 1 from carteira.acordos outro where outro.conferente='luis' and t.id=any(outro.titulos_origem))
+      order by t.contrato, t.acordo_id, t.numero`, [ATIVOS_B]);
+    const contratos = [...new Set(abertas.map(t => t.contrato))];
+    const acordos = await q(`select id, contrato, data_acordo, tipo, termo, titulos_origem, principal, multa, juros, honorarios,
+      cobranca_origens, valor_acordado, desconto_encargos from carteira.acordos where conferente='luis' and contrato=any($1) order by data_acordo, id`, [contratos]);
+    const titulos = await q(`select t.id,t.contrato,t.acordo_id,t.grupo,t.numero,t.total,t.vencimento,t.valor_face
+      from carteira.titulos t where t.acordo_id=any($1) or t.id=any($2) order by t.id`, [acordos.map(a => a.id), [...new Set(acordos.flatMap(a => a.titulos_origem || []))]]);
+    const pagos = await q(`select g.titulo_id,g.fatura,g.confirmada_em,g.valor_pago,g.honorarios_pago from carteira.pagamentos g
+      where g.conferente='luis' and g.titulo_id=any($1) order by g.titulo_id,g.confirmada_em`, [titulos.map(t => t.id)]);
+    const semVinculo = await q(`select b.contrato,b.id_asaas,b.fatura,b.tipo,b.valor,b.vencimento from carteira.boletos b
+      where b.titulo_id is null and b.status=any($1) and b.tipo='acordo' order by b.contrato,b.vencimento`, [ATIVOS_B]);
+    return json({ abertas, acordos, titulos, pagos, semVinculo });
+  }
   { const rd = await DEV.rotas(p, m, body, real); if (rd) return rd; }
   { const rc2 = await rotasCessoes(p, m, body, real); if (rc2) return rc2; }
   { const rp = await rotasPainel(p, m, body, real); if (rp) return rp; }
