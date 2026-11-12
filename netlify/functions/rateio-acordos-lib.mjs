@@ -1,10 +1,11 @@
 const centavos = valor => Math.round(Number(valor) * 100);
 
-// Valores conferidos nos termos e nos acertos das parcelas de origem.
+// Centavos. Multa e juros do termo são atribuídos proporcionalmente
+// à cobrança embutida em cada parcela de origem ainda em aberto.
 export const rateiosConferidos = {
-  '0123-001': { atual: 72508, herdado: 24094, sobreposto: 2409 },
-  '0153-001': { atual: 132050, herdado: 10552, sobreposto: 1055 },
-  '0168-001': { atual: 162425, herdado: 33828, sobreposto: 3383 },
+  '0123-001': { atualBruta: 72508, herdado: 24094, multaHerdada: 482, jurosHerdados: 1674 },
+  '0153-001': { atualBruta: 132050, herdado: 10552, multaHerdada: 212, jurosHerdados: 736 },
+  '0168-001': { atualBruta: 162425, herdado: 33828, multaHerdada: 676, jurosHerdados: 2358 },
 };
 
 export function rateioConferido(acordo, parcelas, regra) {
@@ -12,7 +13,11 @@ export function rateioConferido(acordo, parcelas, regra) {
   const valorParcelas = parcelas.reduce((s, t) => s + centavos(t.valor_face), 0);
   if (total <= 0 || valorParcelas < total || !parcelas.length) return new Map();
   const entrada = centavos(parcelas[0].valor_face);
-  const custo = regra.atual + regra.herdado - regra.sobreposto;
+  const herdadoAtualizado = regra.herdado + regra.multaHerdada + regra.jurosHerdados;
+  // Nestes termos todas as parcelas de origem com custo herdado
+  // entraram na base da cobrança nova bruta. Retire a parte da Inerente.
+  const atual = regra.atualBruta - Math.round(herdadoAtualizado / 10);
+  const custo = atual + herdadoAtualizado;
   const saldo = valorParcelas - entrada;
   const juros = valorParcelas - total;
   let acumulado = 0;
