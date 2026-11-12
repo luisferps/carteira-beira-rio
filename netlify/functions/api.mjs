@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import pg from 'pg';
 import { criaAcerto } from './acerto-lib.mjs';
 import { reclassificaCobranca } from './cobranca-origens.mjs';
+import { custoRateadoNaBaixa, rateioConferido, rateiosConferidos } from './rateio-acordos-lib.mjs';
 import { criaDevolucoes } from './devolucoes-lib.mjs';
 import { criaCessoes } from './cessoes-lib.mjs';
 import { criaPainel } from './painel-lib.mjs';
@@ -552,7 +553,7 @@ async function criaAcordo(b, conf) {
       for (const id of b.titulos_origem || []) { const [tt] = await q('select * from carteira.titulos where id=$1', [id]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return { erro: b0 }; }
       await garanteEsquema();
       const parcelasOrigem = b.tipo === 'repactuacao' ? [] : await q(
-        `select a.*, t.valor_face from carteira.titulos t
+        `select a.*, t.valor_face, t.custo_acordo_rateado from carteira.titulos t
          join carteira.acordos a on a.id=t.acordo_id
          where t.id=any($1::bigint[]) and t.contrato=$2 and a.conferente=$3
            and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente=$3)`,
@@ -677,7 +678,10 @@ async function processaPagamentoAsaas(g, X, opc = {}) {
     Object.assign(body, separaPagamento(bol.composicao, +g.value), { obs: 'Lançado automaticamente pela integração com o Asaas — ' + (+bol.composicao.cobranca ? 'pago em cobrança (boleto com os 10%)' : '2ª via atualizada') + (opc.nota ? ' — ' + opc.nota : '') });
   }
   { const ac = t.grupo === 'acordo' ? D.acordos.find(a => a.id == t.acordo_id) : null;
-    if (ac) Object.assign(body, destrinchaAcordo({ ...ac, soma_parcelas: D.titulos.filter(x => x.acordo_id == ac.id).reduce((s0, x) => s0 + (+x.valor_face || 0), 0) }, body)); }
+    if (ac) {
+      const [rateio] = await q('select custo_acordo_rateado from carteira.titulos where id=$1', [t.id]);
+      Object.assign(body, destrinchaAcordo({ ...ac, soma_parcelas: D.titulos.filter(x => x.acordo_id == ac.id).reduce((s0, x) => s0 + (+x.valor_face || 0), 0) }, body, { ...t, ...rateio }));
+    } }
 
   const [pg] = await q(`insert into carteira.pagamentos(conferente, titulo_id, ${CAMPOS_PAG.join(',')}, tem_print)
                         values ('luis',$1,${CAMPOS_PAG.map((_, i) => '$' + (i + 2)).join(',')}, false) returning id`, [t.id, ...CAMPOS_PAG.map(c => limpa(body[c]))]);
@@ -866,7 +870,7 @@ async function clienteDoContrato(n, opc = {}) {
 const SQL_ABERTAS = `
   with corr as (select distinct on (contrato, grupo, a_partir) contrato, grupo, a_partir, novo_valor from carteira.correcoes where conferente='luis' order by contrato, grupo, a_partir, id desc)
   select t.id, t.contrato, t.grupo, t.numero, t.total, t.rotulo, t.vencimento::text vencimento, t.valor_face, c.quadra, c.lote,
-    coalesce(case when ac.tipo is distinct from 'repactuacao' and ac.valor_acordado > 0 then t.valor_face * greatest(0, least(ac.honorarios, ac.valor_acordado - coalesce(ac.principal,0) - coalesce(ac.multa,0) - coalesce(ac.juros,0))) / ac.valor_acordado end, 0) custo_embutido,
+    coalesce(t.custo_acordo_rateado, case when ac.tipo is distinct from 'repactuacao' and ac.valor_acordado > 0 then t.valor_face * greatest(0, least(ac.honorarios, ac.valor_acordado - coalesce(ac.principal,0) - coalesce(ac.multa,0) - coalesce(ac.juros,0))) / ac.valor_acordado end, 0) custo_embutido,
     coalesce((select novo_valor from corr where corr.contrato=t.contrato and corr.grupo=t.grupo and corr.a_partir<=t.numero order by corr.a_partir desc limit 1), t.valor_face)
       + coalesce((select sum((i->>'valor')::numeric) from carteira.eventos e, jsonb_array_elements(case when jsonb_typeof(e.dados->'itens')='array' then e.dados->'itens' else '[]'::jsonb end) i
                   where e.contrato=t.contrato and e.conferente='luis' and e.tipo='repactuacao' and e.dados->>'subtipo'='diluicao' and (i->>'titulo_id')=t.id::text), 0) valor,
@@ -1103,21 +1107,24 @@ async function desfazCobranca(idCob, conf) {
 }
 /* destrincha o valor da parcela de acordo / 2ª via pela composição gravada (parcela, multa, juros, custo de cobrança).
    s = separação já feita (valor_cobranca = valor da parcela do acordo, encargos = o que foi pago a mais por atraso). */
-function destrinchaAcordo(a, s) {
+function destrinchaAcordo(a, s, titulo) {
   const pr = +a.principal || 0, mu = +a.multa || 0, ju = +a.juros || 0, ho = +a.honorarios || 0, S = pr + mu + ju + ho;
   const face = +s.valor_cobranca || 0;
-  if (!(S > 0) || !(face > 0) || !(mu + ju + ho > 0)) return s;
+  const rateado = titulo?.custo_acordo_rateado;
+  if (!(S > 0) || !(face > 0) || (!(mu + ju + ho > 0) && rateado == null)) return s;
   /* 2ª via: o pagamento já veio com os encargos do próprio acordo separados — não soma de novo */
-  if (Math.abs((+s.multa_paga || 0) - mu) < 0.02 && Math.abs((+s.juros_pago || 0) - ju) < 0.02 && Math.abs((+s.honorarios_pago || 0) - ho) < 0.02) return s;
+  if (rateado == null && Math.abs((+s.multa_paga || 0) - mu) < 0.02 && Math.abs((+s.juros_pago || 0) - ju) < 0.02 && Math.abs((+s.honorarios_pago || 0) - ho) < 0.02) return s;
   /* encargos repartidos pelo total das parcelas do acordo (com juros de financiamento, a soma das parcelas passa do valor acordado) */
   const T = Math.max(S, +a.soma_parcelas || 0);
-  const recebido = a.cobranca_origens?.length && s.valor_pago != null
+  const recebido = (rateado != null || a.cobranca_origens?.length) && s.valor_pago != null
     ? Math.max(0, Math.min(face, +s.valor_pago - (+s.multa_paga || 0) - (+s.juros_pago || 0) - (+s.honorarios_pago || 0)))
     : face;
   const f = recebido / T;
   /* regra do Luis: sobre os juros de financiamento a Inerente também leva 10% de custo de cobrança */
   const hoT = ho + (T > S + 0.01 ? (T - S) * 0.10 : 0);
-  const m2 = R2(mu * f), j2 = R2(ju * f), h2 = R2(hoT * f), p2 = R2(face - m2 - j2 - h2);
+  const m2 = R2(mu * f), j2 = R2(ju * f);
+  const h2 = rateado == null ? R2(hoT * f) : Math.min(Math.max(0, R2(face - m2 - j2)), custoRateadoNaBaixa(rateado, titulo.valor_face, recebido));
+  const p2 = R2(face - m2 - j2 - h2);
   return { ...s, valor_cobranca: p2, multa_paga: R2((+s.multa_paga || 0) + m2), juros_pago: R2((+s.juros_pago || 0) + j2), honorarios_pago: R2((+s.honorarios_pago || 0) + h2) };
 }
 function separaPagamento(c, pago) {
@@ -1817,6 +1824,7 @@ async function garanteEsquema() {
     await q(`alter table carteira.acordos add column if not exists signatarios jsonb`);
     await q(`alter table carteira.acordos add column if not exists nota_interna text`);
     await q(`alter table carteira.acordos add column if not exists cobranca_origens jsonb`);
+    await q(`alter table carteira.titulos add column if not exists custo_acordo_rateado numeric(12,2)`);
     await q(`alter table carteira.pagamentos add column if not exists nota_interna text`);
     await q(`create table if not exists carteira.propostas(id serial primary key, contrato text not null, conferente text not null, dados jsonb not null, criado_em timestamptz default now())`);
     await q(`create table if not exists carteira.termos_arq(termo text primary key, contrato text not null, nome text, b64 text not null, conferente text, enviado_em timestamptz default now())`);
@@ -1840,6 +1848,62 @@ const rotasPainel = criaPainel({ q, json, log: (...a) => log(...a) });
 const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a), asaas, asaasReq, gravaBoleto, garanteBoletos, refazBoletoPara });
 const DEV = criaDevolucoes({ q, asaas, json, log: (...a) => log(...a) });
 const rotasAcerto = criaAcerto({ q, asaas, json, log: (...a) => log(...a), dev: DEV });
+
+async function boletosRateio(acordo = null) {
+  return q(`select t.id, t.contrato, t.acordo_id, t.numero, t.valor_face, t.vencimento,
+      t.custo_acordo_rateado, b.id_asaas, b.fatura, b.valor, b.composicao
+    from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
+    join carteira.acordos a on a.id=t.acordo_id and a.conferente='luis'
+    where a.data_acordo >= '2026-10-01' and b.status=any($1) and ($2::bigint is null or a.id=$2)
+      and not exists (select 1 from carteira.pagamentos g where g.conferente='luis' and t.id=g.titulo_id)
+      and not exists (select 1 from carteira.conferencia_titulo ct where ct.conferente='luis' and t.id=ct.titulo_id and ct.situacao in ('paga','cancelada','quitada_acordo'))
+      and not exists (select 1 from carteira.acordos outro where outro.conferente='luis' and t.id=any(outro.titulos_origem))
+    order by t.contrato, t.acordo_id, t.numero`, [ATIVOS_B, acordo]);
+}
+
+async function confereRateio(acordoId, gravar, ator) {
+  const [acordo] = await q(`select id, termo, valor_acordado, contrato from carteira.acordos
+    where id=$1 and conferente='luis' and data_acordo >= '2026-10-01'`, [acordoId]);
+  if (!acordo) return json({ erro: 'Acordo não encontrado' }, 404);
+  const regra = rateiosConferidos[acordo.termo];
+  const parcelas = await q(`select id, valor_face from carteira.titulos where acordo_id=$1 order by numero`, [acordoId]);
+  const rateio = regra ? rateioConferido(acordo, parcelas, regra) : new Map();
+  const boletos = await boletosRateio(acordoId);
+  const conferidos = [];
+  for (let i = 0; i < boletos.length; i += 4) {
+    conferidos.push(...await Promise.all(boletos.slice(i, i + 4).map(async b => {
+      const g = await asaas('/payments/' + b.id_asaas).catch(() => null);
+      const valido = g && !g.deleted && ['PENDING', 'OVERDUE'].includes(g.status)
+        && !g.paymentDate && !g.confirmedDate && String(g.invoiceNumber) === b.fatura
+        && R2(+(g.originalValue ?? g.value)) === R2(+b.valor);
+      return { id: b.id, fatura: b.fatura, id_asaas: b.id_asaas, parcela: b.numero,
+        boleto: +b.valor, situacao: g?.deleted ? 'DELETED' : g?.status || 'INDETERMINADO', valido: !!valido,
+        custo: rateio.get(b.id) ?? null, gravado: b.custo_acordo_rateado != null ? +b.custo_acordo_rateado : null };
+    })));
+  }
+  const alterados = [];
+  if (gravar) {
+    const candidatos = conferidos.filter(b => b.valido && b.custo != null && b.custo !== b.gravado);
+    const pendentes = new Map(candidatos.map(b => [b.id, b]));
+    for (const b of pendentes.values()) {
+      if (conferidos.some(x => x.id === b.id && !x.valido)) continue;
+      const [alterado] = await q(`update carteira.titulos t set custo_acordo_rateado=$3
+        where t.id=$1 and t.acordo_id=$2 and t.custo_acordo_rateado is distinct from $3
+          and $3 >= 0 and $3 <= t.valor_face
+          and exists (select 1 from carteira.boletos bo where bo.titulo_id=t.id and bo.id_asaas=$4 and bo.status=any($5) and bo.valor=$6)
+          and not exists (select 1 from carteira.pagamentos g where g.conferente='luis' and t.id=g.titulo_id)
+          and not exists (select 1 from carteira.conferencia_titulo ct where ct.conferente='luis' and t.id=ct.titulo_id and ct.situacao in ('paga','cancelada','quitada_acordo'))
+          and not exists (select 1 from carteira.acordos outro where outro.conferente='luis' and t.id=any(outro.titulos_origem))
+        returning t.id, t.custo_acordo_rateado`, [b.id, acordoId, b.custo, b.id_asaas, ATIVOS_B, b.boleto]);
+      if (!alterado) continue;
+      alterados.push(alterado.id);
+      for (const item of conferidos.filter(x => x.id === alterado.id)) item.gravado = +alterado.custo_acordo_rateado;
+      await log(ator, 'rateio_interno_boleto_acordo', { contrato: acordo.contrato, acordo: acordoId, titulo: b.id, fatura: b.fatura, custo: b.custo });
+    }
+  }
+  return json({ contrato: acordo.contrato, termo: acordo.termo, boletos: conferidos, alterados });
+}
+
 export default async (req) => {
   await garanteEsquema(); await garanteAuditoria();
   const url = new URL(req.url);
@@ -1874,17 +1938,12 @@ export default async (req) => {
   { const ri = await rotasIA(p, m, body, url, real); if (ri) return ri; }
   { const rp = await rotasPagador(p, m, body, real); if (rp) return rp; }
   { const ra = await rotasAcerto(p, m, body, real); if (ra) return ra; }
-  if (p[0] === 'rateio-acordos' && m === 'GET') {
+  if (p[0] === 'rateio-acordos') {
     if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
     await garanteBoletos();
-    const abertas = await q(`select t.id, t.contrato, t.acordo_id, t.numero, t.valor_face, t.vencimento, b.id_asaas, b.fatura, b.valor, b.composicao
-      from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
-      join carteira.acordos a on a.id=t.acordo_id and a.conferente='luis'
-      where a.data_acordo >= '2026-10-01' and b.status=any($1)
-        and not exists (select 1 from carteira.pagamentos g where g.conferente='luis' and t.id=g.titulo_id)
-        and not exists (select 1 from carteira.conferencia_titulo ct where ct.conferente='luis' and t.id=ct.titulo_id and ct.situacao in ('paga','cancelada'))
-        and not exists (select 1 from carteira.acordos outro where outro.conferente='luis' and t.id=any(outro.titulos_origem))
-      order by t.contrato, t.acordo_id, t.numero`, [ATIVOS_B]);
+    if (/^\d+$/.test(p[1] || '') && ['GET', 'POST'].includes(m)) return confereRateio(p[1], m === 'POST', ATOR);
+    if (m !== 'GET' || p[1]) return json({ erro: 'Rota inválida' }, 404);
+    const abertas = await boletosRateio();
     const contratos = [...new Set(abertas.map(t => t.contrato))];
     const acordos = await q(`select id, contrato, data_acordo, tipo, termo, titulos_origem, principal, multa, juros, honorarios,
       cobranca_origens, valor_acordado, desconto_encargos from carteira.acordos where conferente='luis' and contrato=any($1) order by data_acordo, id`, [contratos]);
@@ -2441,6 +2500,7 @@ export default async (req) => {
     if (p[0] === 'contrato' && p[1] && m === 'GET') {
       const d = await carregar(p[1], conf);
       if (!d) return json({ erro: 'Contrato não encontrado' }, 404);
+      for (const t of d.titulos) delete t.custo_acordo_rateado;
       return json(d);
     }
 
@@ -2451,7 +2511,7 @@ export default async (req) => {
       if (t.acordo_id && Math.abs(+body.valor_cobranca - +t.valor_face) < 0.01) {
         const [acordo] = await q(`select a.*, (select sum(p.valor_face) from carteira.titulos p where p.acordo_id=a.id) soma_parcelas
           from carteira.acordos a where a.id=$1`, [t.acordo_id]);
-        if (acordo?.cobranca_origens?.length) Object.assign(body, destrinchaAcordo(acordo, body));
+        if (acordo && (t.custo_acordo_rateado != null || acordo.cobranca_origens?.length)) Object.assign(body, destrinchaAcordo(acordo, body, t));
       }
       const vals = CAMPOS_PAG.map(c => limpa(body[c]));
       const [g] = await q(`insert into carteira.pagamentos(conferente, titulo_id, ${CAMPOS_PAG.join(',')}, tem_print)

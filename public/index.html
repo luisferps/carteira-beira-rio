@@ -188,9 +188,42 @@ function route(){const h=location.hash.slice(1);COMO='';document.body.classList.
   else if(h.startsWith('c/')){const pp=h.slice(2).split('/');window._ABRE_DEV=pp[1]==='dev';abrirContrato(pp[0])}else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='destrinchar'&&EU==='luis')telaDestrinchar();else if(h==='devolucoes'&&EU==='luis')telaDevolucoes();else if(h==='cessoes'&&EU==='luis')telaCessoes();else if(h==='mapa')telaMapa();else if(h==='painel'&&EU==='luis')telaPainel();else if(h==='comissoes'&&EU==='luis')telaComissoes();else if(h==='documentos'&&(EU==='luis'||EU==='assistente'))telaDocumentos();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function telaRateioAcordos(){
-  app.innerHTML='<div class="card"><h3>Conferência de rateio dos acordos</h3><pre id="rateio-dados">Carregando…</pre></div>';
+  app.innerHTML='<div class="card"><h3>Conferência de rateio dos acordos</h3><div id="rateio-dados">Carregando…</div></div>';
   const dados=await api('rateio-acordos');
-  if($('#rateio-dados'))$('#rateio-dados').textContent=JSON.stringify(dados);
+  const painel=$('#rateio-dados');
+  if(!painel)return;
+  const ids=new Set(dados.abertas.map(b=>b.acordo_id));
+  painel.innerHTML=`<p>${dados.abertas.length} boletos em aberto na carteira · ${ids.size} acordos desde outubro · ${dados.semVinculo.length} boletos de acordo sem vínculo</p>
+    <div class="bt"><button id="rateio-conferir">Conferir no Asaas</button><button id="rateio-gravar" class="pri" disabled>Gravar rateios internos</button></div>
+    <p id="rateio-resumo" role="status"></p><div id="rateio-linhas"></div>`;
+  const conferir=$('#rateio-conferir'),gravar=$('#rateio-gravar'),resumo=$('#rateio-resumo'),linhas=$('#rateio-linhas');
+  let verificados=[];
+  const mostra=()=>{linhas.innerHTML=verificados.map(r=>`<details><summary>${esc(r.termo||r.contrato)} · ${r.boletos.length} boletos · ${r.alterados.length} gravados</summary>
+    <table><thead><tr><th>Parcela</th><th>Fatura</th><th>Valor do boleto</th><th>Status Asaas</th><th>Rateio previsto</th><th>Rateio gravado</th></tr></thead><tbody>
+    ${r.boletos.map(b=>`<tr><td>${b.parcela}</td><td>${esc(b.fatura)}</td><td>${brl(b.boleto)}</td><td>${esc(b.situacao)}${b.valido?'':' · excluído da correção'}</td><td>${b.custo==null?'':brl(b.custo)}</td><td>${b.gravado==null?'':brl(b.gravado)}</td></tr>`).join('')}
+    </tbody></table></details>`).join('')};
+  const executar=async aplicar=>{
+    conferir.disabled=gravar.disabled=true;
+    try{
+      const alvos=aplicar?verificados.filter(r=>r.boletos.some(b=>b.valido&&b.custo!=null&&b.custo!==b.gravado)).map(r=>r.id):[...ids];
+      if(!aplicar)verificados=[];
+      for(const id of alvos){
+        resumo.textContent=aplicar?'Gravando rateios…':`Conferindo acordo ${verificados.length+1} de ${alvos.length}…`;
+        const r=await api('rateio-acordos/'+id,{method:aplicar?'POST':'GET'});
+        verificados=[...verificados.filter(a=>a.id!==id),{...r,id}];
+        mostra();
+      }
+      const boletos=verificados.flatMap(r=>r.boletos),confirmados=boletos.filter(b=>b.valido).length;
+      const total=verificados.reduce((s,r)=>s+r.alterados.length,0);
+      resumo.textContent=`${confirmados} de ${boletos.length} boletos confirmados em aberto no Asaas. ${total} rateios gravados.`;
+    }catch(e){resumo.textContent='Conferência interrompida. '+e.message}
+    finally{
+      conferir.disabled=false;
+      gravar.disabled=!verificados.some(r=>r.boletos.some(b=>b.valido&&b.custo!=null&&b.custo!==b.gravado));
+    }
+  };
+  conferir.onclick=()=>executar(false);
+  gravar.onclick=()=>executar(true);
 }
 
 function novaPend(id=null){const e=id?C.eventos.find(x=>x.id==id):null,d=e?.dados||{};

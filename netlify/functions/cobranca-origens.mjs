@@ -32,7 +32,9 @@ export function reclassificaCobranca(dados, parcelas) {
     const custo = Math.max(0, centavos(parcela.honorarios));
     const composicao = centavos(parcela.principal) + centavos(parcela.multa) + centavos(parcela.juros) + custo;
     const custoConfirmado = Math.max(0, Math.min(custo, custo + acordado - composicao));
-    const custoParcela = Math.round(centavos(parcela.valor_face) * custoConfirmado / acordado);
+    const custoParcela = parcela.custo_acordo_rateado == null
+      ? Math.round(centavos(parcela.valor_face) * custoConfirmado / acordado)
+      : centavos(parcela.custo_acordo_rateado);
     for (const parte of origensCobranca(parcela, custoParcela)) {
       const anterior = origens.get(parte.acordo);
       origens.set(parte.acordo, { ...parte, centavos: parte.centavos + (anterior?.centavos || 0) });
