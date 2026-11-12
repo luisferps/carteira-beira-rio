@@ -363,7 +363,7 @@ function escolheVencer(){const cc=CASO.cc,hoje=hojeL(),pg=new Set(cc.pagamentos.
    <div class="cgrid" style="margin-top:6px">${L.map(t=>`<label class="cb blk" style="cursor:pointer;border-left-color:#0ea5e9"><input type="checkbox" class="vxk" value="${t.id}" style="width:auto"> <b>${esc(t.rotulo)}</b><span class="cbl">vence ${dbr(t.vencimento)}</span><span class="cbl">${brl(valorAno(t))}</span></label>`).join('')}</div>
    <div class="bt" style="margin-top:10px"><button class="pri" onclick="negociarCaso([...[...SEL].filter(i=>!CASO.divida.parcelas.some(p=>+p.id===+i)),...[...document.querySelectorAll('.vxk:checked')].map(x=>+x.value)])">Incluir e continuar</button></div>`)}
 let RELNEG=false;
-function parcNeg(cc){const sv=C;C=cc;try{const h=cc.hoje;return C.titulos.filter(t=>t.vencimento&&t.vencimento<=h&&['vencida','em_atraso'].includes(estado(t))).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).map(t=>{const k=atrasoDe(t,h);let tot=k.tot;if(k.dias>0&&!k.isenta&&!(k.ho>0.004))tot+=(k.v+k.co+k.mu+k.ju)*0.10;return {rotulo:t.rotulo,vencimento:t.vencimento,total:Math.round(tot*100)/100}})}finally{C=sv}}
+function parcNeg(cc){const sv=C;C=cc;try{const h=cc.hoje;return C.titulos.filter(t=>t.vencimento&&t.vencimento<=h&&['vencida','em_atraso'].includes(estado(t))).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).map(t=>{const k=atrasoDe(t,h);let tot=k.tot;if(k.dias>0&&!k.isenta&&!(k.ho>0.004))tot+=custoCobrancaAtual(k);return {rotulo:t.rotulo,vencimento:t.vencimento,total:Math.round(tot*100)/100}})}finally{C=sv}}
 function atrasoNeg(cc){return parcNeg(cc).reduce((a,x)=>a+x.total,0)}
 /* relatório da cobrança = valores para renegociar: toda parcela vencida já com o custo de cobrança (10%), como entra no acordo */
 async function buscaWhatsCaso(id,b){const t=b.textContent;b.disabled=true;b.textContent='Buscando…';try{const r=await api('cobranca/caso/'+id+'/whatsapp',{method:'POST',body:{}});
@@ -849,15 +849,17 @@ function correcoesAno(){const fm=fatoresMensais(),m0=C.titulos.find(x=>x.grupo==
    o que está devido naquele dia (principal, multa, juros e custo de cobrança, se já passou de 60 dias); depois disso os juros seguem sobre o principal corrigido. */
 /* 1ª parcela (entrada) de acordo nunca leva multa, juros nem custo de cobrança: o acordo depende do termo assinado e do pagamento dela */
 const entradaAcordo=t=>t&&t.grupo==='acordo'&&+t.numero===1&&!tituloSegVia(t);
-function atrasoDe(t,ate){const v=valorAno(t),dias=Math.max(0,Math.round((new Date(ate)-new Date(t.vencimento))/864e5));
+function atrasoDe(t,ate,legado=false){const v=valorAno(t),dias=Math.max(0,Math.round((new Date(ate)-new Date(t.vencimento))/864e5));
   if(!dias||entradaAcordo(t))return embute(t,{v,co:0,mu:0,ju:0,ho:0,dias,tot:v,isenta:!!dias});
   const corr=t.grupo==='mensal'||t.grupo==='anual',venc=String(t.vencimento).slice(0,10),fim=String(ate).slice(0,10);
   const fa={};for(const k of correcoesAno()){const y=+k.data.slice(0,4);if(!(y in fa))fa[y]=k.f}
   const mu=v*.02;let pr=v,ju=0,co=0,coH=0,cur=venc;
   const cresce=d2=>{const d=Math.max(0,Math.round((new Date(d2)-new Date(cur))/864e5));ju+=pr*(Math.pow(1.01,d/30)-1);cur=d2};
   if(corr)for(let y=+venc.slice(0,4)+1;y<=+fim.slice(0,4);y++){const dj=`${y}-01-01`;if(dj>fim)break;const f=fa[y]||FATOR_ANO[y]||1;cresce(dj);const inc=(v+co+mu+ju)*(f-1);co+=inc;if((new Date(dj)-new Date(venc))/864e5>60)coH+=inc*.10;pr*=f}
-  cresce(fim);const sub=v+co+mu+ju,ho=dias>60&&!tituloSegVia(t)?sub*.10:0;/* 2ª via de uma parcela só não leva os 10% de novo; parcela de acordo de verdade leva. A parte da correção que incidiu sobre o custo de cobrança aparece na coluna correção */
-  return embute(t,{v,co:co+coH,mu,ju,ho:ho-coH,dias,tot:sub+ho})}
+  cresce(fim);const sub=v+co+mu+ju;/* 2ª via de uma parcela só não leva os 10% de novo; parcela de acordo de verdade leva. A parte da correção que incidiu sobre o custo de cobrança aparece na coluna correção */
+  const k=embute(t,{v,co:co+coH,mu,ju,ho:0,dias,tot:sub});
+  const ho=(dias>60&&!tituloSegVia(t)?(legado?sub*.10:custoCobrancaAtual({...k,co})):0)-coH;
+  return {...k,ho,H:k.e.ho+ho,tot:sub+ho+coH}}
 /* parcela de acordo já carrega multa, juros e custo de cobrança da dívida antiga: separa o que é principal de verdade */
 function partesAcordo(a){const ac=+a.valor_acordado||0;if(a.tipo==='repactuacao')return{pr:1,mu:0,ju:0,ho:0};
   let pr=+a.principal||0,mu=+a.multa||0,ju=+a.juros||0,ho=+a.honorarios||0;if(!(pr+mu+ju+ho)||!ac)return{pr:1,mu:0,ju:0,ho:0};
@@ -865,6 +867,7 @@ function partesAcordo(a){const ac=+a.valor_acordado||0;if(a.tipo==='repactuacao'
   return{pr:pr/ac,mu:mu/ac,ju:ju/ac,ho:ho/ac}}
 function embute(t,k){const a=t.grupo==='acordo'&&(C.acordos||[]).find(x=>x.id==t.acordo_id);const q=a?partesAcordo(a):{pr:1,mu:0,ju:0,ho:0};
   const e={mu:k.v*q.mu,ju:k.v*q.ju,ho:k.v*q.ho};k.e=e;k.ac=a||null;k.P=k.v-e.mu-e.ju-e.ho;k.M=k.mu+e.mu;k.J=k.ju+e.ju;k.H=k.ho+e.ho;return k}
+function custoCobrancaAtual(k){return Math.max(0,k.v+k.co+k.mu+k.ju-(k.e?.ho||0))*.10}
 function encDe(v,venc,ate){const dias=Math.max(0,Math.round((new Date(ate)-new Date(venc))/864e5));if(!dias)return{mu:0,ju:0,ho:0,dias};
   const mu=v*.02,ju=v*(Math.pow(1.01,dias/30)-1),ho=dias>60?(v+mu+ju)*.10:0;return{mu,ju,ho,dias}}
 function totais(){
@@ -909,7 +912,7 @@ async function abrirContrato(n){
 }
 /* composição do acordo pela regra de hoje (mesma conta do relatório de atraso, na data do acordo, com as correções lançadas).
    Se o valor acordado ficou abaixo, a diferença sai em cascata: custo de cobrança -> juros -> multa -> principal (nunca vira desconto). */
-function composicaoAcordo(a){const k=calcAcordo(a.titulos_origem.map(Number),String(a.data_acordo).slice(0,10));let {principal:pr,multa:mu,juros:ju,honorarios:ho,total}=k;
+function composicaoAcordo(a){const k=calcAcordo(a.titulos_origem.map(Number),String(a.data_acordo).slice(0,10),false,true);let {principal:pr,multa:mu,juros:ju,honorarios:ho,total}=k;
   const ac=r2(+a.valor_acordado);let falta=r2(total-ac);if(falta<-0.05)return{sobra:r2(-falta),principal:pr,multa:mu,juros:ju,honorarios:r2(ac-pr-mu-ju),total:ac};/* acordo acima da conta de hoje (custo de cobrança da regra antiga, 30 dias): o excesso fica no custo de cobrança */
   if(falta>0){const t1=Math.min(ho,falta);ho=r2(ho-t1);falta=r2(falta-t1);const t2=Math.min(ju,falta);ju=r2(ju-t2);falta=r2(falta-t2);const t3=Math.min(mu,falta);mu=r2(mu-t3);falta=r2(falta-t3);pr=r2(pr-falta)}
   else{ho=r2(ho-falta)}/* diferença de centavos */
@@ -1279,13 +1282,13 @@ async function marca(tid,sit){let obs=null;if(sit)obs=prompt('Observação (opci
 async function verPrint(id){const d=await api('print/'+id);const w=window.open('');w.document.write(`<img src="${d.conteudo}" style="max-width:100%">`)}
 
 /* acordo */
-function calcAcordo(ids,data,reneg){
+function calcAcordo(ids,data,reneg,legado=false){
   let pr=0,mu=0,ju=0,ho=0;
   /* regra do Luis: pagamento avulso só leva custo de cobrança (10%) com mais de 60 dias de atraso.
      Renegociação nova (reneg=true, a partir de 06/11/2026): toda parcela vencida que entra nela leva os 10%, mesmo com menos de 60 dias.
      Acordos antigos continuam pela regra antiga (reneg=false). */
-  for(const id of ids){const t=C.titulos.find(x=>x.id==id);if(!t)continue;const k=atrasoDe(t,data);pr+=k.v+k.co;mu+=k.mu;ju+=k.ju;ho+=k.ho;
-    if(reneg&&k.dias>0&&!(k.ho>0.004))ho+=(k.v+k.co+k.mu+k.ju)*0.10}
+  for(const id of ids){const t=C.titulos.find(x=>x.id==id);if(!t)continue;const k=atrasoDe(t,data,legado);pr+=k.v+k.co;mu+=k.mu;ju+=k.ju;ho+=k.ho;
+    if(reneg&&k.dias>0&&!k.isenta&&!(k.ho>0.004))ho+=custoCobrancaAtual(k)}
   return {principal:r2(pr),multa:r2(mu),juros:r2(ju),honorarios:r2(ho),total:r2(pr+mu+ju+ho)};
 }
 function modalAcordo(aid,pid){
@@ -1322,7 +1325,7 @@ function modalAcordo(aid,pid){
   const mostraB=(skip)=>{for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])if(id!==skip)$('#'+id).value=brl(B[k]);
     const c=calc();$('#a_calc').textContent=brl(c.total);B.de=0;if(skip!=='a_de')$('#a_de').value=brl(B.de);$('#a_som2').textContent=brl(r2(B.pr+B.mu+B.ju+B.ho));
     $('#a_ate').textContent=`— multa e juros calculados até ${dbr($('#a_data').value)}, a data do acordo`;
-    $('#a_det').innerHTML=orig.map(t=>{const k={...atrasoDe(t,$('#a_data').value)};if(k.dias>0&&!k.isenta&&!(k.ho>0.004)){k.ho=(k.v+k.co+k.mu+k.ju)*0.10;k.tot+=k.ho}return `${esc(t.rotulo)}: ${brl(k.v)} + correção ${brl(k.co)} · venceu ${dbr(t.vencimento)} · ${k.dias} dia(s) de atraso · multa ${brl(k.mu)} · juros ${brl(k.ju)} · cobrança ${brl(k.ho)} · total ${brl(k.tot)}`}).join('<br>');
+    $('#a_det').innerHTML=orig.map(t=>{const k={...atrasoDe(t,$('#a_data').value)};if(k.dias>0&&!k.isenta&&!(k.ho>0.004)){k.ho=custoCobrancaAtual(k);k.tot+=k.ho}return `${esc(t.rotulo)}: ${brl(k.v)} + correção ${brl(k.co)} · venceu ${dbr(t.vencimento)} · ${k.dias} dia(s) de atraso · multa ${brl(k.mu)} · juros ${brl(k.ju)} · cobrança ${brl(k.ho)} · total ${brl(k.tot)}`}).join('<br>');
     $('#a_av').innerHTML=num($('#a_val').value)<B.pr-0.009?`<div class="aviso">O valor acordado é menor que o principal. Ele quita as parcelas mesmo assim (vai todo para o principal).</div>`:''};
   const deCalc=()=>{const c=calc();B={pr:c.principal,mu:c.multa,ju:c.juros,ho:c.honorarios,de:0};$('#a_val').value=brl(c.total)};
   const peloValor=()=>{const c=calc(),v=num($('#a_val').value),q=repartir({principal:c.principal,multa:c.multa,juros:c.juros},v);B={pr:Math.min(c.principal,v),mu:q.multa,ju:q.juros,ho:q.honorarios,de:q.desconto}};
@@ -1587,7 +1590,7 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
     const ts=C.titulos.filter(t=>t.vencimento&&estado(t)==='futura'&&!C.pagamentos.some(p=>p.titulo_id==t.id)).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
     const G={entrada:'Entradas',mensal:'Mensais',anual:'Anuais',acordo:'Parcelas de acordo',outra:'Outras'};const por={};let tot=0;
     const rows=ts.map(t=>{const v=valorAno(t);tot+=v;const g=G[t.grupo]||'Outras';por[g]=por[g]||{q:0,v:0};por[g].q++;por[g].v+=v;return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td class="n">${brl(v)}</td></tr>`}).join('');
-    const atr=C.titulos.filter(t=>t.vencimento&&t.vencimento<=hoje&&['vencida','em_atraso'].includes(estado(t)));const vat=atr.reduce((a,t)=>{const k=atrasoDe(t,hoje);let x=k.tot;if(RELNEG&&k.dias>0&&!k.isenta&&!(k.ho>0.004))x+=(k.v+k.co+k.mu+k.ju)*0.10;return a+x},0);
+    const atr=C.titulos.filter(t=>t.vencimento&&t.vencimento<=hoje&&['vencida','em_atraso'].includes(estado(t)));const vat=atr.reduce((a,t)=>{const k=atrasoDe(t,hoje);let x=k.tot;if(RELNEG&&k.dias>0&&!k.isenta&&!(k.ho>0.004))x+=custoCobrancaAtual(k);return a+x},0);
     const res=`<table><thead><tr><th>Resumo</th><th class="n">Parcelas</th><th class="n">Valor</th></tr></thead><tbody>${Object.entries(por).map(([g,x])=>`<tr><td>${g}</td><td class="n">${x.q}</td><td class="n">${brl(x.v)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Saldo a vencer</td><td class="n">${ts.length}</td><td class="n">${brl(tot)}</td></tr>${atr.length?`<tr><td>Em atraso hoje (com multa, juros e custo de cobrança)</td><td class="n">${atr.length}</td><td class="n">${brl(vat)}</td></tr><tr><td>Saldo devedor total</td><td class="n">${ts.length+atr.length}</td><td class="n">${brl(tot+vat)}</td></tr>`:''}</tfoot></table>`;
     corpo=ts.length?`${res}<table style="margin-top:14px"><thead><tr><th>Parcela</th><th>Vencimento</th><th class="n">Valor</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="2">Total a vencer (${ts.length} parcela${ts.length==1?'':'s'})</td><td class="n">${brl(tot)}</td></tr></tfoot></table>
      <div class="obs">Valores das parcelas a vencer pelo valor vigente em ${dbr(hoje)}. As mensais e anuais são reajustadas todo mês de janeiro pelo IGP-M/FGV (mais 2% ao ano se houver atraso no período), conforme o contrato; por isso o valor futuro pode ser maior que o mostrado.</div>`:(atr.length?res:'<p><b>Nenhuma parcela a vencer.</b></p>')}
@@ -1600,7 +1603,7 @@ function relatorio(tipo){const c=C.contrato,hoje=C.hoje;
   else{titulo='Relatório de valores em atraso';
     const ts=C.titulos.filter(t=>t.vencimento&&t.vencimento<=hoje&&['vencida','em_atraso'].includes(estado(t))).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
     let T={v:0,co:0,mu:0,ju:0,ho:0,tot:0};
-    const rows=ts.map(t=>{const k0=atrasoDe(t,hoje),k={v:k0.v,mu:k0.mu,ju:k0.ju,co:k0.co,ho:k0.ho,tot:k0.tot,dias:k0.dias};if(RELNEG&&k.dias>0&&!k0.isenta&&!(k.ho>0.004)){k.ho=(k.v+k.co+k.mu+k.ju)*0.10;k.tot+=k.ho}for(const x in T)T[x]+=k[x];
+    const rows=ts.map(t=>{const k0=atrasoDe(t,hoje),k={v:k0.v,mu:k0.mu,ju:k0.ju,co:k0.co,ho:k0.ho,tot:k0.tot,dias:k0.dias,e:k0.e};if(RELNEG&&k.dias>0&&!k0.isenta&&!(k.ho>0.004)){k.ho=custoCobrancaAtual(k);k.tot+=k.ho}for(const x in T)T[x]+=k[x];
       return `<tr><td>${esc(rot(t))}</td><td>${dbr(t.vencimento)}</td><td class="n">${k.dias}</td><td class="n">${brl(k.v)}</td><td class="n">${brl(k.mu)}</td><td class="n">${brl(k.ju)}</td><td class="n">${brl(k.co)}</td><td class="n">${brl(k.ho)}</td><td class="n"><b>${brl(k.tot)}</b></td></tr>`}).join('');
     corpo=ts.length?`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th class="n">Dias de atraso</th><th class="n">Valor da parcela</th><th class="n">Multa</th><th class="n">Juros</th><th class="n">Correção</th><th class="n">Custo cobr.</th><th class="n">Total</th></tr></thead><tbody>${rows}</tbody>
      <tfoot><tr><td colspan="3">Total (${ts.length} parcela${ts.length==1?'':'s'})</td><td class="n">${brl(T.v)}</td><td class="n">${brl(T.mu)}</td><td class="n">${brl(T.ju)}</td><td class="n">${brl(T.co)}</td><td class="n">${brl(T.ho)}</td><td class="n">${brl(T.tot)}</td></tr></tfoot></table>`:'<p><b>Nenhuma parcela em atraso nesta data.</b></p>'}
