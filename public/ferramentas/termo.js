@@ -37,7 +37,7 @@ window.htmlTermo=function(A0){
   const {A,c,num,dev,outros}=dadosTermo(A0);
   const fcpf=s=>{const d=String(s||'').replace(/\D/g,'');return d.length===11?d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4'):'___.___.___-__'};
   const orig=A.titulos_origem.map(id=>C.titulos.find(t=>t.id==id)).filter(Boolean).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)));
-  const L=orig.map(t=>{const k=atrasoDe(t,A.data_acordo);const r=x=>Math.round(x*100)/100;const o={rot:t.rotulo,venc:DBR(t.vencimento),dias:k.dias,v:r(k.v),co:r(k.co),mu:r(k.mu),ju:r(k.ju),ho:r(k.ho)};o.tot=r(o.v+o.co+o.mu+o.ju+o.ho);return o});
+  const L=orig.map(t=>{const k={...atrasoDe(t,A.data_acordo)};if(k.dias>0&&!k.isenta&&!(k.ho>0.004)&&typeof custoCobrancaAtual==='function'){k.ho=custoCobrancaAtual(k)}/* cobrança: 10% em toda parcela vencida, igual ao cálculo do acordo */const r=x=>Math.round(x*100)/100;const o={rot:t.rotulo,venc:DBR(t.vencimento),dias:k.dias,v:r(k.v),co:r(k.co),mu:r(k.mu),ju:r(k.ju),ho:r(k.ho)};o.tot=r(o.v+o.co+o.mu+o.ju+o.ho);return o});
   const S=['v','co','mu','ju','ho','tot'].reduce((a,k)=>(a[k]=Math.round(L.reduce((s,x)=>s+x[k],0)*100)/100,a),{});
   const tot=Number(A.valor_acordado),dif=Math.round((S.tot-tot)*100)/100;
   const P=(x,al)=>`<p${al?` style="text-align:${al}"`:''}>${x}</p>`,T=x=>`<p style="text-align:left"><b>${x}</b></p>`,V='<p><br></p>';
