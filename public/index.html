@@ -1403,14 +1403,64 @@ function modalAcordo(aid,pid){
       valor_calculado:calc().total,valor_acordado:num($('#a_val').value),desconto_encargos:r2(B.de),parcelas:window._P,obs:(()=>{const o=String($('#a_obs').value||'').replace(/\s*Juros de financiamento: [\d.,]+% a\.m\.[^|]*\|?\s*/,'').trim();const i=jf();return i>0&&window._P.length>1?`Juros de financiamento: ${String(r2(i*100)).replace('.',',')}% a.m. (Price) da 2ª parcela em diante | `+o:o})(),termo:$('#a_termo').value.trim()});
 }
 function visualizaParcelasAcordo(parcelas){
-  const janela=window.open('','_blank','popup,width=440,height=660');
+  const janela=window.open('','_blank','popup,width=720,height=680');
   if(!janela)return alert('Permita que o navegador abra janelas para visualizar as parcelas.');
   janela.opener=null;
-  const linhas=parcelas.map(p=>`<tr><td>${esc(dbr(p.vencimento))}</td><td>${esc(brl(p.valor))}</td></tr>`).join('');
+  const grupos=[];
+  const porColuna=parcelas.length<=15?15:Math.min(15,Math.ceil(parcelas.length/2));
+  for(let i=0;i<parcelas.length;i+=porColuna){
+    grupos.push(parcelas.slice(i,i+porColuna).map(p=>[dbr(p.vencimento),brl(p.valor)]));
+  }
+  const tabelas=grupos.map(grupo=>`<table aria-label="Parcelas simuladas"><thead><tr><th scope="col">Vencimento</th><th scope="col">Valor</th></tr></thead><tbody>${grupo.map(([data,valor])=>`<tr><td>${esc(data)}</td><td>${esc(valor)}</td></tr>`).join('')}</tbody></table>`).join('');
   janela.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Parcelas do acordo</title><style>
-    body{font:16px system-ui,sans-serif;margin:16px;color:#101828}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{border-bottom:1px solid #dce1e8;padding:10px 12px;text-align:left}th{background:#f1f4f7}th:last-child,td:last-child{text-align:right}tbody tr:nth-child(even){background:#f8fafc}
-    </style></head><body><table aria-label="Parcelas simuladas"><thead><tr><th scope="col">Vencimento</th><th scope="col">Valor</th></tr></thead><tbody>${linhas}</tbody></table></body></html>`);
+    body{font:15px system-ui,sans-serif;margin:12px;color:#101828}main{max-width:660px;margin:auto}.acoes{margin-bottom:10px}button{font:inherit;padding:6px 12px;cursor:pointer}.parcelas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:10px;align-items:start}.parcelas:has(table:only-child){max-width:325px}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{border-bottom:1px solid #dce1e8;padding:5px 10px;text-align:left;white-space:nowrap}th{background:#edf2f7}th:last-child,td:last-child{text-align:right}tbody tr:nth-child(even){background:#f8fafc}
+    </style></head><body><main><div class="acoes"><button id="baixar" type="button">Baixar imagem</button></div><div class="parcelas">${tabelas}</div></main></body></html>`);
   janela.document.close();
+  janela.document.getElementById('baixar').onclick=()=>baixaImagemParcelasAcordo(janela.document,grupos);
+}
+function baixaImagemParcelasAcordo(doc,grupos){
+  const larguraTabela=300, alturaLinha=31, margem=16, espaco=12;
+  const colunas=Math.min(2,grupos.length);
+  const linhasPorBloco=[];
+  for(let i=0;i<grupos.length;i+=colunas){
+    linhasPorBloco.push(1+Math.max(...grupos.slice(i,i+colunas).map(g=>g.length)));
+  }
+  const largura=2*margem+colunas*larguraTabela+(colunas-1)*espaco;
+  const altura=2*margem+linhasPorBloco.reduce((s,n)=>s+n*alturaLinha,0)+(linhasPorBloco.length-1)*espaco;
+  const canvas=doc.createElement('canvas');
+  canvas.width=largura*2;
+  canvas.height=altura*2;
+  const ctx=canvas.getContext('2d');
+  ctx.scale(2,2);
+  ctx.fillStyle='#ffffff';
+  ctx.fillRect(0,0,largura,altura);
+  ctx.textBaseline='middle';
+  let topo=margem;
+  for(let i=0;i<grupos.length;i+=colunas){
+    grupos.slice(i,i+colunas).forEach((grupo,coluna)=>{
+      const x=margem+coluna*(larguraTabela+espaco);
+      [['Vencimento','Valor'],...grupo].forEach(([data,valor],linha)=>{
+        const y=topo+linha*alturaLinha;
+        ctx.fillStyle=linha===0?'#edf2f7':linha%2?'#ffffff':'#f8fafc';
+        ctx.fillRect(x,y,larguraTabela,alturaLinha);
+        ctx.fillStyle='#dce1e8';
+        ctx.fillRect(x,y+alturaLinha-1,larguraTabela,1);
+        ctx.fillStyle='#101828';
+        ctx.font=linha===0?'bold 16px system-ui':'16px system-ui';
+        ctx.textAlign='left';
+        ctx.fillText(data,x+10,y+alturaLinha/2);
+        ctx.textAlign='right';
+        ctx.fillText(valor,x+larguraTabela-10,y+alturaLinha/2);
+      });
+    });
+    topo+=linhasPorBloco[i/colunas]*alturaLinha+espaco;
+  }
+  const link=doc.createElement('a');
+  link.download='parcelas-do-acordo.png';
+  link.href=canvas.toDataURL('image/png');
+  doc.body.append(link);
+  link.click();
+  link.remove();
 }
 /* regra: principal, multa e juros calculados; o que sobrar é o custo de cobrança. Se não der, o que faltar sai dos juros e depois da multa (desconto). */
 /* regra do Luis: o valor pago quita na ordem principal → multa → juros → custo de cobrança; o que não cobrir fica quitado, nunca vira desconto */
