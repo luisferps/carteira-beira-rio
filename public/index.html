@@ -1409,16 +1409,17 @@ function visualizaParcelasAcordo(parcelas){
   const grupos=[];
   const porColuna=parcelas.length<=15?15:Math.min(15,Math.ceil(parcelas.length/2));
   for(let i=0;i<parcelas.length;i+=porColuna){
-    grupos.push(parcelas.slice(i,i+porColuna).map(p=>[dbr(p.vencimento),brl(p.valor)]));
+    grupos.push(parcelas.slice(i,i+porColuna).map((p,j)=>[`${i+j+1}/${parcelas.length}`,dbr(p.vencimento),brl(p.valor)]));
   }
-  const tabelas=grupos.map(grupo=>`<table aria-label="Parcelas simuladas"><thead><tr><th scope="col">Vencimento</th><th scope="col">Valor</th></tr></thead><tbody>${grupo.map(([data,valor])=>`<tr><td>${esc(data)}</td><td>${esc(valor)}</td></tr>`).join('')}</tbody></table>`).join('');
+  const cabecalhos=['Parcela','Vencimento','Valor'];
+  const tabelas=grupos.map(grupo=>`<table aria-label="Parcelas simuladas"><thead><tr>${cabecalhos.map(titulo=>`<th scope="col">${titulo}</th>`).join('')}</tr></thead><tbody>${grupo.map(campos=>`<tr>${campos.map(campo=>`<td>${esc(campo)}</td>`).join('')}</tr>`).join('')}</tbody></table>`).join('');
   janela.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Parcelas do acordo</title><style>
     body{font:15px system-ui,sans-serif;margin:12px;color:#101828}main{max-width:660px;margin:auto}.acoes{margin-bottom:10px}button{font:inherit;padding:6px 12px;cursor:pointer}.parcelas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:10px;align-items:start}.parcelas:has(table:only-child){max-width:325px}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{border-bottom:1px solid #dce1e8;padding:5px 10px;text-align:left;white-space:nowrap}th{background:#edf2f7}th:last-child,td:last-child{text-align:right}tbody tr:nth-child(even){background:#f8fafc}
     </style></head><body><main><div class="acoes"><button id="baixar" type="button">Baixar imagem</button></div><div class="parcelas">${tabelas}</div></main></body></html>`);
   janela.document.close();
-  janela.document.getElementById('baixar').onclick=()=>baixaImagemParcelasAcordo(janela.document,grupos);
+  janela.document.getElementById('baixar').onclick=()=>baixaImagemParcelasAcordo(janela.document,grupos,cabecalhos);
 }
-function baixaImagemParcelasAcordo(doc,grupos){
+function baixaImagemParcelasAcordo(doc,grupos,cabecalhos){
   const larguraTabela=300, alturaLinha=31, margem=16, espaco=12;
   const colunas=Math.min(2,grupos.length);
   const linhasPorBloco=[];
@@ -1439,7 +1440,7 @@ function baixaImagemParcelasAcordo(doc,grupos){
   for(let i=0;i<grupos.length;i+=colunas){
     grupos.slice(i,i+colunas).forEach((grupo,coluna)=>{
       const x=margem+coluna*(larguraTabela+espaco);
-      [['Vencimento','Valor'],...grupo].forEach(([data,valor],linha)=>{
+      [cabecalhos,...grupo].forEach(([parcela,data,valor],linha)=>{
         const y=topo+linha*alturaLinha;
         ctx.fillStyle=linha===0?'#edf2f7':linha%2?'#ffffff':'#f8fafc';
         ctx.fillRect(x,y,larguraTabela,alturaLinha);
@@ -1448,7 +1449,8 @@ function baixaImagemParcelasAcordo(doc,grupos){
         ctx.fillStyle='#101828';
         ctx.font=linha===0?'bold 16px system-ui':'16px system-ui';
         ctx.textAlign='left';
-        ctx.fillText(data,x+10,y+alturaLinha/2);
+        ctx.fillText(parcela,x+10,y+alturaLinha/2);
+        ctx.fillText(data,x+89,y+alturaLinha/2);
         ctx.textAlign='right';
         ctx.fillText(valor,x+larguraTabela-10,y+alturaLinha/2);
       });
