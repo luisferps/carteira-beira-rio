@@ -9,6 +9,10 @@ Banco novo e telas de conferência da carteira do Condomínio Beira Rio.
 
 Dados de clientes e senhas NUNCA vão para este repositório.
 
+## Cobrança e acerto com a FCA
+
+[Regra de rateio dos acordos entre Inerente e FCA](docs/RATEIO-COBRANCA.md).
+
 ## MCP da carteira
 
 Implementação de consulta em `netlify/functions/mcp.mjs`, reaproveitando as ferramentas do assistente atual. Configuração, testes e limites em [docs/MCP.md](docs/MCP.md).
