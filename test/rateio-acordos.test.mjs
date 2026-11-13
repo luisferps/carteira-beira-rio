@@ -6,8 +6,8 @@ test('rateia cobrança de origem e financiamento sem atribuir juros Price à ent
   const parcelas = [1621.44, ...Array(9).fill(1703.59)].map((valor_face, id) => ({ id, valor_face }));
   const antes = structuredClone(parcelas);
   const rateio = rateioConferido({ valor_acordado: 16214.40 }, parcelas, rateiosConferidos['0153-001']);
-  assert.equal(rateio.get('0'), 142.40);
-  assert.equal(Math.round([...rateio.values()].reduce((a, b) => a + b) * 100), 149794);
+  assert.equal(rateio.get('0'), 208.77);
+  assert.equal(Math.round([...rateio.values()].reduce((a, b) => a + b) * 100), 216160);
   assert.deepEqual(parcelas, antes);
 });
 

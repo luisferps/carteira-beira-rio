@@ -7,7 +7,9 @@ export const rateiosConferidos = {
   // O acordo de março não registrou custo embutido na parcela 7/7.
   '0070-001': { cobrancaNova: 43873, herdado: 0, multaHerdada: 0, jurosHerdados: 0 },
   '0123-001': { atualBruta: 72508, herdado: 24094, multaHerdada: 482, jurosHerdados: 1674 },
-  '0153-001': { atualBruta: 132050, herdado: 10552, multaHerdada: 212, jurosHerdados: 736 },
+  // Mesmo critério do 0168: 10% dentro do valor negociado de dezembro,
+  // quatro das seis parcelas em aberto e cobrança nova do termo de novembro.
+  '0153-001': { cobrancaNova: 147404, herdado: 56310, multaHerdada: 1126, jurosHerdados: 3926 },
   // Base de novembro e saldo de dezembro conferidos no fechamento do 0168.
   '0168-001': { cobrancaNova: 74460 + 103296, herdado: 62118, multaHerdada: 1242, jurosHerdados: 4331 },
 };
