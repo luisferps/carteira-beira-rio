@@ -553,12 +553,19 @@ async function criaAcordo(b, conf) {
       for (const id of b.titulos_origem || []) { const [tt] = await q('select * from carteira.titulos where id=$1', [id]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return { erro: b0 }; }
       await garanteEsquema();
       const parcelasOrigem = b.tipo === 'repactuacao' ? [] : await q(
-        `select a.*, t.valor_face, t.custo_acordo_rateado from carteira.titulos t
+        `select a.*, t.valor_face, t.custo_acordo_rateado, t.vencimento::text vencimento,
+                t.grupo, t.numero,
+                (cardinality(a.titulos_origem)=1 and a.qtd_parcelas=1) ac_um
+         from carteira.titulos t
          join carteira.acordos a on a.id=t.acordo_id
          where t.id=any($1::bigint[]) and t.contrato=$2 and a.conferente=$3
            and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente=$3)`,
         [(b.titulos_origem || []).map(Number), b.contrato, conf]);
-      b = reclassificaCobranca(b, parcelasOrigem);
+      const origensComEncargos = parcelasOrigem.map(t => {
+        const { multa, juros } = compoAtraso(+t.valor_face, t.vencimento, b.data_acordo, false, null, entradaAcordo(t));
+        return { ...t, multa_atraso: multa, juros_atraso: juros };
+      });
+      b = reclassificaCobranca(b, origensComEncargos);
       const [a] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios,
                            valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo, termo, pagador, cobranca_origens)
                            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) returning id`,
@@ -870,7 +877,6 @@ async function clienteDoContrato(n, opc = {}) {
 const SQL_ABERTAS = `
   with corr as (select distinct on (contrato, grupo, a_partir) contrato, grupo, a_partir, novo_valor from carteira.correcoes where conferente='luis' order by contrato, grupo, a_partir, id desc)
   select t.id, t.contrato, t.grupo, t.numero, t.total, t.rotulo, t.vencimento::text vencimento, t.valor_face, c.quadra, c.lote,
-    coalesce(t.custo_acordo_rateado, case when ac.tipo is distinct from 'repactuacao' and ac.valor_acordado > 0 then t.valor_face * greatest(0, least(ac.honorarios, ac.valor_acordado - coalesce(ac.principal,0) - coalesce(ac.multa,0) - coalesce(ac.juros,0))) / ac.valor_acordado end, 0) custo_embutido,
     coalesce((select novo_valor from corr where corr.contrato=t.contrato and corr.grupo=t.grupo and corr.a_partir<=t.numero order by corr.a_partir desc limit 1), t.valor_face)
       + coalesce((select sum((i->>'valor')::numeric) from carteira.eventos e, jsonb_array_elements(case when jsonb_typeof(e.dados->'itens')='array' then e.dados->'itens' else '[]'::jsonb end) i
                   where e.contrato=t.contrato and e.conferente='luis' and e.tipo='repactuacao' and e.dados->>'subtipo'='diluicao' and (i->>'titulo_id')=t.id::text), 0) valor,
@@ -880,7 +886,6 @@ const SQL_ABERTAS = `
     (t.grupo='acordo' and exists (select 1 from carteira.acordos a where a.id=t.acordo_id and coalesce(a.tipo,'')<>'repactuacao' and cardinality(a.titulos_origem)=1
        and (select count(*) from carteira.titulos t2 where t2.acordo_id=a.id)=1)) ac_um
   from carteira.titulos t join carteira.contratos c on c.numero=t.contrato
-  left join carteira.acordos ac on ac.id=t.acordo_id
   where (t.conferente is null or t.conferente='luis')
     and exists (select 1 from carteira.fechamentos f where f.contrato=t.contrato and f.conferente='luis')
     and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')
@@ -1034,6 +1039,7 @@ function compoAtraso(v, venc, ate, corr = true, fa = null, isento = false) {
   if (dias) cresce(ate);
   return { principal: R2(v), correcao: R2(co), multa: R2(mu), juros: R2(ju), dias };
 }
+const custoCobrancaAtual = c => R2(Math.max(0, c.principal + c.correcao + c.multa + c.juros) * .10);
 const hojeBR = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
 const somaDias = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 async function candidatosCobranca(inicioAuto) {
@@ -1066,7 +1072,7 @@ async function segundaVia(tituloId, data, conf, opts = {}) {
   if (t.vencimento >= hoje && !opts.previa) return { titulo_id: tituloId, erro: 'Essa parcela ainda não venceu — use "Gerar boleto"' };
   const ehAcordo = t.grupo === 'acordo';
   const c = compoAtraso(R2(+t.valor), t.vencimento, data, !ehAcordo && t.grupo !== 'entrada', t._fa, entradaAcordo(t));
-  c.cobranca = !t.ac_um && !c.isento && !opts.semCobranca && c.dias > 60 ? R2(Math.max(0, c.principal + c.correcao + c.multa + c.juros - (+t.custo_embutido || 0)) * .10) : 0;
+  c.cobranca = !t.ac_um && !c.isento && !opts.semCobranca && c.dias > 60 ? custoCobrancaAtual(c) : 0;
   c.total = R2(c.principal + c.correcao + c.multa + c.juros + c.cobranca);
   c.data = data; c.emitido_em = hoje; c.vencimento_original = t.vencimento;
   if (opts.previa) return { previa: true, rotulo: t.rotulo, ...c };
@@ -1512,7 +1518,7 @@ async function dividas(contratos) {
   for (const t of r) {
     const ac = t.grupo === 'acordo';
     const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada', t._fa, entradaAcordo(t));
-    const cob = !t.ac_um && !c.isento && c.dias > 60 ? R2(Math.max(0, c.principal + c.correcao + c.multa + c.juros - (+t.custo_embutido || 0)) * .10) : 0;
+    const cob = !t.ac_um && !c.isento && c.dias > 60 ? custoCobrancaAtual(c) : 0;
     const tot = R2(c.principal + c.correcao + c.multa + c.juros + cob);
     const d = out[t.contrato] || (out[t.contrato] = { contrato: t.contrato, quadra: t.quadra, lote: t.lote, titular: t.cessionario || t.titular, parcelas: [], total: 0, principal: 0, dias: 0 });
     d.parcelas.push({ id: t.id, rotulo: t.rotulo, grupo: t.grupo, vencimento: t.vencimento, dias: c.dias, principal: R2(c.principal + c.correcao), multa: c.multa, juros: c.juros, cobranca: cob, total: tot, boleto: t.boleto });
@@ -2216,7 +2222,7 @@ export default async (req) => {
       const out = r.map(t => {
         const ac = t.grupo === 'acordo';
         const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada', t._fa, entradaAcordo(t));
-        const cob = t.ac_um || c.isento ? 0 : R2(Math.max(0, c.principal + c.correcao + c.multa + c.juros - (+t.custo_embutido || 0)) * .10);
+        const cob = t.ac_um || c.isento ? 0 : custoCobrancaAtual(c);
         const b = bs.find(x => String(x.titulo_id) === String(t.id));
         return { contrato: t.contrato, quadra: t.quadra, lote: t.lote, titular: t.cessionario || t.titular, parcela: t.rotulo, vencimento: t.vencimento, dias: c.dias,
           principal: c.principal, correcao: c.correcao, multa: c.multa, juros: c.juros, cobranca: cob, total: R2(c.principal + c.correcao + c.multa + c.juros + cob),

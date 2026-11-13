@@ -33,6 +33,17 @@ test('preserva cada custo de cobrança quando o saldo passa por três acordos', 
   ]);
 });
 
+test('transfere a multa e os juros da cobrança herdada sem aumentar o valor negociado', () => {
+  const anterior = {
+    id: 1, data_acordo: '2026-10-01', principal: 500, honorarios: 50,
+    valor_acordado: 550, valor_face: 550, multa_atraso: 11, juros_atraso: 11,
+  };
+  const novo = reclassificaCobranca({ principal: 550, multa: 11, juros: 11, honorarios: 57.20, valor_acordado: 629.20 }, [anterior]);
+  assert.deepEqual([novo.principal, novo.multa, novo.juros, novo.honorarios], [500, 10, 10, 109.20]);
+  assert.equal(novo.valor_acordado, 629.20);
+  assert.equal(novo.cobranca_origens[0].centavos, 5200);
+});
+
 test('recupera apenas custo explícito de acordo antigo e mantém o valor acordado', () => {
   const anterior = { id: 2, data_acordo: '2026-04-02', principal: 34185.20, multa: 280.24, juros: 755.43, honorarios: 1529.13, valor_acordado: 36750 };
   const parcelas = [7000, 15750].map(valor_face => ({ ...anterior, valor_face }));

@@ -26,6 +26,8 @@ export function origensCobranca(acordo, custo = centavos(acordo.honorarios)) {
 
 export function reclassificaCobranca(dados, parcelas) {
   const origens = new Map();
+  let multaHerdada = 0;
+  let jurosHerdados = 0;
   for (const parcela of parcelas) {
     const acordado = centavos(parcela.valor_acordado);
     if (acordado <= 0 || parcela.tipo === 'repactuacao') continue;
@@ -35,18 +37,30 @@ export function reclassificaCobranca(dados, parcelas) {
     const custoParcela = parcela.custo_acordo_rateado == null
       ? Math.round(centavos(parcela.valor_face) * custoConfirmado / acordado)
       : centavos(parcela.custo_acordo_rateado);
-    for (const parte of origensCobranca(parcela, custoParcela)) {
+    const face = centavos(parcela.valor_face);
+    if (face <= 0 || custoParcela <= 0) continue;
+    const proporcao = Math.min(1, custoParcela / face);
+    const multa = Math.round(centavos(parcela.multa_atraso) * proporcao);
+    const juros = Math.round(centavos(parcela.juros_atraso) * proporcao);
+    multaHerdada += multa;
+    jurosHerdados += juros;
+    for (const parte of origensCobranca(parcela, custoParcela + multa + juros)) {
       const anterior = origens.get(parte.acordo);
       origens.set(parte.acordo, { ...parte, centavos: parte.centavos + (anterior?.centavos || 0) });
     }
   }
   const partes = [...origens.values()];
   const herdado = partes.reduce((s, parte) => s + parte.centavos, 0);
-  const transferido = Math.max(0, Math.min(herdado, centavos(dados.principal)));
+  const principalTransferido = Math.max(0, Math.min(herdado - multaHerdada - jurosHerdados, centavos(dados.principal)));
+  const multaTransferida = Math.max(0, Math.min(multaHerdada, centavos(dados.multa)));
+  const jurosTransferidos = Math.max(0, Math.min(jurosHerdados, centavos(dados.juros)));
+  const transferido = principalTransferido + multaTransferida + jurosTransferidos;
   if (!transferido) return { ...dados, cobranca_origens: [] };
   return {
     ...dados,
-    principal: (centavos(dados.principal) - transferido) / 100,
+    principal: (centavos(dados.principal) - principalTransferido) / 100,
+    ...(multaTransferida ? { multa: (centavos(dados.multa) - multaTransferida) / 100 } : {}),
+    ...(jurosTransferidos ? { juros: (centavos(dados.juros) - jurosTransferidos) / 100 } : {}),
     honorarios: (centavos(dados.honorarios) + transferido) / 100,
     cobranca_origens: rateia(transferido, partes),
   };

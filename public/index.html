@@ -907,7 +907,7 @@ function partesAcordo(a){const ac=+a.valor_acordado||0;if(a.tipo==='repactuacao'
   return{pr:pr/ac,mu:mu/ac,ju:ju/ac,ho:ho/ac}}
 function embute(t,k){const a=t.grupo==='acordo'&&(C.acordos||[]).find(x=>x.id==t.acordo_id);const q=a?partesAcordo(a):{pr:1,mu:0,ju:0,ho:0};
   const e={mu:k.v*q.mu,ju:k.v*q.ju,ho:k.v*q.ho};k.e=e;k.ac=a||null;k.P=k.v-e.mu-e.ju-e.ho;k.M=k.mu+e.mu;k.J=k.ju+e.ju;k.H=k.ho+e.ho;return k}
-function custoCobrancaAtual(k){return Math.max(0,k.v+k.co+k.mu+k.ju-(k.e?.ho||0))*.10}
+function custoCobrancaAtual(k){return Math.max(0,k.v+k.co+k.mu+k.ju)*.10}
 function encDe(v,venc,ate){const dias=Math.max(0,Math.round((new Date(ate)-new Date(venc))/864e5));if(!dias)return{mu:0,ju:0,ho:0,dias};
   const mu=v*.02,ju=v*(Math.pow(1.01,dias/30)-1),ho=dias>60?(v+mu+ju)*.10:0;return{mu,ju,ho,dias}}
 function totais(){
