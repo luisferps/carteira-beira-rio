@@ -3,6 +3,8 @@ const centavos = valor => Math.round(Number(valor) * 100);
 // Centavos. Multa e juros do termo são atribuídos proporcionalmente
 // à cobrança embutida em cada parcela de origem ainda em aberto.
 export const rateiosConferidos = {
+  // Seis parcelas originais, todas acima de 60 dias. Base com correção: R$ 8.305,75.
+  '0058-001': { cobrancaNova: 83058, herdado: 0, multaHerdada: 0, jurosHerdados: 0 },
   // Em 09/11, somente M45, A4 e M46 tinham mais de 60 dias de atraso.
   // O acordo de março não registrou custo embutido na parcela 7/7.
   '0070-001': { cobrancaNova: 43873, herdado: 0, multaHerdada: 0, jurosHerdados: 0 },
