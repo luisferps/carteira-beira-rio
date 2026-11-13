@@ -1018,12 +1018,14 @@ async function editarBoleto(id, b, conf) {
   if (b.valor != null) body.value = R2(+b.valor);
   if (b.vencimento) body.dueDate = b.vencimento;
   if (b.descricao != null) body.description = b.descricao;
-  const [tb] = await q(`select t.grupo, t.numero, (select count(*) from carteira.titulos t2 where t2.acordo_id=t.acordo_id)::int n, (select cardinality(a.titulos_origem) from carteira.acordos a where a.id=t.acordo_id) o from carteira.boletos x join carteira.titulos t on t.id=x.titulo_id where x.id_asaas=$1`, [id]).catch(() => []);
+  const [tb] = await q(`select t.id, t.grupo, t.numero, (select count(*) from carteira.titulos t2 where t2.acordo_id=t.acordo_id)::int n, (select cardinality(a.titulos_origem) from carteira.acordos a where a.id=t.acordo_id) o from carteira.boletos x join carteira.titulos t on t.id=x.titulo_id where x.id_asaas=$1`, [id]).catch(() => []);
   if (tb && tb.grupo === 'acordo' && +tb.numero === 1 && !(tb.n === 1 && +tb.o === 1)) { body.fine = { value: 0 }; body.interest = { value: 0 }; }
   let g;
   try { g = await asaasReq('POST', '/payments/' + id, body); }
   catch (e) { await new Promise(x => setTimeout(x, 2000)); g = await asaasReq('POST', '/payments/' + id, body); }
   await gravaBoleto(g, {});
+  /* parcela de acordo: o vencimento combinado acompanha o boleto (senão a parcela continua aparecendo vencida) */
+  if (tb && tb.grupo === 'acordo' && body.dueDate) await q(`update carteira.titulos set vencimento=$2 where id=$1`, [tb.id, g.dueDate]);
   await log(conf, 'boleto_editado', { id, ...body });
   return { ok: true, valor: g.value, vencimento: g.dueDate };
 }
@@ -1516,6 +1518,7 @@ async function dividas(contratos) {
   const r = await abertas(` and t.vencimento < $1::date ${contratos ? 'and t.contrato = any($3)' : ''} order by t.contrato, t.vencimento`, contratos ? [hoje, ATIVOS_B, contratos] : [hoje, ATIVOS_B]);
   const out = {};
   for (const t of r) {
+    if (entradaAcordo(t)) continue; /* entrada de acordo não vai para cobrança: se não for paga, o acordo é desfeito */
     const ac = t.grupo === 'acordo';
     const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada', t._fa, entradaAcordo(t));
     const cob = !t.ac_um && !c.isento && c.dias > 60 ? custoCobrancaAtual(c) : 0;
@@ -2219,7 +2222,7 @@ export default async (req) => {
       const hoje = hojeBR(), lim = somaDias(hoje, -60);
       const r = await abertas(` and t.vencimento <= $1::date order by t.contrato, t.vencimento`, [lim, ATIVOS_B]);
       const bs = await q(`select titulo_id, tipo, fatura, valor, vencimento::text v from carteira.boletos where status = any($1)`, [ATIVOS_B]);
-      const out = r.map(t => {
+      const out = r.filter(t => !entradaAcordo(t)).map(t => {
         const ac = t.grupo === 'acordo';
         const c = compoAtraso(R2(+t.valor), t.vencimento, hoje, !ac && t.grupo !== 'entrada', t._fa, entradaAcordo(t));
         const cob = t.ac_um || c.isento ? 0 : custoCobrancaAtual(c);
@@ -2789,6 +2792,26 @@ export default async (req) => {
       return json({ ok: true, avisos });
     }
 
+    /* entrada do acordo não paga: desfaz o acordo. Cancela no Asaas os boletos do acordo e as parcelas de origem voltam a ficar em atraso */
+    if (p[0] === 'acordo' && p[1] && p[2] === 'desfazer' && m === 'POST') {
+      if (conf !== 'luis') return json({ erro: 'Só o Luis pode desfazer um acordo.' }, 403);
+      const [a] = await q(`select * from carteira.acordos where id=$1 and conferente='luis'`, [p[1]]);
+      if (!a) return json({ erro: 'Acordo não encontrado.' }, 404);
+      const [pg] = await q(`select count(*)::int n from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.acordo_id=$1 and g.conferente='luis'`, [a.id]);
+      if (pg.n) return json({ erro: 'Este acordo já tem parcela paga — não dá para desfazer por aqui.' }, 400);
+      const bols = await q(`select b.id_asaas from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id where t.acordo_id=$1 and b.status = any($2)`, [a.id, ATIVOS_B]);
+      const cancelados = [], falhas = [];
+      for (const b of bols) {
+        const g = await asaas('/payments/' + b.id_asaas).catch(() => null);
+        if (g && !g.deleted && PAGO_A.includes(g.status)) return json({ erro: 'Um boleto deste acordo já foi pago no Asaas — não dá para desfazer.' }, 400);
+      }
+      for (const b of bols) { try { await excluirBoleto(b.id_asaas, conf, 'Acordo desfeito: entrada não paga'); cancelados.push(b.id_asaas); } catch (e) { falhas.push(b.id_asaas + ': ' + e.message); } }
+      if (falhas.length) return json({ erro: 'Não consegui cancelar todos os boletos no Asaas; o acordo continua lançado.', cancelados, falhas }, 502);
+      await q('delete from carteira.titulos where acordo_id=$1 and conferente=$2', [a.id, 'luis']);
+      await q('delete from carteira.acordos where id=$1', [a.id]);
+      await log(conf, 'acordo_desfeito', { id: a.id, contrato: a.contrato, termo: a.termo, boletos: cancelados.length, motivo: 'entrada não paga' });
+      return json({ ok: true, boletos_cancelados: cancelados.length });
+    }
     if (p[0] === 'acordo' && p[1] && m === 'DELETE') {
       await q('delete from carteira.titulos where acordo_id=$1 and conferente=$2', [p[1], conf]);
       const [a] = await q('delete from carteira.acordos where id=$1 and conferente=$2 returning *', [p[1], conf]);
