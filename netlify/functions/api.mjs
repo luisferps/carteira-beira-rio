@@ -31,6 +31,14 @@ const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json' } });
 
 const PL = (process.env.PIN_LUIS || '').trim(), PS = (process.env.PIN_SECRETARIA || '').trim();
+let PSOFF = null;
+async function pinSecretariaDesligado() {
+  if (PSOFF && Date.now() - PSOFF.em < 60000) return PSOFF.v;
+  await q(`create table if not exists carteira.config_geral(chave text primary key, valor text, em timestamptz default now())`);
+  const [r] = await q(`select valor from carteira.config_geral where chave='pin_secretaria_desligado'`);
+  PSOFF = { v: r?.valor === '1', em: Date.now() };
+  return PSOFF.v;
+}
 function quem(req) {
   const pin = (req.headers.get('x-pin') || '').trim();
   if (pin && pin === PL) return 'luis';
@@ -1781,6 +1789,7 @@ export default async (req) => {
   ATOR = null;
   { const pub = await rotasPublicas(p, req, url); if (pub) return pub; }
   let conf = quem(req), usuario = null;
+  if (conf === 'secretaria' && await pinSecretariaDesligado()) conf = null;
   if (!conf) { usuario = await usuarioDaSessao(req); if (usuario) conf = usuario.perfil === 'gestor' ? 'luis' : 'assistente'; }
   if (!conf) {
     const falta = [!PL && 'PIN_LUIS', !PS && 'PIN_SECRETARIA', !process.env.DATABASE_URL && 'DATABASE_URL'].filter(Boolean);
@@ -1795,6 +1804,10 @@ export default async (req) => {
   }
   if (real === 'luis' && req.headers.get('x-como') === 'final') conf = 'final';
   ATOR = usuario ? usuario.email : real;
+  if (p[0] === 'usuarios' && p[1] === 'pin-secretaria' && real === 'luis') {
+    if (m === 'PUT') { await q(`insert into carteira.config_geral(chave, valor) values ('pin_secretaria_desligado',$1) on conflict (chave) do update set valor=excluded.valor, em=now()`, [body.desligado ? '1' : '0']); PSOFF = null; await log(real, body.desligado ? 'senha_secretaria_desligada' : 'senha_secretaria_ligada', {}); }
+    return json({ desligado: await pinSecretariaDesligado(), existe: !!PS });
+  }
   { const ru = await rotasUsuarios(p, m, body, real); if (ru) return ru; }
   { const rc = await rotasCobranca(p, m, body, url, real); if (rc) return rc; }
   { const ri = await rotasIA(p, m, body, url, real); if (ri) return ri; }

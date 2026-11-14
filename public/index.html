@@ -494,8 +494,10 @@ async function abreSeq(){const X=SEQ.X,t=X.fones[+$('#sq_f').value],x=$('#sq_x')
 
 /* ---------- USUÁRIOS ---------- */
 const STU={definir_senha:'Aguardando criar a senha',aguardando_email:'Aguardando confirmar o e-mail',aguardando_aprovacao:'Aguardando sua liberação',ativo:'Ativo',bloqueado:'Bloqueado'};
-async function telaUsuarios(){const L=await api('usuarios');
-  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div><div class="card"><h3 style="margin-top:0">Usuários</h3>
+async function telaUsuarios(){const L=await api('usuarios');const PSx=await api('usuarios/pin-secretaria').catch(()=>({}));
+  const blocoPin=PSx.existe?`<div class="${PSx.desligado?'info':'aviso'}" style="margin-bottom:10px"><b>Senha da secretaria: ${PSx.desligado?'desligada':'ligada'}.</b> ${PSx.desligado?'Só entra quem tem login próprio.':'Qualquer pessoa com essa senha entra sem login e o sistema não sabe quem fez o quê. Cadastre a equipe abaixo e depois desligue.'}
+   <button style="margin-left:8px" onclick="trocaPinSec(${PSx.desligado?0:1})">${PSx.desligado?'Ligar de novo':'Desligar a senha da secretaria'}</button></div>`:'';
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div><div class="card"><h3 style="margin-top:0">Usuários</h3>${blocoPin}
   <div class="bt" style="align-items:flex-end;margin-bottom:10px"><div><label>Nome</label><input id="nu_n" style="width:220px"></div><div><label>E-mail</label><input id="nu_e" type="email" style="width:220px"></div><div><label>CPF</label><input id="nu_c" style="width:140px"></div><div><label>Telefone</label><input id="nu_t" style="width:140px"></div><button class="pri" onclick="novoUsuario()">Cadastrar usuário</button></div><div id="nu_link"></div>
   <div class="info">Você cadastra a pessoa e o sistema gera um link para ela criar a própria senha (mande pelo WhatsApp). Ela também pode se cadastrar sozinha em "Criar meu acesso" na tela de entrada, e aí aparece aqui para você liberar. Perfil: <b>assistente administrativo</b> — vê tudo, faz acordos e propostas, emite boletos, 2ª via e relatórios; não lança, não edita e não apaga pagamentos, não mexe em correção, encerramento, cessão nem na conferência.</div>
   <table style="margin-top:8px"><tr><th>Nome</th><th>E-mail</th><th>CPF</th><th>Telefone</th><th>Situação</th><th>Último acesso</th><th></th></tr>
@@ -2456,6 +2458,8 @@ async function telaBackups(){app.innerHTML='<div class="card">Carregando…</div
 async function fazBackupAgora(b){b.disabled=true;b.textContent='Copiando…';try{await api('manutencao/backups',{method:'POST',body:{}});await telaBackups()}catch(e){b.disabled=false;b.textContent='Fazer cópia agora'}}
 async function baixaBackup(k,b){b.disabled=true;b.textContent='Baixando…';try{const r=await fetch('/api/manutencao/backups/'+encodeURIComponent(k),{headers:{'x-pin':PIN,'x-como':COMO}});if(!r.ok)throw new Error('Não consegui baixar ('+r.status+')');
   const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=k;a.click();b.textContent='Baixado'}catch(e){alert(e.message);b.disabled=false;b.textContent='Baixar'}}
+
+async function trocaPinSec(off){if(off&&!confirm('Desligar a senha da secretaria? Quem entra com ela vai precisar de login próprio (cadastro de usuários). Dá para ligar de novo aqui.'))return;await api('usuarios/pin-secretaria',{method:'PUT',body:{desligado:!!off}});telaUsuarios()}
 </script>
 <script src="/ferramentas/docs.js"></script>
 </body>
