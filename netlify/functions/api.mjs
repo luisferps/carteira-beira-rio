@@ -1386,43 +1386,47 @@ async function resumoSaidaCobranca(c, tot, ate, manual) {
   const res = acs.length && +pg.v > 0 ? 'Pagou e fez acordo' : acs.length ? 'Fez acordo' : +pg.v > 0 ? 'Pagou' : 'Dívida baixou';
   return `${res}: ${partes.join(' e ') || 'sem pagamento nem acordo registrado'}. Dívida ao sair: ${R(tot)}${manual ? '' : ' (abaixo de R$ 5 mil) — saiu sozinho da campanha'}`;
 }
+/* rotina da cobrança: entra na fila acima de R$ 5 mil, promessa vencida volta para Negociando, quem baixou de R$ 5 mil sai. Roda sozinha a cada 2h e ao abrir a tela */
+export async function cobrancaAutomatica() {
+  await garanteCobranca();
+  const D0 = await dividas(null);
+  const fora = new Set((await q(`select contrato from carteira.cobranca_fora`)).map(x => x.contrato));
+  const abertos = new Set((await q(`select contrato from carteira.cobranca_casos where encerrado_em is null`)).map(x => x.contrato));
+  /* entrada automática: dívida acima de R$ 5 mil entra na fila, menos quem o Luis tirou da cobrança */
+  for (const d of Object.values(D0)) {
+    if (d.total <= 5000 || abertos.has(d.contrato) || fora.has(d.contrato)) continue;
+    const [c] = await q(`insert into carteira.cobranca_casos(contrato, etapa, proximo_contato, criado_por) values ($1,'fila',(now() at time zone 'America/Sao_Paulo')::date,'sistema') on conflict do nothing returning id`, [d.contrato]);
+    if (c) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, d.contrato, `Enviado para cobrança (entrou sozinho: dívida acima de R$ 5 mil). Dívida de hoje: R$ ${d.total.toFixed(2).replace('.', ',')} em ${d.parcelas.length} parcela(s).`]);
+  }
+  /* promessa vencida sem pagamento volta para Negociando e para a agenda de hoje */
+  for (const c of await q(`select c.id, c.contrato, r.data_promessa::text dp, r.em from carteira.cobranca_casos c
+      join lateral (select data_promessa, em from carteira.cobranca_registros r where r.caso_id=c.id and r.data_promessa is not null order by r.em desc limit 1) r on true
+      where c.encerrado_em is null and c.etapa='promessa' and r.data_promessa < $1::date
+      and not exists (select 1 from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato=c.contrato and g.conferente='luis' and g.confirmada_em >= r.em::date)`, [hojeBR()])) {
+    await q(`update carteira.cobranca_casos set etapa='negociando', proximo_contato=(now() at time zone 'America/Sao_Paulo')::date, atualizado_em=now() where id=$1`, [c.id]);
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa','promessa → negociando','sistema')`, [c.id, c.contrato]);
+    await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, c.contrato, `Promessa de pagamento para ${c.dp.split('-').reverse().join('/')} não cumprida — voltou para Negociando e para a agenda de hoje.`]);
+  }
+  for (const c of await q(`select id, contrato, criado_em, etapa from carteira.cobranca_casos where encerrado_em is null`)) {
+    const tot = D0[c.contrato]?.total || 0;
+    if (tot >= 5000) continue;
+    const mot = await resumoSaidaCobranca(c, tot);
+    const [x] = await q(`update carteira.cobranca_casos set encerrado_em=now(), motivo_encerramento=$2, atualizado_em=now() where id=$1 and encerrado_em is null returning id`, [c.id, mot]);
+    if (x) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, c.contrato, 'Saiu da campanha: ' + mot]);
+  }
+  for (const c of await q(`select id, contrato, criado_em, encerrado_em from carteira.cobranca_casos where motivo_encerramento like '%saiu da campanha automaticamente'`)) {
+    const mot = await resumoSaidaCobranca(c, +(String((await q(`select motivo_encerramento m from carteira.cobranca_casos where id=$1`, [c.id]))[0].m).match(/R\$ ([\d.,]+)/)?.[1] || '0').replace(/\./g, '').replace(',', '.'), c.encerrado_em);
+    await q(`update carteira.cobranca_casos set motivo_encerramento=$2 where id=$1`, [c.id, mot]);
+    await q(`update carteira.cobranca_registros set texto=$2 where caso_id=$1 and tipo='sistema' and texto like '%saiu da campanha automaticamente'`, [c.id, 'Saiu da campanha: ' + mot]);
+  }
+  return { ok: true };
+}
 async function rotasCobranca(p, m, body, url, real) {
   if (p[0] !== 'cobranca') return null;
   await garanteCobranca();
   const quem = ATOR || real;
   if (p[1] === 'painel' && m === 'GET') {
-    {
-      const D0 = await dividas(null);
-      const fora = new Set((await q(`select contrato from carteira.cobranca_fora`)).map(x => x.contrato));
-      const abertos = new Set((await q(`select contrato from carteira.cobranca_casos where encerrado_em is null`)).map(x => x.contrato));
-      /* entrada automática: dívida acima de R$ 5 mil entra na fila, menos quem o Luis tirou da cobrança */
-      for (const d of Object.values(D0)) {
-        if (d.total <= 5000 || abertos.has(d.contrato) || fora.has(d.contrato)) continue;
-        const [c] = await q(`insert into carteira.cobranca_casos(contrato, etapa, proximo_contato, criado_por) values ($1,'fila',(now() at time zone 'America/Sao_Paulo')::date,'sistema') on conflict do nothing returning id`, [d.contrato]);
-        if (c) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, d.contrato, `Enviado para cobrança (entrou sozinho: dívida acima de R$ 5 mil). Dívida de hoje: R$ ${d.total.toFixed(2).replace('.', ',')} em ${d.parcelas.length} parcela(s).`]);
-      }
-      /* promessa vencida sem pagamento volta para Negociando e para a agenda de hoje */
-      for (const c of await q(`select c.id, c.contrato, r.data_promessa::text dp, r.em from carteira.cobranca_casos c
-          join lateral (select data_promessa, em from carteira.cobranca_registros r where r.caso_id=c.id and r.data_promessa is not null order by r.em desc limit 1) r on true
-          where c.encerrado_em is null and c.etapa='promessa' and r.data_promessa < $1::date
-          and not exists (select 1 from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato=c.contrato and g.conferente='luis' and g.confirmada_em >= r.em::date)`, [hojeBR()])) {
-        await q(`update carteira.cobranca_casos set etapa='negociando', proximo_contato=(now() at time zone 'America/Sao_Paulo')::date, atualizado_em=now() where id=$1`, [c.id]);
-        await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa','promessa → negociando','sistema')`, [c.id, c.contrato]);
-        await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, c.contrato, `Promessa de pagamento para ${c.dp.split('-').reverse().join('/')} não cumprida — voltou para Negociando e para a agenda de hoje.`]);
-      }
-      for (const c of await q(`select id, contrato, criado_em, etapa from carteira.cobranca_casos where encerrado_em is null`)) {
-        const tot = D0[c.contrato]?.total || 0;
-        if (tot >= 5000) continue;
-        const mot = await resumoSaidaCobranca(c, tot);
-        const [x] = await q(`update carteira.cobranca_casos set encerrado_em=now(), motivo_encerramento=$2, atualizado_em=now() where id=$1 and encerrado_em is null returning id`, [c.id, mot]);
-        if (x) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'sistema',$3,'sistema')`, [c.id, c.contrato, 'Saiu da campanha: ' + mot]);
-      }
-      for (const c of await q(`select id, contrato, criado_em, encerrado_em from carteira.cobranca_casos where motivo_encerramento like '%saiu da campanha automaticamente'`)) {
-        const mot = await resumoSaidaCobranca(c, +(String((await q(`select motivo_encerramento m from carteira.cobranca_casos where id=$1`, [c.id]))[0].m).match(/R\$ ([\d.,]+)/)?.[1] || '0').replace(/\./g, '').replace(',', '.'), c.encerrado_em);
-        await q(`update carteira.cobranca_casos set motivo_encerramento=$2 where id=$1`, [c.id, mot]);
-        await q(`update carteira.cobranca_registros set texto=$2 where caso_id=$1 and tipo='sistema' and texto like '%saiu da campanha automaticamente'`, [c.id, 'Saiu da campanha: ' + mot]);
-      }
-    }
+    await cobrancaAutomatica();
     const casos = await q(`select c.*, (select max(em) from carteira.cobranca_registros r where r.caso_id=c.id and r.tipo not in ('etapa','sistema')) ultimo_contato,
         (select count(*)::int from carteira.cobranca_registros r where r.caso_id=c.id and r.tipo not in ('etapa','sistema')) contatos,
         (select row_to_json(x) from (select data_promessa, valor_promessa, em from carteira.cobranca_registros r where r.caso_id=c.id and r.data_promessa is not null order by r.em desc limit 1) x) promessa
