@@ -3560,7 +3560,7 @@ async function rotasPagador(p, m, body, real) {
     const C = async (nome, sql, prm = []) => { try { const r = await q(sql, prm); return [nome, { n: r.length, amostra: r.slice(0, 15) }]; } catch (e) { return [nome, { erro: e.message }]; } };
     const enc = `exists(select 1 from carteira.eventos e where e.contrato=k.numero and e.conferente='luis' and e.tipo='encerramento')`;
     const R = await Promise.all([
-      C('dois_contratos_ativos_mesmo_lote', `select k.quadra::int q, k.lote::int l, array_agg(k.numero order by k.numero) contratos from carteira.contratos k where not ${enc} and k.quadra ~ '^\d+$' and k.lote ~ '^\d+$' group by 1,2 having count(*)>1`),
+      C('dois_contratos_ativos_mesmo_lote', `select k.quadra::int q, k.lote::int l, array_agg(k.numero order by k.numero) contratos from carteira.contratos k where not ${enc} and k.quadra ~ '^[0-9]+$' and k.lote ~ '^[0-9]+$' group by 1,2 having count(*)>1`),
       C('contrato_sem_comprador', `select numero from carteira.contratos k where jsonb_array_length(coalesce(compradores,'[]'))=0 and not ${enc}`),
       C('comprador_sem_cpf', `select k.numero, c->>'nome' nome from carteira.contratos k, jsonb_array_elements(k.compradores) c where coalesce(c->>'cpf','')='' and not ${enc}`),
       C('titulo_acordo_sem_acordo', `select t.id, t.contrato, t.rotulo from carteira.titulos t where t.acordo_id is not null and not exists(select 1 from carteira.acordos a where a.id=t.acordo_id)`),
