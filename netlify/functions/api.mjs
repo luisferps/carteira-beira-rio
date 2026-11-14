@@ -328,18 +328,6 @@ async function decidir(n, item, de, conf) {
 }
 
 /* ---------- puxar descrições do banco antigo pelo número da fatura ---------- */
-function acharDescricao(o) {
-  let best = null;
-  const walk = (x) => {
-    if (!x || typeof x !== 'object') return;
-    for (const [k, v] of Object.entries(x)) {
-      if (typeof v === 'string' && /^(descri|description)/i.test(k) && (!best || v.length > best.length)) best = v;
-      else if (v && typeof v === 'object') walk(v);
-      else if (typeof v === 'string' && v.trim().startsWith('{')) { try { walk(JSON.parse(v)); } catch {} }
-    }
-  };
-  walk(o); return best;
-}
 async function asaas(path) {
   const key = (process.env.ASAAS_API_KEY || '').trim();
   for (let i = 0; i < 3; i++) {
@@ -3320,35 +3308,7 @@ async function previaAcaoIA(a) {
   return ACOES_IA[a.tipo] || a.tipo;
 }
 /* resumo da situação de um contrato para a IA */
-async function contextoContratoIA(n) {
-  if (!n) return '';
-  const [ct] = await q(`select numero, quadra, lote, compradores from carteira.contratos where numero=$1`, [n]);
-  if (!ct) return '';
-  const cs = await clientesDoContrato(n);
-  const [caso] = await q(`select etapa, criado_em from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [n]);
-  const d = (await dividas([n]))[n];
-  const fut = await q(`select rotulo, vencimento::text v from carteira.titulos t where contrato=$1 and conferente is null and grupo<>'acordo' and vencimento >= $2::date and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis') order by vencimento limit 3`, [n, hojeBR()]);
-  return `Contrato ${n} (Quadra ${ct.quadra}, Lote ${ct.lote}). Clientes (nome exatamente como está no cadastro): ${cs.map(c => `${c.nome} (telefones: ${[...new Set(fonesDoCliente(c))].join(', ') || 'nenhum'}; e-mail atual: ${(c.manual || {}).email || (c.asaas || {}).email || (c.planilha || {}).email || '—'}; outros e-mails conhecidos: ${[...new Set([(c.manual || {}).email, (c.asaas || {}).email, (c.planilha || {}).email].filter(Boolean))].join(', ') || '—'})`).join('; ') || (ct.compradores || []).map(x => x.nome).join(', ')}.
-${caso ? `Está na campanha de cobrança, etapa "${caso.etapa}".` : 'Não está na campanha de cobrança.'} Dívida em atraso hoje: R$ ${(d?.total || 0).toFixed(2)} em ${d?.parcelas.length || 0} parcela(s).
-Próximas parcelas a vencer: ${fut.map(t => `${t.rotulo} (${t.v})`).join(', ') || 'nenhuma'}.`;
-}
 /* contratos citados no texto pelo nome do cliente: primeiro os da página em que o usuário está, depois o resto do sistema */
-async function contratosCitados(texto, pagina) {
-  const tks = normNome(texto).split(' ').filter(t => t.length >= 3 && !['que','com','para','pra','ele','ela','dele','dela','novo','nova','numero','trocou','pagar','pagou','dia','mes','boleto','parcela','cliente','contrato','telefone','mandou','falou','disse','prometeu','vai','esta','isso','aqui','hoje','amanha','ontem','ligou','liguei','mensal','anual'].includes(t));
-  if (!tks.length) return [];
-  const cts = await q(`select numero, compradores from carteira.contratos`);
-  const camp = new Set((await q(`select contrato from carteira.cobranca_casos where encerrado_em is null`)).map(x => x.contrato));
-  const out = [];
-  for (const c of cts) {
-    const nomes = (Array.isArray(c.compradores) ? c.compradores : []).map(x => normNome(x.nome)).filter(Boolean);
-    let pts = 0; for (const n of nomes) { const ns = n.split(' '); const hit = tks.filter(t => ns.includes(t)).length; if (hit) pts = Math.max(pts, hit + (tks.includes(ns[0]) ? 1 : 0)); }
-    if (/\b\d{4}\b/.test(texto) && texto.includes(c.numero)) pts += 5;
-    if (!pts) continue;
-    const naPagina = pagina === 'cobranca' && camp.has(c.numero);
-    out.push({ numero: c.numero, nomes: (c.compradores || []).map(x => x.nome).join(' e '), na_cobranca: camp.has(c.numero), pts: pts + (naPagina ? 3 : 0) });
-  }
-  return out.sort((a, b) => b.pts - a.pts).slice(0, 6);
-}
 /* ferramentas de consulta da IA (só leitura): ela olha o sistema antes de propor, como uma pessoa faria */
 export const ferramentaIA = criaConsultasIA({ q, normNome, fonesDoCliente, digF, clientesDoContrato, dividas, hojeBR, ATIVOS_B });
 export const buscarRegistros = criaBuscaRegistros(q);

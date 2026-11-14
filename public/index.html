@@ -243,7 +243,6 @@ function blocoPendencias(){const L=C.eventos.filter(e=>e.tipo==='pendencia'),abe
  ${L.length?L.map(e=>{const d=e.dados||{},ok=d.status==='resolvida';return `<div class="ficha" style="margin:8px 0;border-left:4px solid ${ok?'#22c55e':'#f59e0b'}"><b>${ok?'Resolvida':'Pendente'}</b> · ${dbr(e.data)}${d.responsavel?' · Responsável: '+esc(d.responsavel):''}<div style="white-space:pre-wrap;margin:6px 0">${esc(e.obs||'')}</div>${d.resultado?`<div style="white-space:pre-wrap">Andamento / solução: ${esc(d.resultado)}</div>`:''}${d.resolvida_em?`<div class="mut">Resolvida em ${dbr(d.resolvida_em)}</div>`:''}<button onclick="novaPend(${e.id})">${ok?'Ver / reabrir':'Editar / resolver'}</button></div>`}).join(''):'<div class="mut">Nenhuma pendência registrada.</div>'}</details>`}
 async function novaObs(){const t=prompt('Observação deste contrato:');if(!t)return;const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'observacao',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{},obs:t}});recarrega()}
 async function apagaObs(id){if(!confirm('Apagar esta observação?'))return;await api('evento/'+id,{method:'DELETE'});recarrega()}
-function resolvePend(id){novaPend(id)}
 /* ---------- MÓDULOS ---------- */
 function telaModulos(){
   app.innerHTML=`<div class="mods">
@@ -341,7 +340,6 @@ async function telaCaso(id){app.innerHTML='<div class="card">Carregando…</div>
     </div>
    <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h3 style="margin:0">Histórico</h3><button onclick="buscaWhatsCaso(${X.id},this)" title="Busca no seu WhatsApp as conversas dos últimos 30 dias com os telefones do cadastro">Buscar conversas do WhatsApp</button></div>${timelineCaso(X)}</div></div>`}
 async function excluiCaso(){if(!confirm('Excluir este caso e todo o histórico dele? Use só para caso lançado por engano.'))return;await api('cobranca/caso/'+CASO.caso.id,{method:'DELETE'});location.hash='cobranca'}
-function negociacaoDe(id){const cc=CASO?.cc;if(!cc)return '';const p=(cc.propostas||[]).find(p=>(p.dados?.titulos_origem||[]).map(Number).includes(+id));return p?'na proposta '+(p.dados?.termo||''):''}
 function editaReg(id){const r=CASO.registros.find(x=>x.id==id);if(!r)return;const d=new Date(new Date(r.em).getTime()-3*3600e3).toISOString().slice(0,10),hoje=hojeL();
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Editar registro</h3><button onclick="fechaModal()">Fechar</button></div>
   <div class="f2"><div><label>Data do contato</label><input type="date" id="er_d" value="${d}" max="${hoje}"></div><div><label>Como foi</label><select id="er_t">${['ligacao','whatsapp','email','visita','nota'].map(k=>`<option value="${k}" ${r.tipo===k?'selected':''}>${TIPOS_REG[k]}</option>`).join('')}</select></div>
@@ -350,8 +348,6 @@ function editaReg(id){const r=CASO.registros.find(x=>x.id==id);if(!r)return;cons
   <div class="bt" style="margin-top:8px"><button class="pri" onclick="salvaEdReg(${id})">Salvar</button></div>`)}
 async function salvaEdReg(id){await api('cobranca/caso/'+CASO.caso.id+'/registro/'+id,{method:'PUT',body:{data:$('#er_d').value,tipo:$('#er_t').value,resultado:$('#er_r').value,texto:$('#er_x').value}});fechaModal();telaCaso(CASO.caso.id)}
 async function apagaReg(id){if(!confirm('Apagar este registro do histórico?'))return;await api('cobranca/caso/'+CASO.caso.id+'/registro/'+id,{method:'DELETE'});telaCaso(CASO.caso.id)}
-function contaSelCaso(){const n=document.querySelectorAll('.cpk:checked').length,b=$('#cpk_b');if(b){b.disabled=!n;b.textContent=n?`Fazer proposta com as marcadas (${n})`:'Fazer proposta com as marcadas'}}
-function propostaCaso(){if(!CASO.cc)return alert('Não consegui carregar o contrato.');C=CASO.cc;SEL.clear();document.querySelectorAll('.cpk:checked').forEach(x=>SEL.add(+x.value));if(!SEL.size)return;modalAcordo()}
 /* abre outra tela do sistema (contrato, cadastro do cliente) numa janela por cima, sem sair do caso */
 function modalTela(hash,titulo,aoFechar){const d=document.createElement('div');d.className='telamodal';
   d.innerHTML=`<div class="tm"><div class="tmb"><b>${esc(titulo)}</b><button onclick="this.closest('.telamodal')._fecha()">Fechar</button></div><iframe src="/?embed=1#${hash}"></iframe></div>`;
@@ -413,7 +409,6 @@ async function buscaWhatsCaso(id,b){const t=b.textContent;b.disabled=true;b.text
 function relCasoSaldo(){if(!CASO.cc)return alert('Não consegui carregar o contrato.');const sv=C;C=CASO.cc;RELNEG=true;try{relatorio('saldo')}finally{C=sv;RELNEG=false}}
 function relCasoPagos(){if(!CASO.cc)return alert('Não consegui carregar o contrato.');const sv=C;C=CASO.cc;try{relatorio('pagos')}finally{C=sv}}
 function relCaso(){if(!CASO.cc)return alert('Não consegui carregar o contrato.');const sv=C;C=CASO.cc;RELNEG=true;try{relatorio('atraso')}finally{C=sv;RELNEG=false}}
-function copia(t){navigator.clipboard.writeText(t);alert('Link copiado.')}
 async function mudaCaso(b){const r=await api('cobranca/caso/'+CASO.caso.id,{method:'PUT',body:b});telaCaso(CASO.caso.id)}
 async function encerraCaso(){const m=prompt('Motivo para tirar da cobrança (ex.: Regularizado, Retomada, Distrato, não cobrar agora).\n\nEle não volta sozinho para a campanha; fica em "Tirados da cobrança por você" até você mandar de novo.',+CASO.divida.total?'':'Regularizado');if(!m)return;await api('cobranca/caso/'+CASO.caso.id+'/encerrar',{method:'POST',body:{motivo:m}});location.hash='cobranca'}
 function modalReg(pre){const hoje=hojeL();
@@ -885,7 +880,6 @@ function acordoEfetivo(a){if(ehRep(a))return C.titulos.some(x=>x.acordo_id==a.id
 function acordoDe(t){return C.acordos.find(a=>(a.titulos_origem||[]).map(Number).includes(Number(t.id)))}
 const NOMES={paga:'Paga em dia',paga_atraso:'Paga com atraso',quitada_acordo:'Paga em cobrança (acordo)',em_acordo:'Não paga, em acordo aguardando pagamento',quitada_repact:'Paga por repactuação',em_repact:'Repactuada (boletos em aberto)',cancelada:'Cancelada',diluida:'Diluída nas parcelas seguintes (não paga; o valor foi somado às próximas)',em_atraso:'Não paga',vencida:'Não paga',futura:'A vencer'};
 const FATOR_ANO={2024:1.02,2025:1.0854,2026:1.02};
-function fatorAnos(y0,y1){let f=1;for(let y=y0+1;y<=y1;y++)f*=FATOR_ANO[y]||1;return f}
 /* correções de janeiro do contrato: a lançada (vinda do Asaas) em cada ano; se o ano não tem nenhuma lançada, usa o índice da tabela */
 function correcoesAno(){const fm=fatoresMensais(),m0=C.titulos.find(x=>x.grupo==='mensal'&&!x.conferente),dd=String(m0?.vencimento||'2000-01-10').slice(8,10);
   const y0=+String(C.contrato.data_assinatura||m0?.vencimento||'2000').slice(0,4),out=[],anos=new Set();
@@ -916,8 +910,6 @@ function partesAcordo(a){const ac=+a.valor_acordado||0;if(a.tipo==='repactuacao'
 function embute(t,k){const a=t.grupo==='acordo'&&(C.acordos||[]).find(x=>x.id==t.acordo_id);const q=a?partesAcordo(a):{pr:1,mu:0,ju:0,ho:0};
   const e={mu:k.v*q.mu,ju:k.v*q.ju,ho:k.v*q.ho};k.e=e;k.ac=a||null;k.P=k.v-e.mu-e.ju-e.ho;k.M=k.mu+e.mu;k.J=k.ju+e.ju;k.H=k.ho+e.ho;return k}
 function custoCobrancaAtual(k){return Math.max(0,k.v+k.co+k.mu+k.ju)*.10}
-function encDe(v,venc,ate){const dias=Math.max(0,Math.round((new Date(ate)-new Date(venc))/864e5));if(!dias)return{mu:0,ju:0,ho:0,dias};
-  const mu=v*.02,ju=v*(Math.pow(1.01,dias/30)-1),ho=dias>60?(v+mu+ju)*.10:0;return{mu,ju,ho,dias}}
 function totais(){
   let qv=0,esp=0,rec=0,pend=0;const pg={pr:0,mu:0,ju:0,ho:0,de:0,cp:0},at={pr:0,co:0,mu:0,ju:0,ho:0,q:0};
   for(const t of C.titulos){const e=estado(t);const venc=t.vencimento&&t.vencimento<=C.hoje;if(e==='cancelada'||e==='diluida')continue;
@@ -1490,9 +1482,7 @@ async function salvaProposta(){const d=window._salvaAcordoDados();if(!d.parcelas
   await api('proposta',{method:'POST',body:{contrato:C.contrato.numero,dados:d}});SEL.clear();SELMODO=false;fechaModal();await recarrega();await guardaTermoAuto(d);desenhaContrato();alert('Proposta '+d.termo+' salva (termo salvo no sistema). As parcelas continuam em atraso até você efetivar (quando o cliente pagar o 1º boleto).')}
 function A0T(aid){return C.acordos.find(a=>a.id==aid)?.termo||''}
 function tArq(termo){return (C.termosArq||[]).find(x=>x.termo===termo)}
-async function blobTermo(termo){const r=await api('termo-arq/'+encodeURIComponent(termo));const b=Uint8Array.from(atob(r.b64),c=>c.charCodeAt(0));return {nome:r.nome,blob:new Blob([b],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'})}}
 async function htmlSalvo(termo){if(!termo||!tArq(termo))return null;const r=await api('termo-arq/'+encodeURIComponent(termo));return r.html||null}
-async function baixaTermo(d){return termoComo(d,'word')}
 /* Word ou PDF do termo: o usuário escolhe onde salvar */
 function aguardeT(on,txt){let el=document.getElementById('aguardeT');if(!on){el&&el.remove();return}if(!el){el=document.createElement('div');el.id='aguardeT';el.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111;color:#fff;padding:12px 18px;border-radius:10px;z-index:99999;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.3)';document.body.appendChild(el)}el.textContent=txt||'Gerando o termo… aguarde alguns segundos'}
 async function termoComo(d,tipo){try{await carregaTermo();const h=await htmlSalvo(d?.termo);const o=window.showSaveFilePicker;if(o)window.showSaveFilePicker=async(...a)=>{const r=await o(...a);aguardeT(true,tipo==='pdf'?'Gerando o PDF… aguarde alguns segundos':'Gerando o Word… aguarde');return r};else aguardeT(true);try{const r=await window.salvaTermoComo(d,h||undefined,tipo);aguardeT(true,'Termo salvo.');setTimeout(()=>aguardeT(false),2500);return r}finally{if(o)window.showSaveFilePicker=o}}catch(e){aguardeT(false);console.error(e);alert('Erro ao gerar o termo: '+e.message)}}
@@ -1523,9 +1513,6 @@ async function salvaEd(baixar){const d=window._ED,html=$('#ed_t').innerHTML;awai
 async function voltaTermoEd(){if(!confirm('Descartar as edições e recriar o termo com o texto padrão do sistema?'))return;const d=window._ED;if(tArq(d.termo))await api('termo-arq/'+encodeURIComponent(d.termo),{method:'DELETE'});const cl=C.clientes;C=await api('contrato/'+C.contrato.numero);C.clientes=cl;$('#ed_t').innerHTML=window.htmlTermo(d)}
 function imprimeEd(){const d=window._ED,w=window.open('','_blank');w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Termo ${esc(d.termo)}</title><style>body{font-family:Arial;font-size:13px;line-height:1.45;text-align:justify;margin:0}#ed_t{padding:0}${EDCSS}
   .wm{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:330px;opacity:1;z-index:-1}.rod{position:fixed;bottom:0;left:0;right:0;text-align:center;font-size:10px;color:#888}@page{size:A4;margin:20mm}</style></head><body><img class="wm" src="${location.origin}/ferramentas/wm.png"><div class="rod">Termo de Confissão e Renegociação de Dívida nº ${esc(d.termo)}</div><div id="ed_t">${$('#ed_t').innerHTML}</div><script>onload=()=>print()<\/script></body></html>`);w.document.close()}
-function enviaTermo(termo){const i=document.createElement('input');i.type='file';i.accept='.docx';i.onchange=async()=>{const f=i.files[0];if(!f)return;if(f.size>4e6)return alert('Arquivo grande demais (máximo 4 MB).');
-  const u=new Uint8Array(await f.arrayBuffer());let s='';for(let k=0;k<u.length;k+=32768)s+=String.fromCharCode.apply(null,u.subarray(k,k+32768));
-  await api('termo-arq',{method:'POST',body:{contrato:C.contrato.numero,termo,nome:f.name,b64:btoa(s)}});await recarrega();alert('Termo '+termo+' editado salvo no sistema. A partir de agora, "Baixar termo" e "Efetivar" usam essa versão.')};i.click()}
 async function voltaTermo(termo){if(!confirm('Apagar a versão editada do termo '+termo+' e voltar a usar a gerada pelo sistema?'))return;await api('termo-arq/'+encodeURIComponent(termo),{method:'DELETE'});recarrega()}
 /* termo fica salvo no sistema assim que o acordo/proposta é gravado (versão "auto" acompanha as edições do acordo; versão editada à mão fica como está) */
 /* ações da proposta/acordo a partir da tela da cobrança: abre o contrato e executa */
@@ -1575,10 +1562,6 @@ async function efetivaPropostaOk(id){const d0=pDados(id);if(!d0)return;const f=$
     if(d.termo){const A=C.acordos.find(a=>a.termo===d.termo);const dt2=A?acordoParaTermo(A.id):d;if(f&&await gravaAssinadoNaPasta(dt2,f,hP))msg+='\nTermo assinado gravado na pasta Negociações.';alert(msg);await termoNaPasta(dt2,hP)}else alert(msg)}
   catch(e){btn.disabled=false;btn.textContent='Efetivar acordo e gerar os boletos';$('#ef_erro').textContent=e.message||'Não foi possível efetivar.'}}
 /* termo assinado: botão em cada acordo com termo */
-async function preencheTermosAssinados(){const L=document.querySelectorAll('[data-tass]');if(!L.length||!(EU==='luis'||EU==='assistente'))return;
-  let D;try{D=await api('documentos?contrato='+C.contrato.numero)}catch(e){return}
-  L.forEach(el=>{const t=el.dataset.tass,a=(D.arquivos||[]).filter(x=>x.chave===chaveTA(t));
-    el.innerHTML=a.length?`<button class="ok" style="background:#dcfce7;color:#166534" onclick="abreDoc(${a[a.length-1].id})">Ver assinado</button>`:`<button style="background:#fee2e2;color:#991b1b" onclick="anexaAssinado('${esc(t)}',${el.dataset.aid})">Anexar assinado</button>`})}
 const assinadoTA=a=>(C.termosAssinados||[]).includes(String(a.termo).replace(/[^\w.-]/g,'_'));
 function cardTermo(a){const ok=assinadoTA(a),vst=(C.termosVerif||{})[String(a.termo).replace(/[^\w.-]/g,'_')],antigo=String(a.data_acordo).slice(0,10)<'2026-11-01';
   return `<button class="pc" style="background:#fff;color:#1f2937;border:2px solid ${ok||antigo?'#16a34a':'#dc2626'}" title="Termo do acordo: Word, PDF, pasta, editar e termo assinado" onclick="modalTermo(${a.id})"><b>📄 Termo</b><small>${esc(a.termo)}</small><small style="font-weight:700;color:${ok?(vst&&vst!=='ok'?corVerif(vst):'#15803d'):antigo?'#6b7280':'#b91c1c'}">${ok?(vst==='ok'?'assinado ✓ conferido':vst==='falta_devedor'?'falta assinatura':vst==='invalida'?'assinatura com problema':vst==='sem_assinatura'?'sem assinatura digital':'assinado ✓'):antigo?'em papel':'falta assinado'}</small></button>`}
