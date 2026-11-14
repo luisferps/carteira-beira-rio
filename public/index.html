@@ -182,10 +182,8 @@ async function enviaIA(){if(IAREC)IAREC.stop();const t=$('#ia_tx').value.trim();
 async function resolveIA(id,acao){try{const r=await api('ia/sugestoes/'+id+'/'+acao,{method:'POST',body:{}});IACHAT.push({t:acao==='aprovar'?'✔ '+(r.resultado||'Feito'):'Recusada.'});if($('#iapanel')){await desenhaIA();contaIA();if(acao==='aprovar'&&location.hash.startsWith('#cob/')&&CASO?.caso)telaCaso(CASO.caso.id);return}const el=$('#sg_'+id);if(el)el.outerHTML=`<div class="mut" style="margin:6px 0">${acao==='aprovar'?'✔ '+esc(r.resultado||'Feito'):'Recusada.'}</div>`;document.querySelectorAll('#sg_'+id).forEach(x=>x.remove());contaIA()}catch(e){}}
 function route(){const h=location.hash.slice(1);COMO='';document.body.classList.toggle('largo',h==='cobranca');
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
-  else if(h==='x'&&EU==='luis')telaCruzamento();
-  else if(h.startsWith('x/')&&EU==='luis')cruzContrato(h.slice(2));
   else if(h==='rateio-acordos'&&EU==='luis')telaRateioAcordos();
-  else if(h.startsWith('c/')){const pp=h.slice(2).split('/');window._ABRE_DEV=pp[1]==='dev';abrirContrato(pp[0])}else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='destrinchar'&&EU==='luis')telaDestrinchar();else if(h==='devolucoes'&&EU==='luis')telaDevolucoes();else if(h==='cessoes'&&EU==='luis')telaCessoes();else if(h==='mapa')telaMapa();else if(h==='painel'&&EU==='luis')telaPainel();else if(h==='comissoes'&&EU==='luis')telaComissoes();else if(h==='documentos'&&(EU==='luis'||EU==='assistente'))telaDocumentos();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
+  else if(h.startsWith('c/')){const pp=h.slice(2).split('/');window._ABRE_DEV=pp[1]==='dev';abrirContrato(pp[0])}else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='devolucoes'&&EU==='luis')telaDevolucoes();else if(h==='cessoes'&&EU==='luis')telaCessoes();else if(h==='mapa')telaMapa();else if(h==='painel'&&EU==='luis')telaPainel();else if(h==='comissoes'&&EU==='luis')telaComissoes();else if(h==='documentos'&&(EU==='luis'||EU==='assistente'))telaDocumentos();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function telaRateioAcordos(){
   app.innerHTML='<div class="card"><h3>Conferência de rateio dos acordos</h3><div id="rateio-dados">Carregando…</div></div>';
@@ -1004,7 +1002,7 @@ function desenhaContrato(){if(location.hash.startsWith('#cob/'))return;setTimeou
   const EVS=C.eventos.filter(e=>e.tipo!=='repactuacao'&&e.tipo!=='pendencia'&&e.tipo!=='observacao');const dilT=DIL.map(k=>`<button class="pc ev evdil" onclick="verCorrecao(${k.id})"><b>Diluição</b><small>a partir ${k.grupo==='mensal'?'M':'A'} ${k.a_partir}</small><small>${k.data?dbr(k.data).slice(0,5)+'/'+String(k.data).slice(2,4):'—'}</small><small>${brl(k.novo_valor).replace('R$','').trim()}</small><small class="orig">anuais nas mensais</small></button>`).join('');const evCD=e=>{const d=e.dados||{};return `<button class="pc ev ${e.tipo==='credito'?'evcred':'evdev'}" onclick="verEvento(${e.id})"><b>${e.tipo==='credito'?'Crédito':'Pagto. do crédito'}</b><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small><small style="font-weight:700">${brl(d.valor).replace('R$','').trim()}</small><small class="orig">${e.tipo==='credito'?'saldo '+brl(saldoCred()).replace('R$','').trim():esc(d.forma||'')+(d.destino?' → '+esc(d.destino):'')}</small></button>`};
   const ev=(EVS.length||DIL.length)?`<div class="lin lst">${dilT}${EVS.map(e=>(e.tipo==='credito'||e.tipo==='devolucao')?evCD(e):`<button class="pc ev ${e.tipo==='cessao'?'evces':'evenc'}" onclick="verEvento(${e.id})"><b>${e.tipo==='troca_lote'?'Troca de lote':e.tipo==='pagador'?'Titular do boleto':e.tipo==='vencimento'?'Vencimento alterado':e.tipo==='encerramento'?(/reaproveit/i.test(e.motivo||'')?'Troca de lote':'Encerr.'):e.tipo==='repactuacao'?'Repact.':e.dados?.subtipo==='alteracao'?'Alteração':e.dados?.subtipo==='credito'?'Crédito recebido':'Cessão'}</b><small>${esc(T.find(t=>t.id==e.a_partir_titulo)?.rotulo.replace(/^(Mensal|Anual|Entrada) /,(m,g)=>g[0]+' ').replace(/\/\d+$/,'')||'?')}</small><small>${e.data?dbr(e.data).slice(0,5)+'/'+String(e.data).slice(2,4):'—'}</small>${e.tipo==='repactuacao'&&e.dados?.boletos?`<small style="font-weight:700">${e.dados.boletos} boletos</small>`:''}${e.tipo==='vencimento'?`<small class="orig">${e.dados?.dias?'dia '+String(e.dados.antes||'').slice(8)+' → '+String(e.dados.depois||'').slice(8):''}${e.dados?.meses?(e.dados.meses>0?'+':'')+e.dados.meses+' meses':''}</small>`:''}${e.tipo==='cessao'&&e.dados?.taxa_cessao!=null?`<small style="font-weight:700">${brl(e.dados.taxa_cessao).replace('R$','').trim()} ${e.dados.pago_em?'✓':'✗'}</small>`:''}</button>`).join('')}</div>`:'<div class="mut">Nenhum evento.</div>';
   const itens=(c.itens||[]).map(i=>`<li>${esc(i.texto)}</li>`).join('');
-  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='${COMO?'x/'+c.numero:'contratos'}'">${COMO?'← Voltar ao cruzamento':'← Contratos'}</button></div>
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='contratos'">← Contratos</button></div>
   ${COMO?'<div class="aviso" style="background:#eff6ff;color:#1e3a8a;border-color:#bfdbfe"><b>Você está editando a VERSÃO FINAL</b> (a verdade do sistema). Tudo o que salvar aqui vai para a versão final.</div>':''}
   <div class="card"><div class="bt" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">Contrato ${c.numero}</h2><div style="font-size:15px;font-weight:600;margin-bottom:4px">Quadra ${c.quadra} · Lote ${c.lote}</div>
   <div>${tit}</div><div class="mut">Assinado em ${dbr(c.data_assinatura)} · Imóvel ${brl(c.valor_imovel)} · Fonte: ${esc(c.fonte)} "${esc(c.arquivo)}"</div><div id="pg_line" style="font-size:13px;margin-top:2px"></div></div>
@@ -1794,67 +1792,6 @@ async function salvaRepact(){const t=C.titulos.find(x=>x.id==$('#r_t').value);if
   await api('acordo',{method:'POST',body:{tipo:'repactuacao',contrato:C.contrato.numero,data_acordo:$('#r_d').value||t.vencimento,titulos_origem:[+t.id],principal:tot,multa:0,juros:0,honorarios:0,valor_calculado:tot,valor_acordado:tot,desconto_encargos:0,parcelas:vs.map((v,i)=>({vencimento:v,valor:vals[i]})),obs:$('#r_o').value}});
   fechaModal();recarrega()}
 
-/* ---------- CRUZAMENTO (só administrador) ---------- */
-const NOMECONF={luis:'Luis',secretaria:'Secretária',legado:'Banco antigo',final:'Final'};
-async function telaCruzamento(todos){
-  app.innerHTML='<div class="card">Comparando as conferências…</div>';
-  const L=await api('cruzamento'+(todos?'?todos=1':''));
-  const pend=L.filter(c=>c.pendentes).length,res=L.filter(c=>c.resolvido).length;
-  app.innerHTML=`<div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Cruzamento das conferências</h3>
-   <span class="tag al">${pend} com divergência pendente</span><span class="tag ok">${res} resolvidos</span>
-   <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" style="width:auto" ${todos?'checked':''} onchange="telaCruzamento(this.checked)"> mostrar todos (não só os fechados pelos dois)</label></div>
-   <div class="mut" style="margin-top:6px">Aparecem os contratos já fechados pela sua conferência e pela da secretária. Verde = tudo igual. Amarelo = tem divergência para decidir.</div></div>
-   <div class="cgrid">${L.map(c=>`<button class="cb ${c.resolvido||!c.pendentes?'fech':'alt'}" onclick="location.hash='x/${c.numero}'">
-    <div class="cbt"><b>${c.numero}</b><span>Q${c.quadra} L${c.lote}</span></div><div class="cbn">${esc(nome(c.titular))}</div>
-    <div class="mut">Comparando: ${c.confs.map(x=>NOMECONF[x]).join(' × ')||'—'}</div>
-    <div>${c.divergencias?`<span class="tag al">${c.pendentes} de ${c.divergencias} divergência(s) pendentes</span>`:'<span class="tag ok">Tudo igual</span>'} ${c.resolvido?'<span class="tag ok">Resolvido</span>':''}</div></button>`).join('')||'<div class="card">Nenhum contrato fechado pelos dois ainda.</div>'}</div>`;
-}
-async function cruzContrato(n){
-  app.innerHTML='<div class="card">Carregando…</div>';
-  X=await api('cruzamento/'+n);X.n=n;desenhaCruz();
-}
-function desenhaCruz(){
-  const T=X.titulos,ct=X.dados.final.contrato||X.dados[X.confs[0]]?.contrato;
-  const b=t=>{const cls=t.decidido?'cancelada':t.diverge?'vencida':'paga';
-    return `<button class="pc ${cls} ${t.grupo==='anual'?'anual':''}" title="${esc(t.rotulo)}" onclick="cruzTitulo(${t.id})"><b>${t.grupo==='mensal'?'M':t.grupo==='anual'?'A':t.grupo==='entrada'?'E':'P'} ${t.numero}</b><small>${dbr(t.vencimento).slice(0,5)}${t.vencimento?'/'+t.vencimento.slice(2,4):''}</small><small>${t.decidido?'decidido':t.diverge?'DIVERGE':'igual'}</small></button>`};
-  const ent=T.filter(t=>t.grupo==='entrada'),men=T.filter(t=>t.grupo==='mensal'),anu=T.filter(t=>t.grupo==='anual'),out=T.filter(t=>t.grupo==='outra');
-  let lin='';if(ent.length)lin+=`<div class="lin"><span class="rot">Entrada</span>${ent.map(b).join('')}</div>`;
-  for(let a=0;a<Math.max(Math.ceil(men.length/12),anu.length);a++)lin+=`<div class="lin"><span class="rot">Ano ${a+1}</span>${men.slice(a*12,a*12+12).map(b).join('')}${anu[a]?'<span style="width:10px"></span>'+b(anu[a]):''}</div>`;
-  if(out.length)lin+=`<div class="lin"><span class="rot">Outras</span>${out.map(b).join('')}</div>`;
-  const NS={acordos:'Acordos',correcoes:'Correções',eventos:'Encerramento e cessão'};
-  const sec=X.secoes.map(s=>`<div class="card" style="margin:8px 0;border-left:5px solid ${s.decidido?'var(--ca)':s.diverge?'var(--ve)':'var(--pg)'}">
-   <div class="bt" style="align-items:center"><b style="flex:1">${NS[s.secao]}</b>${s.decidido?`<span class="tag">decidido: ${esc(NOMECONF[s.decidido.de]||s.decidido.de)}</span>`:s.diverge?'<span class="tag al">DIVERGE</span>':'<span class="tag ok">igual</span>'}</div>
-   <table><tbody>${X.confs.map(c=>`<tr><td style="width:130px"><b>${NOMECONF[c]}</b></td><td>${esc(s.sig[c]||'(nada lançado)')}</td><td style="width:150px">${s.diverge?`<button onclick="cruzUsar('secao','${s.secao}','${c}')">Usar esta versão</button>`:''}</td></tr>`).join('')}</tbody></table></div>`).join('');
-  const nd=T.filter(t=>t.diverge).length+X.secoes.filter(s=>s.diverge).length,np=T.filter(t=>t.diverge&&!t.decidido).length+X.secoes.filter(s=>s.diverge&&!s.decidido).length;
-  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='x'">← Cruzamento</button></div>
-  <div class="card"><h2 style="margin:0">Cruzamento · Contrato ${X.n} · Q${ct?.quadra} L${ct?.lote}</h2>
-   <div class="mut">Comparando: ${X.confs.map(c=>NOMECONF[c]).join(' × ')} · ${nd} divergência(s), ${np} pendente(s)</div>
-   ${X.dados.final.fechamento?`<div class="info">Contrato marcado como RESOLVIDO em ${new Date(X.dados.final.fechamento.fechado_em).toLocaleString('pt-BR')}</div>`:''}
-   <div class="bt" style="margin-top:10px"><button class="pri" onclick="cruzAcao('aceitar_iguais')">Aceitar tudo que bate</button>
-    <button onclick="location.hash='f/${X.n}'">Abrir versão final para editar</button><span style="flex:1"></span>
-    ${X.dados.final.fechamento?`<button onclick="cruzAcao('reabrir')">Reabrir</button>`:`<button class="pri" onclick="cruzResolver(${np})">Marcar contrato resolvido</button>`}</div></div>
-  <div class="card"><div class="leg"><span style="--c:var(--pg)">Igual nas conferências</span><span style="--c:var(--ve)">Diverge (clique para decidir)</span><span style="--c:var(--ca)">Já decidido</span></div><br>
-   <div class="grid">${lin}</div></div><div class="card">${sec}</div>`;
-}
-function cruzTitulo(id){
-  const t=X.titulos.find(x=>x.id==id);
-  const col=c=>{const D=X.dados[c],pg=D.pagamentos.filter(p=>p.titulo_id==id),sit=D.situacoes.find(s=>s.titulo_id==id),est=(t.sig[c]||'').split('|')[0];
-    return `<div class="card" style="flex:1;min-width:220px;margin:0"><h4 style="margin:0 0 6px">${NOMECONF[c]}</h4><div><b>${NOMES[est]||est}</b></div>
-     ${sit?.obs?`<div class="mut">Obs.: ${esc(sit.obs)}</div>`:''}
-     ${pg.map(p=>`<div class="pgl" style="display:block"><b>${brl(p.valor_pago)}</b> · entrou ${dbr(p.confirmada_em)}<br>fatura ${esc(p.fatura||'—')} · ${esc(p.forma||'')}<br><span class="mut">${esc((p.descricao||'').slice(0,160))}</span>${p.tem_print?`<br><button onclick="verPrintDe(${p.id},'${c}')">Ver print</button>`:''}</div>`).join('')||'<div class="mut">Nenhum pagamento lançado</div>'}
-     <button class="pri" style="margin-top:8px" onclick="cruzUsar('titulo',${id},'${c}')">Usar esta versão</button></div>`};
-  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${esc(t.rotulo)} — vence ${dbr(t.vencimento)}</h3><button onclick="fechaModal()">Fechar</button></div>
-   ${t.decidido?`<div class="info">Decidido: versão ${esc(NOMECONF[t.decidido.de]||t.decidido.de)} em ${new Date(t.decidido.em).toLocaleString('pt-BR')}</div>`:''}
-   <div class="bt" style="align-items:stretch">${X.confs.map(col).join('')}</div>
-   <div class="mut" style="margin-top:8px">Se nenhuma estiver certa, use "Abrir versão final para editar" e corrija direto na versão final.</div>`);
-}
-async function verPrintDe(id,c){const antes=COMO;COMO=c==='final'?'final':'';try{const d=await api('print/'+id);if(!d.conteudo)return alert('Print não disponível para a conferência de outra pessoa.');const w=window.open('');w.document.write(`<img src="${d.conteudo}" style="max-width:100%">`)}finally{COMO=antes}}
-async function cruzUsar(tipo,alvo,de){
-  await api('cruzamento/'+X.n,{method:'POST',body:tipo==='titulo'?{acao:'titulo',titulo_id:alvo,de}:{acao:'secao',secao:alvo,de}});
-  fechaModal();cruzContrato(X.n);
-}
-async function cruzAcao(acao){await api('cruzamento/'+X.n,{method:'POST',body:{acao}});cruzContrato(X.n)}
-async function cruzResolver(np){if(np&&!confirm(`Ainda há ${np} divergência(s) sem decisão. Marcar resolvido mesmo assim?`))return;cruzAcao('resolver')}
 
 iniciar();
 /* ===== Acerto mensal ===== */
@@ -2033,19 +1970,6 @@ async function planilhaAc(){
   const buf=await wb.xlsx.writeBuffer();const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));a.download=`Acerto mês ${A.mes.slice(5)}-${A.mes.slice(0,4)}.xlsx`;a.click()}
 
 
-/* ===== Destrinchar pagamentos de acordo / 2ª via ===== */
-async function telaDestrinchar(){app.innerHTML='<div class="card">Carregando…</div>';const d=await api('boletos/ressepara',{method:'POST',body:{}});const L=d.itens;
-  const por={};for(const x of L)(por[x.contrato]=por[x.contrato]||[]).push(x);const cs=Object.keys(por).sort();
-  const tot=k=>L.reduce((s,x)=>s+x.depois[k]-(x.antes[k]||0),0);
-  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
-  <div class="card"><h3 style="margin-top:0">Destrinchar pagamentos de acordo e 2ª via</h3>
-  <div class="mut" style="font-size:13px">Pagamentos que estão lançados com o valor inteiro na parcela, sem separar parcela, multa, juros e custo de cobrança. A separação sai da composição gravada no próprio acordo / 2ª via. O valor pago não muda.</div>
-  <div class="tot" style="margin-top:10px"><div><span class="mut">Pagamentos</span><b>${L.length}</b></div><div><span class="mut">Contratos</span><b>${cs.length}</b></div><div><span class="mut">Custo de cobrança que passa a aparecer</span><b>${brl(tot('custo'))}</b></div></div>
-  ${L.length?`<div class="bt" style="margin-top:10px"><button class="pri" onclick="aplicaDestrinchar(${L.length})">Aplicar nos ${L.length} pagamentos</button></div>`:'<div class="info">Nada para destrinchar.</div>'}</div>
-  <div class="cgrid">${cs.map(c=>blk({cor:ROXO,num:c,nome:por[c].length+' pagamento(s)',valor:brl(por[c].reduce((s,x)=>s+x.depois.custo-x.antes.custo,0)),linhas:['custo de cobrança que aparece'],on:`detDestr('${c}')`})).join('')}</div>`;window._DESTR=por}
-function detDestr(c){const L=window._DESTR[c].sort((a,b)=>String(a.pago_em).localeCompare(String(b.pago_em)));
-  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Contrato ${c}</h3><button onclick="fechaModal()">Fechar</button></div><div class="cgrid">${L.map(x=>blk({cor:ROXO,num:esc(x.origem||''),ql:dbr(x.pago_em),nome:esc(x.parcela),valor:'Pago '+brl(x.pago),linhas:[`Parcela ${n2b(x.depois.cobranca)} (antes ${n2b(x.antes.cobranca)})`,`Multa ${n2b(x.depois.multa)} · Juros ${n2b(x.depois.juros)}`,`Custo de cobrança ${n2b(x.depois.custo)}`]})).join('')}</div>`)}
-async function aplicaDestrinchar(n){if(!confirm(`Gravar a separação em ${n} pagamentos? Fica registrado no histórico.`))return;const r=await api('boletos/ressepara',{method:'POST',body:{aplicar:true}});alert(r.mudam+' pagamento(s) destrinchados.');telaDestrinchar()}
 /* ===== Devoluções ===== */
 let DEVL=null,DEVF='abertas';
 async function telaDevolucoes(){app.innerHTML='<div class="card">Carregando…</div>';DEVL=await api('devolucoes');desenhaDev()}
