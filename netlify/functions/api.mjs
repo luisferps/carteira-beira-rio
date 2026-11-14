@@ -3548,6 +3548,8 @@ async function rotasPagador(p, m, body, real) {
       C('pendencias_abertas', `select e.contrato, e.data, left(e.dados->>'resultado',120) txt from carteira.eventos e where e.tipo='pendencia' and coalesce(e.dados->>'status','aberta')='aberta' order by e.data`),
       C('titulo_sem_vencimento', `select id, contrato, rotulo from carteira.titulos where vencimento is null`),
       C('sessoes_expiradas', `select count(*) n from carteira.sessoes where expira_em < now()`),
+      C('tabelas', `select relname tabela, n_live_tup linhas, pg_size_pretty(pg_total_relation_size(relid)) tamanho, seq_scan, idx_scan from pg_stat_user_tables where schemaname='carteira' order by pg_total_relation_size(relid) desc`),
+      C('indices', `select tablename, indexname from pg_indexes where schemaname='carteira' order by 1,2`),
     ]);
     return json(Object.fromEntries(R));
   }
