@@ -269,6 +269,7 @@ async function telaCobranca(){app.innerHTML='<div class="card">Carregando…</di
   const tot=K.filter(c=>c.etapa!=='acordo'&&!(+c.valor_acordo>0)).reduce((s,c)=>s+(+c.divida.total||0),0),hojeN=K.filter(c=>c.proximo_contato&&c.proximo_contato.slice(0,10)<=hoje).length;
   const quebr=K.filter(c=>c.promessa&&c.promessa.data_promessa&&c.promessa.data_promessa.slice(0,10)<hoje&&!(c.pago_na_campanha&&c.pago_na_campanha.ult>=String(c.promessa.em).slice(0,10))).length;
   const atrN=K.filter(c=>c.proximo_contato&&c.proximo_contato.slice(0,10)<hoje).length;
+  if(!window._COB_ABRIU){window._COB_ABRIU=1;if(hojeN)COBTAB='hoje'}
   const tb=(k,l)=>`<button data-t="${k}" class="${COBTAB===k?'on':''}">${l}</button>`;
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
   <div class="card"><h3 style="margin-top:0">Cobrança</h3>
