@@ -9,6 +9,7 @@ import { criaDevolucoes } from './devolucoes-lib.mjs';
 import { criaCessoes } from './cessoes-lib.mjs';
 import { criaPainel } from './painel-lib.mjs';
 import { criaDocumentos } from './documentos-lib.mjs';
+import { fazBackup, listaBackups, baixaBackup } from './backup-lib.mjs';
 import { verificaPdf, comparaDevedores, infoCadeiaGovBr } from './assinatura-lib.mjs';
 
 pg.types.setTypeParser(1082, v => v);
@@ -1387,6 +1388,7 @@ async function resumoSaidaCobranca(c, tot, ate, manual) {
   return `${res}: ${partes.join(' e ') || 'sem pagamento nem acordo registrado'}. Dívida ao sair: ${R(tot)}${manual ? '' : ' (abaixo de R$ 5 mil) — saiu sozinho da campanha'}`;
 }
 /* rotina da cobrança: entra na fila acima de R$ 5 mil, promessa vencida volta para Negociando, quem baixou de R$ 5 mil sai. Roda sozinha a cada 2h e ao abrir a tela */
+export async function backupAgendado() { return fazBackup(q, 'automatico'); }
 export async function cobrancaAutomatica() {
   await garanteCobranca();
   const D0 = await dividas(null);
@@ -3342,6 +3344,11 @@ async function rotasPagador(p, m, body, real) {
     return json(out);
   }
   /* auditoria dos dados: só leitura, aponta inconsistências do banco */
+  if (p[0] === 'manutencao' && p[1] === 'backups' && real === 'luis') {
+    if (m === 'GET' && !p[2]) return json(await listaBackups());
+    if (m === 'POST' && !p[2]) { const r = await fazBackup(q, 'manual'); await log(real, 'backup_manual', r); return json(r); }
+    if (m === 'GET' && p[2]) return (await baixaBackup(decodeURIComponent(p[2]))) || json({ erro: 'Cópia não encontrada' }, 404);
+  }
   if (p[0] === 'manutencao' && p[1] === 'auditoria-dados' && m === 'GET' && real === 'luis') {
     await garanteBoletos();
     const C = async (nome, sql, prm = []) => { try { const r = await q(sql, prm); return [nome, { n: r.length, amostra: r.slice(0, nome.startsWith('uso') || nome.startsWith('acoes') ? 200 : 15) }]; } catch (e) { return [nome, { erro: e.message }]; } };

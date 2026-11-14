@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "@netlify/blobs": "8.2.0",
     "asn1js": "^4.0.0",
     "pg": "^8.13.1",
     "pkijs": "^4.0.1",
