@@ -2835,6 +2835,15 @@ export default async (req) => {
 
     /* troca de lote: o cliente passa a ter outro lote no mesmo contrato (ex.: lote retomado de outro comprador).
        Muda quadra/lote do contrato (relatórios, extratos e boletos novos) e corrige a descrição dos boletos em aberto no Asaas. */
+    if (p[0] === 'titulo' && p[1] && p[2] === 'vencimento' && m === 'PUT') {
+      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      const d = limpa(body.data); if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(d || '')) return json({ erro: 'Data inválida' }, 400);
+      const [t] = await q(`select id, contrato, rotulo, vencimento::text v from carteira.titulos where id=$1`, [p[1]]);
+      if (!t) return json({ erro: 'Parcela não encontrada' }, 404);
+      await q(`update carteira.titulos set vencimento=$2 where id=$1`, [t.id, d]);
+      await log(real, 'vencimento_alterado', { titulo: t.id, contrato: t.contrato, rotulo: t.rotulo, de: t.v, para: d, obs: body.obs || null });
+      return json({ ok: true });
+    }
     if (p[0] === 'contrato' && p[2] === 'troca-lote' && m === 'POST') {
       if (real !== 'luis') return json({ erro: 'Só o Luis pode trocar o lote de um contrato.' }, 403);
       const b = body, n = p[1], pad = x => String(x || '').trim().replace(/^\d$/, d => '0' + d);
