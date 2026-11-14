@@ -1918,7 +1918,12 @@ export default async (req) => {
   const url = new URL(req.url);
   const p = url.pathname.replace(/^\/(\.netlify\/functions\/api|api)/, '').split('/').filter(Boolean);
   if (p[0] === 'asaas-webhook' && req.method === 'POST') return webhookAsaas(req);
-  if (p[0] === 'cobranca-ping' && req.method === 'POST') return pingCobranca(await req.json().catch(() => ({})));
+  if (p[0] === 'cobranca-ping' && req.method === 'POST') {
+    /* aviso do backend do WhatsApp: com COBRANCA_PING_TOKEN configurado nos dois lados, só aceita quem manda a mesma chave */
+    const tk = (process.env.COBRANCA_PING_TOKEN || '').trim();
+    if (tk && (req.headers.get('x-ping-token') || '') !== tk) return json({ erro: 'token' }, 401);
+    return pingCobranca(await req.json().catch(() => ({})));
+  }
   if (p[0] === 'diag') {
     let teste = 'ok';
     try { await q('select 1'); } catch (e) { teste = e.message; }
@@ -2794,7 +2799,7 @@ export default async (req) => {
 
     /* entrada do acordo não paga: desfaz o acordo. Cancela no Asaas os boletos do acordo e as parcelas de origem voltam a ficar em atraso */
     if (p[0] === 'acordo' && p[1] && p[2] === 'desfazer' && m === 'POST') {
-      if (conf !== 'luis') return json({ erro: 'Só o Luis pode desfazer um acordo.' }, 403);
+      if (real !== 'luis') return json({ erro: 'Só o Luis pode desfazer um acordo.' }, 403);
       const [a] = await q(`select * from carteira.acordos where id=$1 and conferente='luis'`, [p[1]]);
       if (!a) return json({ erro: 'Acordo não encontrado.' }, 404);
       const [pg] = await q(`select count(*)::int n from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.acordo_id=$1 and g.conferente='luis'`, [a.id]);
@@ -2838,7 +2843,7 @@ export default async (req) => {
     /* troca de lote: o cliente passa a ter outro lote no mesmo contrato (ex.: lote retomado de outro comprador).
        Muda quadra/lote do contrato (relatórios, extratos e boletos novos) e corrige a descrição dos boletos em aberto no Asaas. */
     if (p[0] === 'contrato' && p[2] === 'troca-lote' && m === 'POST') {
-      if (conf !== 'luis') return json({ erro: 'Só o Luis pode trocar o lote de um contrato.' }, 403);
+      if (real !== 'luis') return json({ erro: 'Só o Luis pode trocar o lote de um contrato.' }, 403);
       const b = body, n = p[1], pad = x => String(x || '').trim().replace(/^\d$/, d => '0' + d);
       const nq = pad(b.quadra), nl = pad(b.lote);
       if (!nq || !nl) return json({ erro: 'Informe a quadra e o lote novos.' }, 400);
