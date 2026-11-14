@@ -9,6 +9,7 @@ import { criaDevolucoes } from './devolucoes-lib.mjs';
 import { criaCessoes } from './cessoes-lib.mjs';
 import { criaPainel } from './painel-lib.mjs';
 import { criaDocumentos } from './documentos-lib.mjs';
+import { criaLocacao } from './locacao-lib.mjs';
 import { fazBackup, listaBackups, baixaBackup } from './backup-lib.mjs';
 import { verificaPdf, comparaDevedores, infoCadeiaGovBr } from './assinatura-lib.mjs';
 
@@ -1212,6 +1213,21 @@ async function usuarioDaSessao(req) {
   if (u) q(`update carteira.usuarios set ultimo_acesso=now() where id=$1`, [u.id]).catch(() => {});
   return u || null;
 }
+
+/* proteção contra adivinhar senha: 10 senhas erradas do mesmo endereço em 15 minutos bloqueiam esse endereço por 15 minutos */
+const ipDe = req => (req.headers.get('x-nf-client-connection-ip') || (req.headers.get('x-forwarded-for') || '').split(',')[0] || '').trim() || 'desconhecido';
+let falhasOk = false;
+async function bloqueadoLogin(ip) {
+  if (!falhasOk) { await q(`create table if not exists carteira.login_falhas(id bigserial primary key, ip text not null, em timestamptz default now())`); await q(`create index if not exists login_falhas_ip on carteira.login_falhas(ip, em)`); falhasOk = true; }
+  const [r] = await q(`select count(*)::int n from carteira.login_falhas where ip=$1 and em > now() - interval '15 minutes'`, [ip]);
+  return r.n >= 10;
+}
+async function falhaLogin(ip, tipo) {
+  await q(`insert into carteira.login_falhas(ip) values ($1)`, [ip]);
+  await q(`delete from carteira.login_falhas where em < now() - interval '2 days'`);
+  await log('sistema', 'senha_errada', { ip, tipo }).catch(() => null);
+}
+const MSG_BLOQ = 'Muitas tentativas de senha erradas. Aguarde 15 minutos e tente de novo.';
 async function rotasPublicas(p, req, url) {
   if (p[0] === 'cadastro' && req.method === 'POST') {
     await garanteUsuarios();
@@ -1252,8 +1268,10 @@ async function rotasPublicas(p, req, url) {
     await garanteUsuarios();
     const b = await req.json().catch(() => ({}));
     const email = String(b.email || '').trim().toLowerCase();
+    const ip = ipDe(req);
+    if (await bloqueadoLogin(ip)) return json({ erro: MSG_BLOQ }, 429);
     const [u] = await q('select * from carteira.usuarios where email=$1', [email]);
-    if (!u || !confereSenha(String(b.senha || ''), u.senha_hash)) return json({ erro: 'E-mail ou senha incorretos.' }, 401);
+    if (!u || !confereSenha(String(b.senha || ''), u.senha_hash)) { await falhaLogin(ip, 'email'); return json({ erro: 'E-mail ou senha incorretos.' }, 401); }
     if (u.status === 'aguardando_email') return json({ erro: 'Confirme seu e-mail pelo link que enviamos.' }, 403);
     if (u.status === 'aguardando_aprovacao') return json({ erro: 'Seu cadastro está aguardando a liberação do administrador.' }, 403);
     if (u.status === 'definir_senha') return json({ erro: 'Crie sua senha pelo link que o administrador enviou.' }, 403);
@@ -1709,6 +1727,7 @@ async function verificaTermoAssinado(contrato, b64, chave) {
 }
 const rotasDocumentos = criaDocumentos({ q, json, log: (...a) => log(...a), verificaTermo: verificaTermoAssinado, infoCadeia: () => infoCadeiaGovBr(q) });
 const rotasPainel = criaPainel({ q, json, log: (...a) => log(...a) });
+const rotasLocacao = criaLocacao({ q, json, log: (...a) => log(...a) });
 const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a), asaas, asaasReq, gravaBoleto, garanteBoletos, refazBoletoPara });
 const DEV = criaDevolucoes({ q, asaas, json, log: (...a) => log(...a) });
 const rotasAcerto = criaAcerto({ q, asaas, json, log: (...a) => log(...a), dev: DEV });
@@ -1787,10 +1806,14 @@ export default async (req) => {
   }
   ATOR = null;
   { const pub = await rotasPublicas(p, req, url); if (pub) return pub; }
+  const pinTentado = (req.headers.get('x-pin') || '').trim();
+  const ehPin = pinTentado && !pinTentado.startsWith('tok:');
+  if (ehPin && await bloqueadoLogin(ipDe(req))) return json({ erro: MSG_BLOQ }, 401);
   let conf = quem(req), usuario = null;
   if (conf === 'secretaria' && await pinSecretariaDesligado()) conf = null;
   if (!conf) { usuario = await usuarioDaSessao(req); if (usuario) conf = usuario.perfil === 'gestor' ? 'luis' : 'assistente'; }
   if (!conf) {
+    if (ehPin) await falhaLogin(ipDe(req), 'senha');
     const falta = [!PL && 'PIN_LUIS', !PS && 'PIN_SECRETARIA', !process.env.DATABASE_URL && 'DATABASE_URL'].filter(Boolean);
     return json({ erro: falta.length ? 'O servidor não está lendo: ' + falta.join(', ') : 'Senha inválida' }, 401);
   }
@@ -1833,6 +1856,7 @@ export default async (req) => {
   { const rc2 = await rotasCessoes(p, m, body, real); if (rc2) return rc2; }
   { const rp = await rotasPainel(p, m, body, real); if (rp) return rp; }
   { const rdc = await rotasDocumentos(p, m, body, real, url); if (rdc) return rdc; }
+  { const rl = await rotasLocacao(p, m, body, real, url); if (rl) return rl; }
 
   try {
     if (p[0] === 'eu') return json({ conferente: real, nome: usuario?.nome || null });

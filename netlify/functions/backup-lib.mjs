@@ -1,13 +1,14 @@
-/* cópia de segurança do banco: todas as tabelas da carteira em um arquivo compactado, guardado no Netlify (fora do banco); ficam as 8 últimas */
+/* cópia de segurança do banco: todas as tabelas da carteira e da locação em um arquivo compactado, guardado no Netlify (fora do banco); ficam as 8 últimas */
 import { getStore } from '@netlify/blobs';
 import zlib from 'node:zlib';
 
 const loja = () => getStore('backups-carteira');
 
 export async function fazBackup(q, origem = 'automatico') {
-  const tabs = (await q(`select tablename from pg_tables where schemaname='carteira' order by tablename`)).map(t => t.tablename);
+  /* carteira do Beira Rio (nome da tabela puro) + módulo de locação ("locacao.nome") */
+  const tabs = (await q(`select schemaname s, tablename t from pg_tables where schemaname in ('carteira','locacao') order by schemaname, tablename`)).map(r => r.s === 'carteira' ? r.t : 'locacao.' + r.t);
   const dados = {}, linhas = {};
-  for (const t of tabs) { const r = await q(`select * from carteira."${t}"`); dados[t] = r; linhas[t] = r.length; }
+  for (const t of tabs) { const [s, n] = t.includes('.') ? t.split('.') : ['carteira', t]; const r = await q(`select * from ${s}."${n}"`); dados[t] = r; linhas[t] = r.length; }
   const corpo = zlib.gzipSync(Buffer.from(JSON.stringify({ gerado_em: new Date().toISOString(), origem, tabelas: dados })));
   const chave = `carteira-${new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 16).replace(':', 'h')}.json.gz`;
   const st = loja();

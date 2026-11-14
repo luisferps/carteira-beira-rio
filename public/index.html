@@ -245,6 +245,7 @@ async function apagaObs(id){if(!confirm('Apagar esta observação?'))return;awai
 function telaModulos(){
   app.innerHTML=`<div class="mods">
    <div class="mod" onclick="location.hash='contratos'"><b>Contratos</b><span>Carteira do Beira Rio: parcelas, pagamentos, acordos, cessões e relatórios.</span></div>
+    ${EU==='luis'&&!COMO?`<div class="mod" style="border-left-color:#0d9488" onclick="location.href='/locacao.html'"><b>Locação</b><span>Imóveis alugados: contratos, cobrança do inquilino, conta corrente do proprietário (acerto mensal), repasses, reajustes e calendário 10/20/30.</span></div>`:''}
    ${EU==='luis'||EU==='assistente'?`<div class="mod" style="border-left-color:#b45309" onclick="location.hash='documentos'"><b>Documentos</b><span>Contrato assinado, firma, testemunhas, RG, CPF, endereço e estado civil de cada comprador: o que tem e o que falta, com os arquivos anexados.</span></div>`:''}
    <div class="mod" style="border-left-color:#16a34a" onclick="location.hash='mapa'"><b>Mapa de lotes</b><span>Quadra por quadra: em dia, em atraso, em cobrança e lotes disponíveis (encerrados/retomados). Clique para abrir o contrato.</span></div>
    <div class="mod" style="border-left-color:#2e9e4f" onclick="location.hash='clientes'"><b>Clientes</b><span>Cadastro dos clientes: telefones, e-mails, endereço, documentos e os contratos de cada um.</span></div>
