@@ -1397,7 +1397,7 @@ async function resumoSaidaCobranca(c, tot, ate, manual) {
 }
 /* rotina da cobrança: entra na fila acima de R$ 5 mil, promessa vencida volta para Negociando, quem baixou de R$ 5 mil sai. Roda sozinha a cada 2h e ao abrir a tela */
 export async function backupAgendado() { return fazBackup(q, 'automatico'); }
-export async function cobrancaAutomatica() {
+export async function cobrancaAutomatica(devolveDividas = false) {
   await garanteCobranca();
   const D0 = await dividas(null);
   const fora = new Set((await q(`select contrato from carteira.cobranca_fora`)).map(x => x.contrato));
@@ -1429,19 +1429,18 @@ export async function cobrancaAutomatica() {
     await q(`update carteira.cobranca_casos set motivo_encerramento=$2 where id=$1`, [c.id, mot]);
     await q(`update carteira.cobranca_registros set texto=$2 where caso_id=$1 and tipo='sistema' and texto like '%saiu da campanha automaticamente'`, [c.id, 'Saiu da campanha: ' + mot]);
   }
-  return { ok: true };
+  return devolveDividas ? D0 : { ok: true };
 }
 async function rotasCobranca(p, m, body, url, real) {
   if (p[0] !== 'cobranca') return null;
   await garanteCobranca();
   const quem = ATOR || real;
   if (p[1] === 'painel' && m === 'GET') {
-    await cobrancaAutomatica();
+    const D = await cobrancaAutomatica(true);
     const casos = await q(`select c.*, (select max(em) from carteira.cobranca_registros r where r.caso_id=c.id and r.tipo not in ('etapa','sistema')) ultimo_contato,
         (select count(*)::int from carteira.cobranca_registros r where r.caso_id=c.id and r.tipo not in ('etapa','sistema')) contatos,
         (select row_to_json(x) from (select data_promessa, valor_promessa, em from carteira.cobranca_registros r where r.caso_id=c.id and r.data_promessa is not null order by r.em desc limit 1) x) promessa
       from carteira.cobranca_casos c where c.encerrado_em is null order by c.id`);
-    const D = await dividas(null);
     const pagos = await q(`select t.contrato, sum(g.valor_pago)::numeric v, max(g.confirmada_em)::text ult from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id
                            join carteira.cobranca_casos c on c.contrato=t.contrato and c.encerrado_em is null where g.conferente='luis' and g.confirmada_em >= c.criado_em::date group by t.contrato`);
     const foraM = Object.fromEntries((await q(`select contrato, motivo, em from carteira.cobranca_fora`).catch(() => [])).map(x => [x.contrato, x]));
