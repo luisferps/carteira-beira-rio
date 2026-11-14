@@ -320,8 +320,10 @@ export function criaAcerto({ q, asaas, json, log, dev }) {
       const fechado = !!M?.fechado_em && M.tem;
       if (!p[2] && m === 'GET') return json(await calcula(mes));
       if (p[2] === 'reabrir' && m === 'POST') {
+        const [ant] = await q(`select fechado_em, saldo, dados from carteira.acerto_meses where mes=$1`, [mes]);
+        await log('luis', 'acerto_reaberto', { mes, fechado_antes: ant || null });
         await q(`update carteira.acerto_meses set fechado_em=null, dados=null where mes=$1`, [mes]);
-        await log('luis', 'acerto_reaberto', { mes }); return json({ ok: true });
+        return json({ ok: true });
       }
       if (fechado) return json({ erro: 'Este mês já está fechado. Reabra para mexer.' }, 400);
       if (p[2] === 'carregar' && m === 'POST') {
