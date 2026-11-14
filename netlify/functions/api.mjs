@@ -755,11 +755,14 @@ async function asaasReq(method, path, body) {
   if (!r.ok) throw new Error('Asaas: ' + ((d.errors || []).map(e => e.description).join('; ') || ('erro ' + r.status)));
   return d;
 }
+let BOL_OK = false;
 async function garanteBoletos() {
+  if (BOL_OK) return;
   await q(`create table if not exists carteira.boletos(id_asaas text primary key, contrato text, titulo_id bigint, tipo text not null default 'parcela',
            fatura text, valor numeric, vencimento date, status text, link text, descricao text, composicao jsonb, origem text, motivo text,
            substituido_por text, dados jsonb, criado_em timestamptz default now(), atualizado_em timestamptz default now())`);
   await q(`create index if not exists boletos_titulo on carteira.boletos(titulo_id)`);
+  BOL_OK = true;
 }
 async function gravaBoleto(g, extra = {}) {
   const st = g.deleted ? 'DELETED' : g.status;
@@ -1480,7 +1483,10 @@ const MODELOS_PADRAO = [
   ['Notificação antes de medidas', `Prezado(a) {nome},\n\nAqui é o Luis Fernando, responsável pela cobrança do Condomínio Beira Rio. Apesar das nossas tentativas de contato, o contrato {contrato} (Quadra {quadra}, Lote {lote}) segue com débito de {valor_total}.\n\nConforme as cláusulas do contrato, a falta de regularização leva o lote para a fila de retomada, além da inclusão nos órgãos de proteção ao crédito e do protesto.\n\nA última instância de negociação é comigo. Peço que entre em contato até {data_limite}.`],
   ['Agradecimento (pagou)', `{primeiro_nome}, recebemos o seu pagamento. Muito obrigado por regularizar o contrato {contrato}! Conte com a gente.`],
 ].map(([t, x]) => [t, x.replace('__R__', `Te procuro porque o mais importante agora é a gente chegar num acordo. Sem acordo, o seu lote pode entrar na fila de retomada. A última instância de negociação é comigo.`)]);
-async function garanteCobranca() {
+let COB_OK = null;
+function garanteCobranca() { return COB_OK || (COB_OK = garanteCobranca0().catch(e => { COB_OK = null; throw e; })); }
+async function garanteCobranca0() {
+  await q(`create table if not exists carteira.cobranca_fora(contrato text primary key, em timestamptz default now(), por text, motivo text)`);
   await q(`create table if not exists carteira.cobranca_casos(id serial primary key, contrato text not null, etapa text not null default 'fila', responsavel text,
            proximo_contato date, prioridade int default 0, obs text, criado_em timestamptz default now(), criado_por text, atualizado_em timestamptz default now(),
            encerrado_em timestamptz, motivo_encerramento text)`);
@@ -1538,7 +1544,6 @@ async function rotasCobranca(p, m, body, url, real) {
   if (p[1] === 'painel' && m === 'GET') {
     {
       const D0 = await dividas(null);
-      await q(`create table if not exists carteira.cobranca_fora(contrato text primary key, em timestamptz default now(), por text, motivo text)`);
       const fora = new Set((await q(`select contrato from carteira.cobranca_fora`)).map(x => x.contrato));
       const abertos = new Set((await q(`select contrato from carteira.cobranca_casos where encerrado_em is null`)).map(x => x.contrato));
       /* entrada automática: dívida acima de R$ 5 mil entra na fila, menos quem o Luis tirou da cobrança */
@@ -1914,9 +1919,9 @@ export default async (req) => {
   }
   if (p[0] === 'diag') {
     let teste = 'ok';
-    try { await q('select 1'); } catch (e) { teste = e.message; }
+    try { await q('select 1'); } catch (e) { teste = 'falhou'; }
     const k = (process.env.ANTHROPIC_API_KEY || '').trim();
-    return json({ teste_conexao: teste, chave_ia: k ? { comeca_com_sk_ant: k.startsWith('sk-ant-'), tamanho: k.length, tem_espaco: /\s/.test(k) } : 'não configurada' });
+    return json({ teste_conexao: teste, chave_ia: k ? (k.startsWith('sk-ant-') && !/\s/.test(k) ? 'ok' : 'com problema') : 'não configurada' });
   }
   ATOR = null;
   { const pub = await rotasPublicas(p, req, url); if (pub) return pub; }

@@ -141,6 +141,7 @@ export function criaCessoes({ q, json, log, asaas, asaasReq, gravaBoleto, garant
   const rotas = async function rotasCessoes(p, m, body, real) {
     if (p[0] !== 'cessoes') return null;
     await garante();
+    if (m !== 'GET' && real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
     try {
       if (p[1] === 'taxa' && p[2] && m === 'GET') return json(await calculaTaxa(String(p[2]).padStart(4, '0')));
       if (!p[1] && m === 'GET') {
