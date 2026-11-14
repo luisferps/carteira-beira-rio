@@ -9,7 +9,6 @@ import { criaDevolucoes } from './devolucoes-lib.mjs';
 import { criaCessoes } from './cessoes-lib.mjs';
 import { criaPainel } from './painel-lib.mjs';
 import { criaDocumentos } from './documentos-lib.mjs';
-import { criaLocacao } from './locacao-lib.mjs';
 import { fazBackup, listaBackups, baixaBackup } from './backup-lib.mjs';
 import { verificaPdf, comparaDevedores, infoCadeiaGovBr } from './assinatura-lib.mjs';
 
@@ -1694,6 +1693,12 @@ let schemaOk = false;
 async function garanteEsquema() {
   if (schemaOk) return;
   try {
+    /* a locação é um sistema separado (Administração de Aluguel): apaga a área que chegou a ser criada aqui, só se estiver vazia */
+    await q(`do $d$ declare n bigint := 0; t text; begin
+      if exists (select 1 from pg_namespace where nspname='locacao') then
+        for t in select tablename from pg_tables where schemaname='locacao' loop execute format('select %s + count(*) from locacao.%I', n, t) into n; end loop;
+        if n = 0 then drop schema locacao cascade; end if;
+      end if; end $d$`).catch(() => null);
     const [r] = await q(`select pg_get_constraintdef(oid) d from pg_constraint where conname='eventos_tipo_check'`);
     if (!r || !/'troca_lote'/.test(r.d)) {
       await q(`alter table carteira.eventos drop constraint if exists eventos_tipo_check`);
@@ -1727,7 +1732,6 @@ async function verificaTermoAssinado(contrato, b64, chave) {
 }
 const rotasDocumentos = criaDocumentos({ q, json, log: (...a) => log(...a), verificaTermo: verificaTermoAssinado, infoCadeia: () => infoCadeiaGovBr(q) });
 const rotasPainel = criaPainel({ q, json, log: (...a) => log(...a) });
-const rotasLocacao = criaLocacao({ q, json, log: (...a) => log(...a) });
 const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a), asaas, asaasReq, gravaBoleto, garanteBoletos, refazBoletoPara });
 const DEV = criaDevolucoes({ q, asaas, json, log: (...a) => log(...a) });
 const rotasAcerto = criaAcerto({ q, asaas, json, log: (...a) => log(...a), dev: DEV });
@@ -1856,7 +1860,6 @@ export default async (req) => {
   { const rc2 = await rotasCessoes(p, m, body, real); if (rc2) return rc2; }
   { const rp = await rotasPainel(p, m, body, real); if (rp) return rp; }
   { const rdc = await rotasDocumentos(p, m, body, real, url); if (rdc) return rdc; }
-  { const rl = await rotasLocacao(p, m, body, real, url); if (rl) return rl; }
 
   try {
     if (p[0] === 'eu') return json({ conferente: real, nome: usuario?.nome || null });
