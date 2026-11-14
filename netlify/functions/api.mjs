@@ -2040,6 +2040,21 @@ export default async (req) => {
       }
       return json(out);
     }
+    if (p[0] === 'relatorios' && p[1] === 'quitacao' && m === 'GET') {
+      await garanteBoletos();
+      const r = await abertas(` and $1::text is not null order by t.contrato, t.vencimento`, ['x', ATIVOS_B]);
+      const cs = await q(`select c.numero, c.quadra, c.lote,
+          coalesce((select e.dados->>'novos_titulares' from carteira.eventos e where e.contrato=c.numero and e.conferente='luis' and e.tipo='cessao' and coalesce(e.dados->>'novos_titulares','')<>'' order by e.data desc nulls last, e.id desc limit 1),
+                   (select nullif(string_agg(x->>'nome', ' e ' order by o), '') from jsonb_array_elements(case when jsonb_typeof(c.compradores)='array' then c.compradores else '[]'::jsonb end) with ordinality as j(x,o)), c.nome_planilha) titular,
+          (select max(g.confirmada_em)::text from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato=c.numero and g.conferente='luis') ultimo_pagamento,
+          (select coalesce(sum(g.valor_pago),0)::numeric from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where t.contrato=c.numero and g.conferente='luis') pago
+        from carteira.contratos c
+        where exists (select 1 from carteira.fechamentos f where f.contrato=c.numero and f.conferente='luis')
+          and not exists (select 1 from carteira.eventos e where e.contrato=c.numero and e.conferente='luis' and e.tipo='encerramento') order by c.numero`);
+      const out = cs.map(c => { const a = r.filter(t => t.contrato === c.numero);
+        return { ...c, pago: +c.pago, faltam: a.length, valor_falta: R2(a.reduce((s, t) => s + (+t.valor || 0), 0)), ultima_parcela: a.length ? a[a.length - 1].vencimento : null, vencidas: a.filter(t => t.vencimento < hojeBR()).length }; });
+      return json(out);
+    }
     if (p[0] === 'relatorios' && p[1] === 'em-cobranca' && m === 'GET') {
       await garanteBoletos();
       const hoje = hojeBR(), lim = somaDias(hoje, -60);
