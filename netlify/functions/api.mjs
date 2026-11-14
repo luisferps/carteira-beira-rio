@@ -3536,7 +3536,7 @@ async function rotasPagador(p, m, body, real) {
   /* auditoria dos dados: só leitura, aponta inconsistências do banco */
   if (p[0] === 'manutencao' && p[1] === 'auditoria-dados' && m === 'GET' && real === 'luis') {
     await garanteBoletos();
-    const C = async (nome, sql, prm = []) => { try { const r = await q(sql, prm); return [nome, { n: r.length, amostra: r.slice(0, 15) }]; } catch (e) { return [nome, { erro: e.message }]; } };
+    const C = async (nome, sql, prm = []) => { try { const r = await q(sql, prm); return [nome, { n: r.length, amostra: r.slice(0, nome.startsWith('uso') || nome.startsWith('acoes') ? 200 : 15) }]; } catch (e) { return [nome, { erro: e.message }]; } };
     const enc = `exists(select 1 from carteira.eventos e where e.contrato=k.numero and e.conferente='luis' and e.tipo='encerramento')`;
     const R = await Promise.all([
       C('dois_contratos_ativos_mesmo_lote', `select k.quadra::int q, k.lote::int l, array_agg(k.numero order by k.numero) contratos from carteira.contratos k where not ${enc} and k.quadra ~ '^[0-9]+$' and k.lote ~ '^[0-9]+$' group by 1,2 having count(*)>1`),
@@ -3561,6 +3561,8 @@ async function rotasPagador(p, m, body, real) {
       C('evento_tipo_desconhecido', `select tipo, count(*) n from carteira.eventos group by tipo having tipo not in ('encerramento','cessao','repactuacao','credito','devolucao','pendencia','observacao','vencimento','pagador','troca_lote')`),
       C('pendencias_abertas', `select e.contrato, e.data, left(e.dados->>'resultado',120) txt from carteira.eventos e where e.tipo='pendencia' and coalesce(e.dados->>'status','aberta')='aberta' order by e.data`),
       C('titulo_sem_vencimento', `select id, contrato, rotulo from carteira.titulos where vencimento is null`),
+      C('uso_90_dias', `select acao, count(*)::int n, max(em)::date ultimo from carteira.historico where em > now() - interval '90 days' group by acao order by n desc`),
+      C('acoes_antigas', `select acao, count(*)::int n, max(em)::date ultimo from carteira.historico group by acao having max(em) < now() - interval '90 days' order by ultimo desc`),
       C('sessoes_expiradas', `select count(*) n from carteira.sessoes where expira_em < now()`),
       C('tabelas', `select relname tabela, n_live_tup linhas, pg_size_pretty(pg_total_relation_size(relid)) tamanho, seq_scan, idx_scan from pg_stat_user_tables where schemaname='carteira' order by pg_total_relation_size(relid) desc`),
       C('indices', `select tablename, indexname from pg_indexes where schemaname='carteira' order by 1,2`),
