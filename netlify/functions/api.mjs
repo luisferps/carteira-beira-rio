@@ -1822,9 +1822,9 @@ async function garanteEsquema() {
   if (schemaOk) return;
   try {
     const [r] = await q(`select pg_get_constraintdef(oid) d from pg_constraint where conname='eventos_tipo_check'`);
-    if (!r || !/'pagador'/.test(r.d)) {
+    if (!r || !/'troca_lote'/.test(r.d)) {
       await q(`alter table carteira.eventos drop constraint if exists eventos_tipo_check`);
-      await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao','credito','devolucao','pendencia','observacao','vencimento','pagador'))`);
+      await q(`alter table carteira.eventos add constraint eventos_tipo_check check (tipo in ('encerramento','cessao','repactuacao','credito','devolucao','pendencia','observacao','vencimento','pagador','troca_lote'))`);
     }
     await q(`alter table carteira.acordos add column if not exists tipo text not null default 'acordo'`);
     await q(`alter table carteira.pagamentos add column if not exists compensacao numeric default 0`);
@@ -3553,6 +3553,38 @@ async function rotasPagador(p, m, body, real) {
       out.push({ contrato: n, procurador: fora[0].nome, compradores: fica.map(x => x.nome) });
     }
     return json(out);
+  }
+  /* auditoria dos dados: só leitura, aponta inconsistências do banco */
+  if (p[0] === 'manutencao' && p[1] === 'auditoria-dados' && m === 'GET' && real === 'luis') {
+    await garanteBoletos();
+    const C = async (nome, sql, prm = []) => { try { const r = await q(sql, prm); return [nome, { n: r.length, amostra: r.slice(0, 15) }]; } catch (e) { return [nome, { erro: e.message }]; } };
+    const enc = `exists(select 1 from carteira.eventos e where e.contrato=k.numero and e.conferente='luis' and e.tipo='encerramento')`;
+    const R = await Promise.all([
+      C('dois_contratos_ativos_mesmo_lote', `select k.quadra::int q, k.lote::int l, array_agg(k.numero order by k.numero) contratos from carteira.contratos k where not ${enc} and k.quadra ~ '^\d+$' and k.lote ~ '^\d+$' group by 1,2 having count(*)>1`),
+      C('contrato_sem_comprador', `select numero from carteira.contratos k where jsonb_array_length(coalesce(compradores,'[]'))=0 and not ${enc}`),
+      C('comprador_sem_cpf', `select k.numero, c->>'nome' nome from carteira.contratos k, jsonb_array_elements(k.compradores) c where coalesce(c->>'cpf','')='' and not ${enc}`),
+      C('titulo_acordo_sem_acordo', `select t.id, t.contrato, t.rotulo from carteira.titulos t where t.acordo_id is not null and not exists(select 1 from carteira.acordos a where a.id=t.acordo_id)`),
+      C('acordo_sem_parcelas', `select a.id, a.contrato, a.termo from carteira.acordos a where a.conferente='luis' and not exists(select 1 from carteira.titulos t where t.acordo_id=a.id)`),
+      C('acordo_origem_inexistente', `select a.id, a.contrato, a.termo, o from carteira.acordos a, unnest(a.titulos_origem) o where a.conferente='luis' and not exists(select 1 from carteira.titulos t where t.id=o)`),
+      C('parcela_em_dois_acordos', `select o titulo, array_agg(a.id) acordos, min(a.contrato) contrato from carteira.acordos a, unnest(a.titulos_origem) o where a.conferente='luis' group by o having count(*)>1`),
+      C('acordo_soma_parcelas_diferente', `select a.id, a.contrato, a.termo, a.valor_acordado, round(sum(t.valor_face)::numeric,2) soma from carteira.acordos a join carteira.titulos t on t.acordo_id=a.id where a.conferente='luis' group by a.id having abs(coalesce(a.valor_acordado,0)-sum(coalesce(t.valor_face,0)))>0.05`),
+      C('pagamento_duplicado', `select g.titulo_id, g.fatura, count(*) n, min(t.contrato) contrato from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where g.conferente='luis' and coalesce(g.fatura,'')<>'' group by g.titulo_id, g.fatura having count(*)>1`),
+      C('mesma_fatura_em_parcelas_diferentes', `select g.fatura, array_agg(distinct g.titulo_id) titulos, min(t.contrato) contrato from carteira.pagamentos g join carteira.titulos t on t.id=g.titulo_id where g.conferente='luis' and coalesce(g.fatura,'')<>'' and coalesce(g.compensacao,0)=0 group by g.fatura having count(distinct g.titulo_id)>1`),
+      C('pago_mais_que_o_dobro', `select t.id, t.contrato, t.rotulo, t.valor_face, sum(g.valor_pago) pago from carteira.titulos t join carteira.pagamentos g on g.titulo_id=t.id and g.conferente='luis' where t.valor_face>0 group by t.id having sum(g.valor_pago) > 2*t.valor_face`),
+      C('boleto_aberto_parcela_paga', `select b.id_asaas, b.contrato, t.rotulo, b.vencimento from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id where b.status = any($1) and exists(select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis' and g.valor_pago >= coalesce(t.valor_face,0)*0.98)`, [ATIVOS_B]),
+      C('boleto_aberto_parcela_em_acordo', `select b.id_asaas, b.contrato, t.rotulo from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id where b.status = any($1) and exists(select 1 from carteira.acordos a where a.conferente='luis' and t.id = any(a.titulos_origem))`, [ATIVOS_B]),
+      C('dois_boletos_abertos_mesma_parcela', `select b.titulo_id, min(b.contrato) contrato, array_agg(b.id_asaas) boletos from carteira.boletos b where b.status = any($1) and b.titulo_id is not null and coalesce(b.tipo,'parcela')<>'taxa_cessao' group by b.titulo_id having count(*)>1`, [ATIVOS_B]),
+      C('boleto_aberto_contrato_encerrado', `select b.id_asaas, b.contrato, b.vencimento from carteira.boletos b join carteira.contratos k on k.numero=b.contrato where b.status = any($1) and ${enc}`, [ATIVOS_B]),
+      C('boleto_sem_parcela', `select id_asaas, contrato, tipo, vencimento, valor from carteira.boletos where status = any($1) and titulo_id is null and coalesce(tipo,'') not in ('taxa_cessao','proposta','avulso')`, [ATIVOS_B]),
+      C('caso_cobranca_aberto_contrato_encerrado', `select c.id, c.contrato, c.etapa from carteira.cobranca_casos c join carteira.contratos k on k.numero=c.contrato where c.encerrado_em is null and ${enc}`),
+      C('dois_casos_abertos_mesmo_contrato', `select contrato, array_agg(id) casos from carteira.cobranca_casos where encerrado_em is null group by contrato having count(*)>1`),
+      C('proposta_aberta_antiga', `select id, contrato, dados->>'termo' termo, criado_em::date from carteira.propostas where criado_em < now() - interval '20 days'`),
+      C('evento_tipo_desconhecido', `select tipo, count(*) n from carteira.eventos group by tipo having tipo not in ('encerramento','cessao','repactuacao','credito','devolucao','pendencia','observacao','vencimento','pagador','troca_lote')`),
+      C('pendencias_abertas', `select e.contrato, e.data, left(e.dados->>'resultado',120) txt from carteira.eventos e where e.tipo='pendencia' and coalesce(e.dados->>'status','aberta')='aberta' order by e.data`),
+      C('titulo_sem_vencimento', `select id, contrato, rotulo from carteira.titulos where vencimento is null`),
+      C('sessoes_expiradas', `select count(*) n from carteira.sessoes where expira_em < now()`),
+    ]);
+    return json(Object.fromEntries(R));
   }
   if (p[0] === 'manutencao' && p[1] === 'termos' && real === 'luis') {
     await q(`create table if not exists carteira.termos_pasta(termo text primary key, gravado_em timestamptz default now(), por text)`);
