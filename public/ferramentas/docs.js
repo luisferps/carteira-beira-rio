@@ -27,7 +27,7 @@ window.htmlInformeIR=function(ano){const c=C.contrato,L=pagos(),noAno=L.filter(p
   const linhas=noAno.map(p=>`<tr><td>${DBR(p.confirmada_em)}</td><td>${E(p.t?.rotulo||'Pagamento')}</td><td style="text-align:right">${BRL(p.valor_pago)}</td></tr>`).join('');
   return `<h1>INFORME DE PAGAMENTOS — ANO-CALENDÁRIO ${ano}</h1>${P('Para fins de declaração do Imposto de Renda Pessoa Física','center')}${V}
   ${P(`<b>Vendedora:</b> ${VEND}.`)}
-  ${P(`<b>Compradores:</b> ${nomesCpf(titulares())}.`)}
+  ${P(`<b>${titulares().length<2?'Comprador':'Compradores'}:</b> ${nomesCpf(titulares())}.`)}
   ${P(`<b>Imóvel:</b> ${imovel()}.`)}
   ${P(`<b>Contrato:</b> nº ${E(c.numero)}, assinado em ${DBR(c.data_assinatura)}${c.valor_imovel?', valor do imóvel '+BRL(c.valor_imovel):''}.`)}
   ${V}${P(`<b>Pagamentos recebidos em ${ano}</b>`,'left')}
@@ -38,11 +38,11 @@ window.htmlInformeIR=function(ano){const c=C.contrato,L=pagos(),noAno=L.filter(p
   ${V}${P(`Goiânia/GO, ${dataExt(C.hoje)}.`,'right')}${assin()}`};
 
 window.contratoQuitado=function(){const ts=C.titulos||[];return ts.length>0&&ts.every(t=>PAGO.includes(estado(t)))&&!(C.eventos||[]).some(e=>e.tipo==='encerramento')};
-window.htmlQuitacao=function(){const c=C.contrato,L=pagos(),tot=soma(L),ult=L.length?L[L.length-1].confirmada_em:null;
+window.htmlQuitacao=function(){const c=C.contrato,L=pagos(),tot=soma(L),ult=L.length?L[L.length-1].confirmada_em:null,T=titulares(),um=T.length<2;
   return `<h1>TERMO DE QUITAÇÃO</h1>${V}
-  ${P(`${VEND}, declara para os devidos fins que ${nomesCpf(titulares())} pagaram integralmente o preço do ${imovel()}, objeto do Contrato Particular de Promessa de Venda e Compra nº ${E(c.numero)}, assinado em ${DBR(c.data_assinatura)}.`)}
+  ${P(`${VEND}, declara para os devidos fins que ${nomesCpf(T)} ${um?'pagou':'pagaram'} integralmente o preço do ${imovel()}, objeto do Contrato Particular de Promessa de Venda e Compra nº ${E(c.numero)}, assinado em ${DBR(c.data_assinatura)}.`)}
   ${P(`O total recebido foi de <b>${BRL(tot)}</b>${typeof window.extensoReais==='function'?' ('+window.extensoReais(tot)+')':''}, em ${L.length} pagamento(s), sendo o último em ${DBR(ult)}, incluídos multa, juros e encargos, quando houve.`)}
-  ${P('Com isso, dá plena, geral e irrevogável quitação das obrigações de pagamento do referido contrato, nada mais tendo a reclamar a esse título, ficando os compradores aptos a requerer a escritura definitiva, cujas despesas (ITBI, emolumentos, registro e taxas) correm por conta deles, conforme o contrato.')}
+  ${P('Com isso, dá plena, geral e irrevogável quitação das obrigações de pagamento do referido contrato, nada mais tendo a reclamar a esse título, ficando '+(um?'o comprador apto':'os compradores aptos')+' a requerer a escritura definitiva, cujas despesas (ITBI, emolumentos, registro e taxas) correm por conta '+(um?'dele':'deles')+', conforme o contrato.')}
   ${V}${P(`Goiânia/GO, ${dataExt(C.hoje)}.`,'right')}${assin()}`};
 
 async function garanteTermo(){if(!window.pdfBlobInerente)await carregaTermo()}
