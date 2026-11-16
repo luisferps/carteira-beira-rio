@@ -1,4 +1,4 @@
-import { cpfValido, validaCompraVenda } from './compra-dados.mjs';
+import { ajusteDoGrupo, comissaoPadrao, cpfValido, somaParcelasCentavos, totalRedondo, validaCompraVenda } from './compra-dados.mjs';
 import { dadosMinuta, gerarMinuta, mimeWord, qualifica } from './compra-minuta.mjs';
 import { enviaAnexo, LIMITE } from './onedrive.mjs';
 
@@ -8,7 +8,7 @@ const imovel = [
   ['numero','Nº do contrato'], ['quadra','Quadra'], ['lote','Lote'], ['area','Área (m²)','number'],
   ['rua','Logradouro do imóvel'], ['matricula','Matrícula do lote'], ['cartorio','Cartório de registro de imóveis'],
   ['valor_imovel','Valor total do negócio (R$)','number'], ['cidade','Cidade de assinatura'], ['data_assinatura','Data de assinatura','date'],
-  ['corretor','Corretor / CRECI'], ['corretagem','Corretagem (R$)','number'], ['pagamento_corretagem','Condições da corretagem'],
+  ['corretor','Beneficiário da comissão / CRECI'], ['corretagem','Comissão (R$, padrão de 5%)','number'], ['pagamento_corretagem','Condições da corretagem'],
 ];
 const pessoais = [
   ['nome','Nome completo'], ['cpf','CPF'], ['rg','RG ou CNH'], ['emissor','Órgão emissor / UF'],
@@ -76,6 +76,12 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   let sequencia = 0, ocupado = false, salvo = null, word = null, tarefas = [];
   const pessoas = () => [...el('#cv-pessoas').children];
   const grupos = () => [...el('#cv-pagamentos').children];
+  const preco = el('[data-campo="valor_imovel"]');
+  const comissao = el('[data-campo="corretagem"]');
+  let comissaoEditada = false;
+  const sugereComissao = () => {
+    if (!comissaoEditada) comissao.value = preco.valueAsNumber > 0 ? comissaoPadrao(preco.valueAsNumber) : '';
+  };
   const msg = (s, erro = false) => {
     el('#cv-status').textContent = s;
     el('#cv-status').className = erro ? 'aviso' : s ? 'info' : '';
@@ -96,11 +102,13 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     }
   };
   const soma = () => {
-    const total = grupos().reduce((n,g) => {
-      const p = lerValores(g);
-      return n + (p.qtd || 0) * Math.round((p.valor || 0) * 100);
-    },0);
-    el('#cv-total').textContent = 'Soma da entrada e das parcelas ' + brl(total/100);
+    const itens = grupos().map(lerValores);
+    const total = somaParcelasCentavos(itens);
+    const alvo = Math.round(preco.valueAsNumber * 100);
+    const ajuste = ajusteDoGrupo(itens, alvo, total);
+    el('#cv-total').textContent = 'Soma da entrada e das parcelas ' + brl((total + (ajuste?.delta || 0)) / 100) +
+      (ajuste ? ' · Ajuste de 1 centavo na última parcela do grupo ' +
+        ({anual:'de anuais', mensal:'de mensais', entrada:'de entrada'})[itens[ajuste.indice].tipo] + '.' : '');
   };
   const escolhaArquivo = () => {
     const exibidos = el('#cv-arquivos');
@@ -137,6 +145,8 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
       options(tipoPag, dados.tipo || 'entrada') + '</select></label>' +
       campos([['qtd','Quantidade','number'],['valor','Valor por parcela (R$)','number'],['primeiro_venc','Primeiro vencimento','date']]) +
       '<label data-forma>Forma da entrada<select data-campo="forma" required>' + options(formas,dados.forma) + '</select></label>' +
+      '<label data-recebedor>Quem recebe a entrada<input data-campo="recebedor" placeholder="Ex.: FCA" maxlength="240" required></label>' +
+      '<small data-aviso-boleto hidden>O boleto é emitido pela conta Asaas integrada à Carteira.</small>' +
       '<div data-pago class="cv-grade">' + campos([['data_pagamento','Data em que pagou','date'],['fatura','Fatura do Asaas (se houver)']]) +
       '</div></div><button type="button">Remover grupo</button>';
     el('#cv-pagamentos').append(card);
@@ -144,8 +154,11 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     const atualizar = () => {
       const {tipo,forma} = lerValores(card);
       card.querySelector('[data-forma]').hidden = tipo !== 'entrada';
+      card.querySelector('[data-recebedor]').hidden = tipo !== 'entrada';
+      card.querySelector('[data-aviso-boleto]').hidden = tipo !== 'entrada' || forma !== 'boleto';
       card.querySelector('[data-pago]').hidden = tipo !== 'entrada' || !forma.endsWith('_pago');
       card.querySelector('[data-campo="forma"]').disabled = tipo !== 'entrada';
+      card.querySelector('[data-campo="recebedor"]').disabled = tipo !== 'entrada';
       card.querySelector('[data-campo="data_pagamento"]').disabled = tipo !== 'entrada' || !forma.endsWith('_pago');
       soma();
     };
@@ -176,7 +189,12 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   const temDadosProposta = r => r && (r.quadra || r.lote || r.valor_imovel || r.compradores?.length || r.itens?.length);
   const aplicarProposta = r => {
     if (!temDadosProposta(r)) return;
-    preencher(el('#cv-imovel'),r);
+    const {corretagem, ...resto} = r;
+    preencher(el('#cv-imovel'),resto);
+    if (!comissaoEditada && corretagem != null && corretagem !== '' && Number.isFinite(Number(corretagem)) && Number(corretagem) >= 0) {
+      comissao.value = corretagem;
+      comissaoEditada = true;
+    }
     if (Array.isArray(r.compradores)) r.compradores.slice(0,4).forEach((d,i) => {
       if (!d?.nome && !d?.cpf) return;
       const p = localizarPessoa(d, i+1, true) || (!pessoas()[i] && adicionarPessoa());
@@ -186,7 +204,17 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
       el('#cv-pagamentos').replaceChildren();
       r.itens.slice(0,20).filter(p => p && tipoPag.some(([k]) => k === p.tipo)).forEach(p =>
         adicionarGrupo({...p, forma:formas.some(([k]) => k === p.forma && !k.endsWith('_pago')) ? p.forma : ''}));
+      const itens = grupos().map(lerValores);
+      const total = somaParcelasCentavos(itens);
+      const redondo = totalRedondo(total);
+      if (!preco.value && itens.every(p => Number.isInteger(p.qtd) && p.qtd > 0 && p.valor > 0) &&
+          redondo > 0 && Math.abs(redondo - total) <= 1) {
+        preco.value = redondo / 100;
+        notas.push('Preço sugerido pela soma das parcelas: ' + brl(redondo / 100) + '. Confira com a proposta.');
+      }
     }
+    sugereComissao();
+    soma();
   };
   const tipoLido = (tipo,dados) => tipo === 'rg' && cpfValido(cpf(dados?.cpf)) ? 'rg_cpf' :
     tipos.some(([k]) => k === tipo) ? tipo : '';
@@ -413,6 +441,8 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     if (podeSair()) { fechaModal(); location.hash = 'c/' + salvo.numero; }
   };
   root.closest('.modal').onclick = null;
+  preco.oninput = () => { sugereComissao(); soma(); };
+  comissao.oninput = () => { comissaoEditada = comissao.value !== ''; };
   el('#cv-proposta').onchange = e => { const files = [...e.target.files]; e.target.value = ''; importar(files,true); };
   el('#cv-docs').onchange = e => { const files = [...e.target.files]; e.target.value = ''; importar(files,false); };
   el('#cv-add-pessoa').onclick = () => { if (!adicionarPessoa()) msg('O limite é de quatro compradores.',true); };

@@ -211,6 +211,15 @@ async function cadastrarCompraVenda(b, ator, rascunho, ids) {
       ['cpf:' + p.cpf, p.cpf, p.nome, manual]);
     }
     gerados = (await c.query('select carteira.gerar_titulos($1) n', [b.numero])).rows[0].n;
+    const ajustado = b.itens.find(p => p.ajuste_ultima_centavos);
+    if (ajustado) {
+      const numero = b.itens.slice(0, b.itens.indexOf(ajustado) + 1)
+        .filter(p => p.tipo === ajustado.tipo).reduce((total, p) => total + p.qtd, 0);
+      const ajuste = await c.query(`update carteira.titulos set valor_face = valor_face + $4::numeric / 100
+        where contrato=$1 and grupo=$2 and numero=$3 and conferente is null`,
+      [b.numero, ajustado.tipo, numero, ajustado.ajuste_ultima_centavos]);
+      if (ajuste.rowCount !== 1) throw new Error('Não foi possível ajustar o último centavo nas parcelas.');
+    }
     const entradas = (await c.query(`select id,vencimento from carteira.titulos
       where contrato=$1 and grupo='entrada' order by numero`, [b.numero])).rows;
     let inicio = 0;
@@ -231,7 +240,8 @@ async function cadastrarCompraVenda(b, ator, rascunho, ids) {
         confirmada_em: f?.confirmedDate || item.data_pagamento, pago_cliente_em: item.data_pagamento,
         saque_em: f?.creditDate || null, criada_em: f?.dateCreated, vencimento_boleto: f?.dueDate,
         vencimento_original: dstr(t.vencimento), id_asaas: f?.id, id_cliente_asaas: f?.customer,
-        link_fatura: f?.invoiceUrl, descricao: f?.description, obs: 'Entrada já paga informada no cadastro da venda' };
+        link_fatura: f?.invoiceUrl, descricao: f?.description,
+        obs: 'Entrada já paga informada no cadastro da venda. Recebedor: ' + item.recebedor };
       await c.query(`insert into carteira.pagamentos(conferente,titulo_id,${CAMPOS_PAG.join(',')})
         values($1,$2,${CAMPOS_PAG.map((_, i) => '$' + (i + 3)).join(',')})`,
       [conferente, t.id, ...CAMPOS_PAG.map(k => limpa(dados[k]))]);

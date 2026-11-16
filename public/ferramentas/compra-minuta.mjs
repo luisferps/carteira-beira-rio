@@ -15,10 +15,16 @@ export function qualifica(p) {
 export function dadosMinuta(b, brl, reaisExt) {
   const moeda = v => brl(v) + ' (' + reaisExt(v) + ')';
   const condicao = p => {
-    const parcelas = p.qtd === 1 ? '1 parcela de ' : p.qtd + (p.tipo === 'anual' ? ' parcelas anuais de ' : ' parcelas mensais de ');
-    const descricao = parcelas + moeda(p.valor);
-    if (p.pago) return descricao + ', já paga em ' + dataBR(p.data_pagamento) + ' (' + p.meio + ').';
-    return descricao + ', por ' + p.meio.toLowerCase() + ', ' + (p.qtd === 1 ? 'com vencimento em ' : 'com primeiro vencimento em ') + dataBR(p.primeiro_venc) + '.';
+    const ajuste = p.ajuste_ultima_centavos || 0;
+    const ultimoValor = (Math.round(p.valor * 100) + ajuste) / 100;
+    const frequencia = p.tipo === 'anual' ? 'anuais' : 'mensais';
+    const descricao = p.qtd === 1 ? '1 parcela de ' + moeda(ultimoValor) :
+      p.qtd + ' parcelas ' + frequencia + (ajuste
+        ? ', as ' + (p.qtd - 1) + ' primeiras de ' + moeda(p.valor) + ' e a última de ' + moeda(ultimoValor)
+        : ' de ' + moeda(p.valor));
+    const recebedor = p.recebedor ? ', a favor de ' + p.recebedor : '';
+    if (p.pago) return descricao + ', já paga em ' + dataBR(p.data_pagamento) + ' (' + p.meio + ')' + recebedor + '.';
+    return descricao + ', por ' + p.meio.toLowerCase() + recebedor + ', ' + (p.qtd === 1 ? 'com vencimento em ' : 'com primeiro vencimento em ') + dataBR(p.primeiro_venc) + '.';
   };
   const linhas = (secao, vazio) => b.itens.filter(p => p.secao === secao).map(condicao).join('\n') || vazio;
   return {

@@ -5,6 +5,17 @@ const dinheiro = v => {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 && n <= 100000000 ? Math.round(n * 100) : 0;
 };
+export const comissaoPadrao = valor => Math.round(dinheiro(valor) * 0.05) / 100;
+export const somaParcelasCentavos = itens => itens.reduce((total, p) => total + (Number(p.qtd) || 0) * dinheiro(p.valor), 0);
+export const totalRedondo = centavos => Math.round(centavos / 100) * 100;
+export function ajusteDoGrupo(itens, preco, soma) {
+  const delta = preco - soma;
+  if (Math.abs(delta) !== 1 || preco !== totalRedondo(soma)) return null;
+  const indice = ['anual', 'mensal', 'entrada']
+    .map(tipo => itens.findLastIndex(p => p.tipo === tipo && !p.pago && !p.forma?.endsWith('_pago') && dinheiro(p.valor) + delta > 0))
+    .find(i => i >= 0);
+  return indice === undefined ? null : { indice, delta };
+}
 export const cpfValido = cpf => /^\d{11}$/.test(cpf) && !/^(\d)\1+$/.test(cpf) &&
   [9, 10].every(i => [...cpf.slice(0,i)].reduce((s, d, j) => s + +d * (i + 1 - j), 0) * 10 % 11 % 10 === +cpf[i]);
 
@@ -46,6 +57,8 @@ export function validaCompraVenda(raw = {}) {
     const forma = texto(p.forma);
     if (p.tipo === 'entrada' && !['boleto','direto','pix_pago','conta_pago','construtora_pago'].includes(forma))
       throw new Error('Informe a forma de cada entrada.');
+    const recebedor = texto(p.recebedor);
+    if (p.tipo === 'entrada' && !recebedor) throw new Error('Informe quem recebe cada pagamento da entrada.');
     const pago = p.tipo === 'entrada' && forma.endsWith('_pago');
     const fatura = texto(p.fatura, 30);
     if (pago && (qtd !== 1 || !data(p.data_pagamento) || (fatura && !/^\d+$/.test(fatura))))
@@ -57,10 +70,15 @@ export function validaCompraVenda(raw = {}) {
       meio: pago ? ({pix_pago:'Pix',conta_pago:'Transferência bancária',construtora_pago:'Pagamento à construtora'})[forma]
         : forma === 'direto' && p.tipo === 'entrada' ? 'Pagamento direto' : 'Boleto Bancário',
       pago, emitir: p.tipo === 'entrada' && forma === 'boleto',
+      ...(p.tipo === 'entrada' ? {recebedor} : {}),
       data_pagamento: pago ? p.data_pagamento : null, fatura: pago ? fatura || null : null,
     };
   });
-  if (soma !== preco) throw new Error('A soma da entrada e das parcelas deve ser igual ao preço do imóvel.');
+  if (soma !== preco) {
+    const ajuste = ajusteDoGrupo(itens, preco, soma);
+    if (!ajuste) throw new Error('A soma da entrada e das parcelas deve ser igual ao preço do imóvel.');
+    itens[ajuste.indice].ajuste_ultima_centavos = ajuste.delta;
+  }
   for (const tipo of ['mensal','anual']) if (itens.filter(p => p.tipo === tipo).length > 1)
     throw new Error('Use um grupo para as mensais e um para as anuais.');
   const faturas = itens.map(p => p.fatura).filter(Boolean);
@@ -69,7 +87,8 @@ export function validaCompraVenda(raw = {}) {
   if (itens.reduce((n, p) => n + (p.emitir ? p.qtd : 0), 0) > 12)
     throw new Error('Use até 12 parcelas de entrada por boleto.');
   if (new Set(faturas).size !== faturas.length) throw new Error('Cada entrada paga deve ter uma fatura diferente.');
-  const entrada = itens.filter(p => p.tipo === 'entrada').reduce((n, p) => n + Math.round(p.valor * 100) * p.qtd, 0);
+  const entradas = itens.filter(p => p.tipo === 'entrada');
+  const entrada = somaParcelasCentavos(entradas) + entradas.reduce((n, p) => n + (p.ajuste_ultima_centavos || 0), 0);
   return {...b, area, data_assinatura: raw.data_assinatura, valor_imovel: preco / 100,
     corretagem: corretagem / 100, entrada_total: entrada / 100, compradores, itens};
 }
