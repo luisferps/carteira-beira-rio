@@ -95,6 +95,8 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
       }
       if (p[0] === 'documento' && !p[1] && m === 'POST') {
         const b = body; if (!b.contrato || !b.chave || (!b.b64 && !b.onedrive)) return json({ erro: 'Arquivo incompleto' }, 400);
+        if (b.chave === 'contrato_minuta' && !b.rascunho)
+          return json({erro:'Use a emissão ou a revisão de compra e venda para guardar esta minuta.'},409);
         const cloud = b.onedrive ? await onedrive.confirmaArquivo(b.onedrive.ticket,b.onedrive.id,ator,
           {contrato:b.contrato,rascunho:b.rascunho||null,chave:b.chave,nome:b.nome}) : null;
         if (!cloud && await onedrive?.temConexao()) return json({erro:'Envie o arquivo pelo OneDrive.'},409);
@@ -141,7 +143,13 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
         if(r.onedrive){const res=json(await onedrive.abrirRef(r.onedrive));res.headers.set('Cache-Control','no-store');return res;}
         return json({nome:r.nome,mime:r.mime,b64:r.b64});
       }
-      if (p[0] === 'documento' && p[1] && m === 'DELETE') { await q(`delete from carteira.documentos where id=$1 and contrato not like 'compra-rascunho:%'`, [p[1]]); await log(real, 'documento_apagado', { id: p[1] }); return json({ ok: true }); }
+      if (p[0] === 'documento' && p[1] && m === 'DELETE') {
+        const [apagado] = await q(`delete from carteira.documentos where id=$1 and contrato not like 'compra-rascunho:%'
+          and chave<>'contrato_minuta' returning id`, [p[1]]);
+        if (!apagado) return json({erro:'Documento inexistente ou minuta protegida pelo histórico da venda.'},409);
+        await log(real, 'documento_apagado', { id:p[1] });
+        return json({ok:true});
+      }
       return json({ erro: 'Rota não encontrada' }, 404);
     } catch (e) { return json({ erro: e.message }, e.status || 500); }
   };

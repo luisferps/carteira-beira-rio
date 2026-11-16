@@ -17,6 +17,8 @@ create table if not exists carteira.contratos (
   corretor          text,
   creci_corretor    text,
   corretagem        numeric,
+  venda_config      jsonb,
+  venda_recebida    boolean not null default false,
   compradores       jsonb not null default '[]',
   itens             jsonb not null default '[]',
   fonte             text,

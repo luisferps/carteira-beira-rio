@@ -790,10 +790,10 @@ function modalPagadores(){const L=window._PGO||[];
   <div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaPagadores()">Salvar escolhas</button></div>`)}
 async function salvaPagadores(){const L=window._PGO||[];const itens=L.filter((x,i)=>document.querySelector(`input[name=pgo${i}]:checked`)?.value==='manter').map(x=>({contrato:x.contrato,nome:x.hoje_no_nome_de.nome,cpf:x.hoje_no_nome_de.cpf}));
   const r=await api('manutencao/pagadores',{method:'POST',body:{itens}});alert(`Feito. ${r.n} contrato(s) mantidos como estão; ${L.length-r.n} passam para o 1º titular a partir do próximo boleto.`);fechaModal();telaLista()}
-async function novoContratoVenda(){
+async function novoContratoVenda(contrato){
   try {
     const {abreCompraVenda}=await import('/ferramentas/compra-venda.mjs');
-    await abreCompraVenda({api,abreModal,fechaModal,esc,libsDocx,brl,reaisExt});
+    await abreCompraVenda({api,abreModal,fechaModal,esc,libsDocx,brl,reaisExt,contrato,atualizaFicha:recarrega});
   } catch(e) { alert(e.message); }
 }
 async function telaLista(){
@@ -1031,6 +1031,7 @@ function desenhaContrato(){if(location.hash.startsWith('#cob/'))return;setTimeou
       `${i.qtd-1} × ${brl(i.valor)} + última de ${ultimo}`;
     return `<li>${nome} · ${valores} · ${esc(i.meio||'')}${i.recebedor?' · Recebedor: '+esc(i.recebedor):''}</li>`;
   }).join('');
+  const vendaPaga=c.venda_recebida||C.pagamentos.some(p=>+p.valor_pago>0)||C.boletos.some(b=>['RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(b.status));
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='contratos'">← Contratos</button></div>
   ${COMO?'<div class="aviso" style="background:#eff6ff;color:#1e3a8a;border-color:#bfdbfe"><b>Você está editando a VERSÃO FINAL</b> (a verdade do sistema). Tudo o que salvar aqui vai para a versão final.</div>':''}
   <div class="card"><div class="bt" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">Contrato ${c.numero}</h2><div style="font-size:15px;font-weight:600;margin-bottom:4px">Quadra ${c.quadra} · Lote ${c.lote}</div>
@@ -1040,6 +1041,9 @@ function desenhaContrato(){if(location.hash.startsWith('#cob/'))return;setTimeou
     <b>${C.assinado?'Assinatura concluída':'Aguardando contrato assinado'}</b>
     ${C.assinado?` <span class="mut">Anexado em ${dbr(C.assinado.enviado_em)}</span> <button onclick="abreDoc(${C.assinado.id})">Ver contrato assinado</button>`:
       ` <button onclick="enviaDoc('contrato_assinado')">Anexar contrato assinado</button>`}
+    ${C.minuta?` <button onclick="abreDoc(${C.minuta.id})">Ver minuta atual</button>`:''}
+    ${['luis','assistente'].includes(EU)?vendaPaga?' <span class="mut">Edição bloqueada após recebimento.</span>':
+      !C.assinado?` <button onclick="novoContratoVenda('${c.numero}')">Editar contrato</button>`:'':''}
     </div>`:''}
   ${(c.alertas||[]).filter(a=>!/planilha/i.test(a)).length?`<div class="aviso"><b>Pontos de atenção do contrato:</b><ul style="margin:4px 0 0 18px;padding:0">${c.alertas.filter(a=>!/planilha/i.test(a)).map(a=>'<li>'+esc(a)+'</li>').join('')}</ul></div>`:''}
 

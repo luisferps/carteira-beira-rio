@@ -46,8 +46,10 @@ const lerValores = el => Object.fromEntries([...el.querySelectorAll('[data-campo
   n.dataset.campo, n.type === 'number' ? n.valueAsNumber : n.value.trim()
 ]));
 
-export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDocx, brl, reaisExt }) {
-  const [{numero},driveStatus] = await Promise.all([api('contrato-novo'),api('onedrive/status',{silencioso:true})]);
+export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDocx, brl, reaisExt, contrato, atualizaFicha }) {
+  const [dados,driveStatus] = await Promise.all([api(contrato ? 'contrato-edicao/'+contrato : 'contrato-novo'),
+    api('onedrive/status',{silencioso:true})]);
+  const {numero} = dados;
   const campos = itens => itens.map(([key, label, tipo = 'text']) =>
     '<label>' + label + '<input data-campo="' + key + '" type="' + tipo + '"' +
     (somenteLeitura.has(key) ? ' readonly' : opcionais.has(key) ? '' : ' required') +
@@ -55,12 +57,13 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     (tipo === 'number' ? ' min="0" step="any"' : '') + '></label>').join('');
   const options = (itens, value) => itens.map(([k,v]) =>
     '<option value="' + esc(k) + '"' + (k === value ? ' selected' : '') + '>' + esc(v) + '</option>').join('');
-  abreModal('<section id="compra-venda"><div class="bt"><h3 style="flex:1">Novo contrato de compra e venda</h3>' +
+  abreModal('<section id="compra-venda"><div class="bt"><h3 style="flex:1">' +
+    (contrato ? 'Editar contrato ' + esc(numero) : 'Novo contrato de compra e venda') + '</h3>' +
     '<button type="button" id="cv-fechar">Fechar</button></div>' +
     '<form id="cv-form" novalidate><fieldset id="cv-edicao">' +
-    '<h4>Proposta e documentos</h4><label>Adicionar PDFs ou imagens, juntos ou separados' +
+    '<div id="cv-documentos"><h4>Proposta e documentos</h4><label>Adicionar PDFs ou imagens, juntos ou separados' +
     '<input id="cv-proposta" type="file" multiple accept="' + formato + '"></label>' +
-    '<div id="cv-arquivos"></div>' +
+    '<div id="cv-arquivos"></div></div>' +
     '<h4>Imóvel e condições da venda</h4><div class="cv-grade" id="cv-imovel">' + campos(imovel) + '</div>' +
     '<h4>Compradores</h4><div id="cv-pessoas"></div><button type="button" id="cv-add-pessoa">Adicionar comprador</button>' +
     '<h4>Condições de pagamento</h4><label id="cv-entrada-clausula">Como a entrada aparece na cláusula 4.1' +
@@ -70,7 +73,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     '<div id="cv-total" class="mut" aria-live="polite"></div></fieldset>' +
     '<p id="cv-status" role="status" aria-live="polite"></p>' +
     '<div class="bt"><button type="button" id="cv-word">Baixar prévia em Word</button>' +
-    '<button type="submit" id="cv-aprovar" class="pri">Aprovar e cadastrar</button>' +
+    '<button type="submit" id="cv-aprovar" class="pri">' + (contrato ? 'Salvar revisão' : 'Aprovar e cadastrar') + '</button>' +
     '<button type="button" id="cv-retry" hidden>Tentar pendências novamente</button>' +
     '<button type="button" id="cv-abrir" hidden>Abrir contrato</button></div></form></section>');
   const root = document.getElementById('compra-venda');
@@ -462,7 +465,8 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
       }
       el('#cv-retry').hidden = !falhas.length;
       msg(falhas.length ? 'Contrato gravado. Pendências: ' + falhas.join(' · ') :
-        'Contrato ' + salvo.numero + ' cadastrado. Documentos e Word guardados, compradores vinculados ao Asaas.' +
+        (contrato ? 'Revisão do contrato ' + salvo.numero + ' salva. A nova minuta está em Documentos.' :
+        'Contrato ' + salvo.numero + ' cadastrado. Documentos e Word guardados, compradores vinculados ao Asaas.') +
         (salvo.emitir.length ? ' Boleto da entrada emitido.' : ''), !!falhas.length);
     } finally { ocupado = false; }
   };
@@ -478,9 +482,11 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     event.preventDefault();
     if (ocupado || salvo || !confereCampos()) return;
     try {
-      const raw = dadosFormulario(), b = validaCompraVenda(raw), lista = prepararArquivos();
+      const raw = dadosFormulario(), b = validaCompraVenda(raw), lista = contrato ? [] : prepararArquivos();
       const gera = b.itens.some(p => p.emitir), paga = b.itens.some(p => p.pago);
-      if (!confirm('Cadastrar o contrato ' + b.numero + ' e vincular os compradores ao Asaas?' +
+      if (contrato && paga) throw new Error('Registre recebimentos pelo módulo de parcelas depois de salvar a edição.');
+      if (!confirm(contrato ? 'Salvar e emitir uma revisão do contrato ' + b.numero + '?' :
+        'Cadastrar o contrato ' + b.numero + ' e vincular os compradores ao Asaas?' +
         (gera ? ' Serão emitidos os boletos das entradas em aberto marcadas para emissão.' : '') +
         (paga ? ' As entradas já pagas serão registradas.' : ''))) return;
       ocupado = true;
@@ -499,11 +505,13 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
         enviados.push(r.id);
       }
       msg('Gravando contrato, cadastro e documentos…');
-      salvo = await post('contrato-novo',{...raw,origem:'compra-venda',rascunho,anexos:enviados});
+      salvo = contrato
+        ? await api('contrato-edicao/'+contrato,{method:'PUT',body:{...raw,rascunho,minuta:enviados[0],revisao:dados.revisao},silencioso:true})
+        : await post('contrato-novo',{...raw,origem:'compra-venda',rascunho,anexos:enviados});
       el('#cv-aprovar').hidden = true;
       el('#cv-abrir').hidden = false;
       el('#cv-word').textContent = 'Baixar contrato em Word';
-      tarefas = b.compradores.map((p,i) => ({
+      tarefas = contrato ? [] : b.compradores.map((p,i) => ({
         rotulo:'Vincular ' + (i+1) + 'º comprador ao Asaas',
         fazer:() => post('contrato-novo/asaas',{contrato:salvo.numero,cpf:p.cpf}),
       }));
@@ -523,8 +531,11 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   const podeSair = () => !(ocupado || tarefas.some(t => !t.ok)) ||
     confirm('Há operações pendentes. Fechar a tela agora?');
   el('#cv-fechar').onclick = () => { if (podeSair()) fechaModal(); };
-  el('#cv-abrir').onclick = () => {
-    if (podeSair()) { fechaModal(); location.hash = 'c/' + salvo.numero; }
+  el('#cv-abrir').onclick = async () => {
+    if (!podeSair()) return;
+    fechaModal();
+    if (contrato) await atualizaFicha();
+    else location.hash = 'c/' + salvo.numero;
   };
   root.closest('.modal').onclick = null;
   preco.oninput = () => { atualizaComissao(); soma(); };
@@ -567,7 +578,20 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
       arquivos.splice(target.dataset.remover,1); escolhaArquivo();
     }
   });
-  preencher(el('#cv-imovel'),{...padroesCompraVenda,numero,data_assinatura:hoje()});
-  adicionarPessoa();
-  adicionarGrupo({qtd:1});
+  preencher(el('#cv-imovel'),{...padroesCompraVenda,data_assinatura:hoje(),...dados});
+  if (contrato) {
+    el('#cv-documentos').hidden = true;
+    el('#cv-pessoas').hidden = true;
+    el('#cv-add-pessoa').hidden = true;
+    for (const k of ['numero','quadra','lote']) el('[data-campo="'+k+'"]').readOnly = true;
+    for (const p of dados.compradores) adicionarPessoa(p);
+    el('#cv-entrada-minuta').value = dados.itens.find(p=>p.tipo==='entrada')?.entrada_na_minuta ||
+      modoEntradaSugerido(dados.itens,dados.data_assinatura);
+    for (const p of dados.itens) adicionarGrupo({...p,forma:p.emitir ? 'boleto' : p.tipo==='entrada' ? 'direto' : ''});
+    atualizaComissao();
+    msg('A revisão usa os compradores e os documentos já vinculados à venda.');
+  } else {
+    adicionarPessoa();
+    adicionarGrupo({qtd:1});
+  }
 }

@@ -24,11 +24,12 @@ function enderecoBanco() {
   catch { return raw; }
 }
 
-const pool = new pg.Pool({
+const conexaoBanco = {
   connectionString: enderecoBanco(),
   ssl: process.env.PGSSL === 'off' ? false : { rejectUnauthorized: false },
-  max: 3,
-});
+};
+const pool = new pg.Pool({...conexaoBanco,max:3});
+const poolTravaVenda = new pg.Pool({...conexaoBanco,max:1});
 
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json' } });
@@ -164,6 +165,91 @@ async function entradaNoAsaas(item) {
   throw new Error('A fatura informada precisa estar paga no Asaas na data e no valor da entrada.');
 }
 
+const configVenda = b => ({matricula:b.matricula,cartorio:b.cartorio,pagamento_corretagem:b.pagamento_corretagem});
+
+async function geraTitulosVenda(c,b) {
+  const gerados = (await c.query('select carteira.gerar_titulos($1) n', [b.numero])).rows[0].n;
+  const ajustado = b.itens.find(p => p.ajuste_ultima_centavos);
+  if (ajustado) {
+    const numero = b.itens.slice(0, b.itens.indexOf(ajustado) + 1)
+      .filter(p => p.tipo === ajustado.tipo).reduce((total, p) => total + p.qtd, 0);
+    const ajuste = await c.query(`update carteira.titulos set valor_face=valor_face+$4::numeric/100
+      where contrato=$1 and grupo=$2 and numero=$3 and conferente is null`,
+    [b.numero, ajustado.tipo, numero, ajustado.ajuste_ultima_centavos]);
+    if (ajuste.rowCount !== 1) throw new Error('Não foi possível ajustar o último centavo nas parcelas.');
+  }
+  return gerados;
+}
+
+async function estadoEdicaoVenda(consulta, numero) {
+  const [estado] = await consulta(`select c.*, xmin::text revisao,
+    (c.venda_recebida or exists(select 1 from carteira.pagamentos p join carteira.titulos t on t.id=p.titulo_id
+      where t.contrato=c.numero and p.valor_pago>0) or exists(select 1 from carteira.boletos b
+      where b.contrato=c.numero and (b.status=any($2) or b.dados->>'status'=any($2)))) recebeu,
+    exists(select 1 from carteira.documentos d where d.contrato=c.numero and d.chave='contrato_assinado') assinado,
+    exists(select 1 from carteira.boletos b where b.contrato=c.numero
+      and (b.status is null or b.status not in ('DELETED','SUBSTITUIDO','CANCELLED'))) boleto,
+    (exists(select 1 from carteira.acordos a where a.contrato=c.numero)
+      or exists(select 1 from carteira.correcoes k where k.contrato=c.numero)
+      or exists(select 1 from carteira.eventos e where e.contrato=c.numero and e.tipo not in ('observacao','pendencia'))
+      or exists(select 1 from carteira.propostas p where p.contrato=c.numero)) historico
+    from carteira.contratos c where c.numero=$1 and c.fonte='emissão pelo sistema'`, [numero,PAGO_A]);
+  return estado;
+}
+
+function motivoEdicaoVenda(estado) {
+  if (estado.recebeu) return 'Edição bloqueada. O contrato já tem recebimento registrado.';
+  if (estado.assinado) return 'Edição bloqueada. O contrato já tem uma via assinada.';
+}
+
+const assinaturaCronograma = itens => JSON.stringify(itens.map(p => [
+  p.tipo,+p.qtd,+p.valor,p.primeiro_venc,p.meio,+(p.ajuste_ultima_centavos || 0),
+]));
+
+async function editarCompraVenda(raw, ator, rascunho, id) {
+  const c = await pool.connect();
+  try {
+    await c.query('begin');
+    await c.query("select set_config('app.ator',$1,true)", [ator]);
+    const {rows:[trava]} = await c.query('select pg_try_advisory_xact_lock(7714, $1::int) ok', [raw.numero]);
+    if (!trava.ok) throw new Error('Há uma operação em andamento neste contrato. Tente novamente.');
+    await c.query('lock table carteira.pagamentos, carteira.boletos, carteira.documentos in share row exclusive mode');
+    await c.query('select numero from carteira.contratos where numero=$1 for update', [raw.numero]);
+    const consulta = async (s,p) => (await c.query(s,p)).rows;
+    const atual = await estadoEdicaoVenda(consulta,raw.numero);
+    if (!atual) throw new Error('Contrato de compra e venda não encontrado.');
+    if (motivoEdicaoVenda(atual)) throw new Error(motivoEdicaoVenda(atual));
+    if (raw.revisao !== atual.revisao) throw new Error('O contrato mudou. Abra a edição novamente.');
+    const b = validaCompraVenda({...raw,quadra:atual.quadra,lote:atual.lote,compradores:atual.compradores});
+    if (b.itens.some(p => p.pago)) throw new Error('Registre recebimentos pelo módulo de parcelas depois de salvar a edição.');
+    const alteraParcelas = +atual.valor_imovel !== b.valor_imovel || atual.data_assinatura !== b.data_assinatura ||
+      assinaturaCronograma(atual.itens) !== assinaturaCronograma(b.itens);
+    if (alteraParcelas && (atual.boleto || atual.historico))
+      throw new Error(atual.boleto ? 'Cancele os boletos ativos antes de alterar o valor ou os vencimentos.' :
+        'O cronograma já tem eventos, correções ou acordos. Use as operações da ficha para alterá-lo.');
+    const [minuta] = await consulta(`select id,nome,verificacao from carteira.documentos where id=$1 and contrato=$2
+      and verificacao->>'numero'=$3 and por=$4 and chave='contrato_minuta' for update`, [id,rascunho,b.numero,ator]);
+    if (!minuta) throw new Error('A minuta da revisão não foi encontrada.');
+    const destino = destinoArquivo({chave:'contrato_minuta',nome:minuta.nome,numero:b.numero,quadra:b.quadra,lote:b.lote});
+    const arquivo = minuta.verificacao?.onedrive?.destino;
+    if (arquivo && (destino.nome !== arquivo.nome || JSON.stringify(destino.pastas) !== JSON.stringify(arquivo.pastas)))
+      throw new Error('O destino da minuta mudou. Envie a revisão novamente.');
+    await c.query(`update carteira.contratos set rua=$2,area=$3,valor_imovel=$4,data_assinatura=$5,
+      entrada_total=$6,corretor=$7,creci_corretor=$8,corretagem=$9,itens=$10,venda_config=$11 where numero=$1`,
+    [b.numero,b.rua,b.area,b.valor_imovel,b.data_assinatura,b.entrada_total,b.corretor,b.creci_corretor,
+      b.corretagem,JSON.stringify(b.itens),configVenda(b)]);
+    if (alteraParcelas) await geraTitulosVenda(c,b);
+    await c.query("update carteira.documentos set contrato=$1,verificacao=verificacao-'numero' where id=$2", [b.numero,id]);
+    await c.query("insert into carteira.historico(conferente,acao,detalhe) values('luis','compra_venda_editada',$1)",
+      [{contrato:b.numero,minuta:id,alterou_parcelas:alteraParcelas,por:ator}]);
+    await c.query('commit');
+    return {numero:b.numero,emitir:[]};
+  } catch(e) {
+    await c.query('rollback');
+    throw e;
+  } finally { c.release(); }
+}
+
 async function cadastrarCompraVenda(b, ator, rascunho, ids) {
   const conferente = 'luis';
   const pagas = new Map();
@@ -196,10 +282,10 @@ async function cadastrarCompraVenda(b, ator, rascunho, ids) {
         throw new Error('O destino dos documentos mudou. Envie novamente os anexos.');
     }
     await c.query(`insert into carteira.contratos(numero,quadra,lote,rua,area,valor_imovel,data_assinatura,
-      entrada_total,indice,juros_aa,corretor,creci_corretor,corretagem,compradores,itens,fonte,arquivo)
-      values($1,$2,$3,$4,$5,$6,$7,$8,'IGPM',2,$9,$10,$11,$12,$13,'emissão pelo sistema',$14)`,
+      entrada_total,indice,juros_aa,corretor,creci_corretor,corretagem,compradores,itens,fonte,arquivo,venda_config)
+      values($1,$2,$3,$4,$5,$6,$7,$8,'IGPM',2,$9,$10,$11,$12,$13,'emissão pelo sistema',$14,$15)`,
     [b.numero,b.quadra,b.lote,b.rua,b.area,b.valor_imovel,b.data_assinatura,b.entrada_total,b.corretor,b.creci_corretor,b.corretagem,
-      JSON.stringify(b.compradores),JSON.stringify(b.itens),`${b.numero} - Q${b.quadra} L${b.lote}.docx`]);
+      JSON.stringify(b.compradores),JSON.stringify(b.itens),`${b.numero} - Q${b.quadra} L${b.lote}.docx`, configVenda(b)]);
     for (const p of [...b.compradores].sort((a, z) => a.cpf.localeCompare(z.cpf))) {
       const {fone, email, endereco, qualificacao, ...pessoais} = p;
       const manual = Object.fromEntries(Object.entries({telefone:fone, email, endereco, qualificacao}).filter(([,v]) => v));
@@ -210,16 +296,7 @@ async function cadastrarCompraVenda(b, ator, rascunho, ids) {
           coalesce(clientes.manual->'pessoais','{}'::jsonb)||excluded.manual->'pessoais'), atualizado_em=now()`,
       ['cpf:' + p.cpf, p.cpf, p.nome, manual]);
     }
-    gerados = (await c.query('select carteira.gerar_titulos($1) n', [b.numero])).rows[0].n;
-    const ajustado = b.itens.find(p => p.ajuste_ultima_centavos);
-    if (ajustado) {
-      const numero = b.itens.slice(0, b.itens.indexOf(ajustado) + 1)
-        .filter(p => p.tipo === ajustado.tipo).reduce((total, p) => total + p.qtd, 0);
-      const ajuste = await c.query(`update carteira.titulos set valor_face = valor_face + $4::numeric / 100
-        where contrato=$1 and grupo=$2 and numero=$3 and conferente is null`,
-      [b.numero, ajustado.tipo, numero, ajustado.ajuste_ultima_centavos]);
-      if (ajuste.rowCount !== 1) throw new Error('Não foi possível ajustar o último centavo nas parcelas.');
-    }
+    gerados = await geraTitulosVenda(c,b);
     const entradas = (await c.query(`select id,vencimento from carteira.titulos
       where contrato=$1 and grupo='entrada' order by numero`, [b.numero])).rows;
     let inicio = 0;
@@ -321,9 +398,11 @@ async function carregar(n, conf) {
   const cessoes = await q(`select id, numero, status, datas, dados - 'textos' dados from carteira.cessoes where contrato=$1 order by numero`, [n]).catch(() => []);
   const tA = await q(`select distinct on (chave) substr(chave, 16) termo, verificacao->>'status' st from carteira.documentos where contrato=$1 and chave like 'termo_assinado_%' order by chave, enviado_em desc`, [n]).catch(() => []);
   const termosAssinados = tA.map(x => x.termo), termosVerif = Object.fromEntries(tA.map(x => [x.termo, x.st || null]));
-  const [assinado] = contrato.fonte === 'emissão pelo sistema' ? await q(`select id,enviado_em
-    from carteira.documentos where contrato=$1 and chave='contrato_assinado' order by enviado_em desc,id desc limit 1`,[n]) : [];
-  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, termosAssinados, termosVerif, boletos, cessoes, assinado:assinado || null, fechamento: fechamento || null, hoje: hojeBR(), conferente: conf };
+  const documentosVenda = contrato.fonte === 'emissão pelo sistema' ? await q(`select distinct on (chave) id,chave,enviado_em
+    from carteira.documentos where contrato=$1 and chave in ('contrato_assinado','contrato_minuta') order by chave,enviado_em desc,id desc`,[n]) : [];
+  const assinado = documentosVenda.find(d=>d.chave==='contrato_assinado') || null;
+  const minuta = documentosVenda.find(d=>d.chave==='contrato_minuta') || null;
+  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, termosAssinados, termosVerif, boletos, cessoes, assinado, minuta, fechamento: fechamento || null, hoje: hojeBR(), conferente: conf };
 }
 
 /* ---------- puxar descrições do banco antigo pelo número da fatura ---------- */
@@ -964,7 +1043,28 @@ async function previaBoletos(mes) {
     return { ...t, valor: v, titular: t.cessionario || t.titular, linha: rotuloBoleto(t), ultimo_valor: u ? +u.valor : null, ultimo_venc: u?.venc || null, diverge: !!dif };
   });
 }
+async function comTravaBoletoVenda(tituloId, emitir) {
+  const [venda] = await q(`select c.numero from carteira.contratos c join carteira.titulos t on t.contrato=c.numero
+    where t.id=$1 and c.fonte='emissão pelo sistema'`, [tituloId]);
+  if (!venda) return emitir();
+  const c = await poolTravaVenda.connect();
+  try {
+    await c.query('begin');
+    const {rows:[r]} = await c.query('select pg_try_advisory_xact_lock(7714, $1::int) ok', [venda.numero]);
+    if (!r.ok) return {titulo_id:tituloId,erro:'Há uma edição em andamento. Tente emitir o boleto novamente.'};
+    return await emitir();
+  } finally {
+    try {
+      await c.query('rollback');
+      c.release();
+    } catch (e) { c.release(e); }
+  }
+}
+
 async function emitirBoleto(tituloId, conf, clienteConfirmado) {
+  return comTravaBoletoVenda(tituloId, () => emitirBoletoSemTrava(tituloId,conf,clienteConfirmado));
+}
+async function emitirBoletoSemTrava(tituloId, conf, clienteConfirmado) {
   await garanteBoletos();
   const [t] = await abertas(` and t.id=$1`, [tituloId, ATIVOS_B]);
   if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto (paga, em acordo, cancelada ou contrato sem conferência fechada)' };
@@ -1060,6 +1160,10 @@ async function candidatosCobranca(inicioAuto) {
 /* 2ª via atualizada: a mesma parcela, com multa, juros (e os 10% de cobrança depois de 60 dias) até a data escolhida.
    Não é acordo: quando paga, dá baixa na própria parcela com os encargos separados. */
 async function segundaVia(tituloId, data, conf, opts = {}) {
+  if (opts.previa) return segundaViaSemTrava(tituloId,data,conf,opts);
+  return comTravaBoletoVenda(tituloId, () => segundaViaSemTrava(tituloId,data,conf,opts));
+}
+async function segundaViaSemTrava(tituloId, data, conf, opts) {
   await garanteBoletos();
   const hoje = hojeBR(); data = data || hoje;
   if (data < hoje) return { titulo_id: tituloId, erro: 'A data de vencimento não pode ser no passado' };
@@ -1431,6 +1535,7 @@ async function rotasPublicas(p, req, url) {
 async function permitidoAssistente(p, m, body) {
   const a = p[0], s = p[1];
   if (a === 'onedrive') return !p[2] && ((m==='GET'&&['status','listar','abrir'].includes(s)) || (m==='POST'&&s==='enviar'));
+  if (a === 'contrato-edicao') return ['GET','PUT'].includes(m) && !p[2] && /^\d{4}$/.test(s || '');
   if (a === 'contrato-novo') return !p[2] && (
     (m === 'GET' && (!s || s === 'modelo')) ||
     (m === 'POST' && (['ler','asaas','boleto'].includes(s) || (!s && body.origem === 'compra-venda')))
@@ -1844,6 +1949,27 @@ async function garanteEsquema() {
   if (schemaOk) return;
   try {
     await q(`alter table carteira.contratos add column if not exists creci_corretor text`);
+    await q(`alter table carteira.contratos add column if not exists venda_config jsonb,
+      add column if not exists venda_recebida boolean not null default false`);
+    await q(`create or replace function carteira.trava_edicao_venda_paga() returns trigger language plpgsql as $f$
+      begin
+        if tg_op <> 'INSERT' and old.valor_pago > 0 then
+          update carteira.contratos c set venda_recebida=true from carteira.titulos t
+            where t.id=old.titulo_id and c.numero=t.contrato and c.fonte='emissão pelo sistema' and not c.venda_recebida;
+        end if;
+        if tg_op <> 'DELETE' and new.valor_pago > 0 then
+          update carteira.contratos c set venda_recebida=true from carteira.titulos t
+            where t.id=new.titulo_id and c.numero=t.contrato and c.fonte='emissão pelo sistema' and not c.venda_recebida;
+        end if;
+        return null;
+      end $f$`);
+    await q(`do $d$ begin
+      if not exists (select 1 from pg_trigger where tgname='trava_edicao_venda_paga' and tgrelid='carteira.pagamentos'::regclass) then
+        create trigger trava_edicao_venda_paga after insert or update or delete on carteira.pagamentos
+          for each row execute function carteira.trava_edicao_venda_paga();
+      end if;
+    exception when duplicate_object then null;
+    end $d$`);
     /* a locação é um sistema separado (Administração de Aluguel): apaga a área que chegou a ser criada aqui, só se estiver vazia */
     await q(`do $d$ declare n bigint := 0; t text; begin
       if exists (select 1 from pg_namespace where nspname='locacao') then
@@ -2278,6 +2404,21 @@ export default async (req) => {
       if (p[1] === 'previa' && m === 'GET') return json(await previaCorrecao(url.searchParams.get('ano'), url.searchParams.get('igpm') || 0, url.searchParams.get('desde')));
       if (p[1] === 'aplicar' && m === 'POST') return json(await aplicarCorrecao(body.itens || [], real, body.ano));
     }
+    if (p[0] === 'contrato-edicao' && ['GET','PUT'].includes(m)) {
+      if (!['luis','assistente'].includes(real) || !/^\d{4}$/.test(p[1] || '') || p[2]) return json({erro:'Edição indisponível.'},403);
+      await garanteBoletos();
+      const atual = await estadoEdicaoVenda(q,p[1]);
+      if (!atual) return json({erro:'Contrato de compra e venda não encontrado.'},404);
+      const motivo = motivoEdicaoVenda(atual);
+      if (motivo) return json({erro:motivo},409);
+      if (m === 'GET') return json({...atual,...atual.venda_config});
+      const rascunho = chaveRascunhoCompra(body.rascunho);
+      if (!rascunho || !Number.isSafeInteger(body.minuta) || body.minuta < 1)
+        return json({erro:'Envie a minuta da revisão.'},400);
+      try { return json(await editarCompraVenda({...body,numero:p[1]},usuario?.email || real,rascunho,body.minuta)); }
+      catch (e) { return json({erro:e.message},409); }
+    }
+
     if (p[0] === 'contrato-novo' && ['GET','POST'].includes(m)) {
       if (!['luis','assistente'].includes(real)) return json({ erro: 'Use o login individual da equipe.' }, 403);
       if (p[1] === 'modelo' && m === 'GET') {
@@ -2560,8 +2701,9 @@ export default async (req) => {
     if (p[0] === 'contrato-data' && m === 'POST') {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(body.data_assinatura || '')) return json({ erro: 'Data inválida' }, 400);
-      const [a] = await q(`select data_assinatura from carteira.contratos where numero=$1`, [body.contrato]);
+      const [a] = await q(`select data_assinatura,fonte from carteira.contratos where numero=$1`, [body.contrato]);
       if (!a) return json({ erro: 'Contrato não encontrado' }, 404);
+      if (a.fonte === 'emissão pelo sistema') return json({erro:'Use Editar contrato na ficha da venda.'},409);
       await q(`update carteira.contratos set data_assinatura=$2 where numero=$1`, [body.contrato, body.data_assinatura]);
       await log(conf, 'data_assinatura_corrigida', { contrato: body.contrato, antes: a.data_assinatura, depois: body.data_assinatura, motivo: body.motivo || null });
       return json({ ok: true });
