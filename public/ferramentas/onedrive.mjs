@@ -7,16 +7,7 @@ const read = file => new Promise((resolve,reject)=>{
   r.readAsDataURL(file);
 });
 
-export async function enviaAnexo(api, meta, file, status, progresso) {
-  const ativo=(status || await api('onedrive/status',{silencioso:true})).conectado;
-  const body={...meta,nome:file.name,mime:file.type};
-  const post=(path,body)=>api(path,{method:'POST',body,silencioso:true});
-  if(!ativo){
-    if(file.size>4e6)throw new Error('Arquivo acima de 4 MB. Para enviá-lo, conecte o OneDrive.');
-    return post('documento',{...body,b64:await read(file)});
-  }
-  if(file.size<1 || file.size>LIMITE)throw new Error('Selecione um arquivo de até 250 MB.');
-  const sessao=await post('onedrive/enviar',{...body,tamanho:file.size});
+async function enviaPartes(sessao,file,progresso){
   let id;
   for(let inicio=0;inicio<file.size;){
     const fim=Math.min(inicio+CHUNK,file.size);
@@ -33,7 +24,20 @@ export async function enviaAnexo(api, meta, file, status, progresso) {
     progresso?.(Math.round(fim/file.size*100));
   }
   if(!id)throw new Error('O OneDrive não confirmou a gravação.');
-  return post('documento',{...body,onedrive:{ticket:sessao.ticket,id}});
+  return {ticket:sessao.ticket,id};
+}
+
+export async function enviaAnexo(api, meta, file, status, progresso) {
+  const ativo=(status || await api('onedrive/status',{silencioso:true})).conectado;
+  const body={...meta,nome:file.name,mime:file.type};
+  const post=(path,body)=>api(path,{method:'POST',body,silencioso:true});
+  if(!ativo){
+    if(file.size>4e6)throw new Error('Arquivo acima de 4 MB. Para enviá-lo, conecte o OneDrive.');
+    return post('documento',{...body,b64:await read(file)});
+  }
+  if(file.size<1 || file.size>LIMITE)throw new Error('Selecione um arquivo de até 250 MB.');
+  const sessao=await post('onedrive/enviar',{...body,tamanho:file.size});
+  return post('documento',{...body,onedrive:await enviaPartes(sessao,file,progresso)});
 }
 
 export async function telaOneDrive({root,api,admin}) {
@@ -81,6 +85,20 @@ export async function telaOneDrive({root,api,admin}) {
   if(!status.conectado){
     conteudo.append(node('p',status.configuravel?'O administrador precisa conectar a conta Microsoft que contém a pasta Beira Rio ADM → Documentos.':'A ativação do OneDrive está pendente.'));
     return;
+  }
+  if(admin){
+    const resultado=node('p');resultado.setAttribute('role','status');resultado.hidden=true;card.append(resultado);
+    const teste=btn('Testar gravação em Propostas',async()=>{
+      teste.disabled=true;resultado.hidden=false;resultado.textContent='Gravando arquivo de teste…';
+      const post=(rota,body)=>api('onedrive/teste'+rota,{method:'POST',body,silencioso:true});
+      try {
+        const s=await post('',{});
+        const r=await post('/conferir',await enviaPartes(s,new Blob([s.conteudo],{type:'text/plain'})));
+        resultado.textContent='Arquivo gravado e conteúdo conferido em '+r.pasta+' / '+r.nome+' ('+r.tamanho+' bytes).';
+      }catch(e){resultado.textContent=e.message;}
+      finally{teste.disabled=false;}
+    });
+    controls.append(teste);
   }
   let itens=[], carregar;
   const trilha=node('div');trilha.className='bt';

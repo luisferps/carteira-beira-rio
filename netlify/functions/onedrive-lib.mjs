@@ -5,6 +5,8 @@ const microsoft = tipo => 'https://login.microsoftonline.com/'+(tipo==='pessoal'
 const ROOT = ['Beira Rio','Beira Rio ADM','Documentos'];
 const SCOPES = 'offline_access https://graph.microsoft.com/Files.ReadWrite';
 const SELECT = 'id,name,size,file,folder,parentReference,remoteItem';
+const TESTE = 'Arquivo de teste da integração Carteira Beira Rio com o OneDrive.\n';
+const CONTEXTO_TESTE = {teste:true};
 const esc = encodeURIComponent;
 export const MAX_FILE = 250 * 1024 * 1024;
 
@@ -268,6 +270,17 @@ export function criaOneDrive({q,pool,json,fetcher=fetch, env=process.env}) {
       }
       if(m==='GET'&&p[1]==='listar') return json(await listagem(url));
       if(m==='GET'&&p[1]==='abrir') return json(await abrirRef(abreTicket('arquivo',url.searchParams.get('cursor'))));
+      if(m==='POST'&&p[1]==='teste'&&real==='luis'&&!p[2]){
+        const data=new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo'}).format(new Date());
+        const nome='TESTE Carteira Beira Rio - '+data+' - '+randomBytes(4).toString('hex')+'.txt';
+        const sessao=await iniciaArquivo({destino:{pastas:['Propostas'],nome},size:Buffer.byteLength(TESTE),ator,contexto:CONTEXTO_TESTE});
+        return json({...sessao,nome,conteudo:TESTE});
+      }
+      if(m==='POST'&&p[1]==='teste'&&real==='luis'&&p[2]==='conferir'){
+        const ref=await confirmaArquivo(body.ticket,body.id,ator,CONTEXTO_TESTE);
+        if(await lerBytes(ref)!==Buffer.from(TESTE).toString('base64'))throw new DriveError('O conteúdo do teste gravado diverge do arquivo enviado.',409);
+        return json({nome:ref.nome,pasta:'Propostas',tamanho:ref.tamanho});
+      }
       if(m==='POST'&&p[1]==='enviar'){
         const {destino,contexto}=await prepara(body);
         return json(await iniciaArquivo({destino,size:body.tamanho,ator,contexto}));
