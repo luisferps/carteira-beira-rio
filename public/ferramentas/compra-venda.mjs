@@ -2,7 +2,7 @@ import { ajusteDoGrupo, comissaoPadrao, cpfValido, padroesCompraVenda, somaParce
 import { dadosMinuta, gerarMinuta, mimeWord, qualifica } from './compra-minuta.mjs';
 import { enviaAnexo, LIMITE } from './onedrive.mjs';
 
-const formato = 'application/pdf,image/jpeg,image/png,image/webp';
+const formato = '.pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp';
 const limiteLeitura = 2_390_000;
 const imovel = [
   ['numero','Nº do contrato'], ['quadra','Quadra'], ['lote','Lote'], ['area','Área (m²)','number'],
@@ -57,10 +57,8 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   abreModal('<section id="compra-venda"><div class="bt"><h3 style="flex:1">Novo contrato de compra e venda</h3>' +
     '<button type="button" id="cv-fechar">Fechar</button></div>' +
     '<form id="cv-form" novalidate><fieldset id="cv-edicao">' +
-    '<div class="info">Anexe a proposta padrão, com ou sem os documentos. Confira os dados e complete os campos em branco.</div>' +
-    '<h4>Proposta e documentos</h4><label>Proposta ou PDF com tudo junto' +
-    '<input id="cv-proposta" type="file" accept="' + formato + '"></label>' +
-    '<label>Documentos avulsos<input id="cv-docs" type="file" multiple accept="' + formato + '"></label>' +
+    '<h4>Proposta e documentos</h4><label>Adicionar PDFs ou imagens, juntos ou separados' +
+    '<input id="cv-proposta" type="file" multiple accept="' + formato + '"></label>' +
     '<div id="cv-arquivos"></div>' +
     '<h4>Imóvel e condições da venda</h4><div class="cv-grade" id="cv-imovel">' + campos(imovel) + '</div>' +
     '<h4>Compradores</h4><div id="cv-pessoas"></div><button type="button" id="cv-add-pessoa">Adicionar comprador</button>' +
@@ -75,6 +73,11 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   root.closest('.card').style.maxWidth = '940px';
   const el = s => root.querySelector(s);
   const arquivos = [];
+  const limiteAnexo = driveStatus.conectado ? LIMITE : 4e6;
+  const confereArquivo = file => {
+    if (!file.size || file.size > limiteAnexo)
+      throw new Error('Confira se o arquivo tem conteúdo e está dentro do limite de ' + (driveStatus.conectado ? '250' : '4') + ' MB.');
+  };
   const notas = [];
   let sequencia = 0, ocupado = false, salvo = null, word = null, tarefas = [];
   const pessoas = () => [...el('#cv-pessoas').children];
@@ -119,8 +122,10 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     exibidos.innerHTML = arquivos.map((a,i) => '<div class="cv-anexo"><span>' + esc(a.file.name) +
       '</span><select aria-label="Pessoa ou contrato" data-destino="' + i + '">' + options(destinos,a.destino) +
       '</select><select aria-label="Tipo de documento" data-tipo="' + i + '">' + options([['','Selecione o tipo'],...tipos],a.tipo) +
-      '</select><button type="button" data-ver="' + i + '">Ver</button>' +
-      '<button type="button" data-remover="' + i + '">Remover</button></div>').join('');
+      '</select><div class="bt"><button type="button" data-ver="' + i + '">Ver</button>' +
+      '<button type="button" data-reusar="' + i + '">Vincular também</button>' +
+      (a.separavel ? '<button type="button" data-separar="' + i + '">Separar páginas</button>' : '') +
+      '<button type="button" data-remover="' + i + '">Remover</button></div></div>').join('');
   };
   const adicionarPessoa = (dados = {}) => {
     if (pessoas().length >= 4) return null;
@@ -129,6 +134,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     card.dataset.id = 'comprador-' + (++sequencia);
     card.innerHTML = '<div class="bt"><b style="flex:1">Comprador</b><button type="button">Remover comprador</button></div>' +
       '<div class="cv-grade">' + campos(pessoais) + '</div>' +
+      '<label>Anexar comprovante de endereço deste comprador<input data-comprovante type="file" accept="' + formato + '"></label>' +
       '<label>Qualificação para a minuta (opcional, preenche automaticamente com os dados acima)<textarea data-campo="qualificacao" rows="2"></textarea></label>';
     el('#cv-pessoas').append(card);
     preencher(card, dados);
@@ -138,6 +144,16 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
       card.remove(); escolhaArquivo();
     };
     card.querySelector('[data-campo="nome"]').addEventListener('change', escolhaArquivo);
+    card.querySelector('[data-comprovante]').onchange = ({target}) => {
+      const file = target.files[0];
+      target.value = '';
+      if (!file || ocupado || salvo) return;
+      try {
+        arquivos.push({file:preparaArquivo(file),tipo:'endereco',destino:card.dataset.id});
+        escolhaArquivo();
+        msg('Comprovante anexado para ' + (lerValores(card).nome || 'este comprador') + '.');
+      } catch (e) { msg(e.message,true); }
+    };
     escolhaArquivo();
     return card;
   };
@@ -232,9 +248,59 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     const tido = tipoLido(tipo,dados);
     const pessoa = tido && !['proposta','outro'].includes(tido) ? localizarPessoa(dados, indice, true) : null;
     if (pessoa) preencher(pessoa,dados,true);
-    arquivos.push({file, tipo:tido, dados, indice, destino:pessoa?.dataset.id || (tido === 'proposta' ? 'contrato' : '')});
+    const anexo = {file, tipo:tido, dados, indice, destino:pessoa?.dataset.id || (tido === 'proposta' ? 'contrato' : '')};
+    arquivos.push(anexo);
+    return anexo;
   };
-  const importarPdf = async (file, comoProposta) => {
+  const preparaArquivo = file => {
+    const mime = arquivoPdf(file) ? 'application/pdf' : file.type ||
+      ({jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',webp:'image/webp'})[file.name.split('.').pop().toLowerCase()];
+    if (!['application/pdf','image/jpeg','image/png','image/webp'].includes(mime))
+      throw new Error('Selecione um PDF ou uma imagem JPG, PNG ou WebP.');
+    confereArquivo(file);
+    return file.type === mime ? file : new File([file],file.name,{type:mime,lastModified:file.lastModified});
+  };
+  const importarImagem = async file => {
+    const r = await ler(file,'proposta');
+    aplicarProposta(r);
+    const partes = Array.isArray(r?.partes) ? r.partes.slice(0,12) : [];
+    if (partes.length <= 1) {
+      const [p] = partes;
+      guardar(file,p?.tipo || (temDadosProposta(r) ? 'proposta' : ''),p?.dados,p?.proponente);
+      return;
+    }
+    const imagem = await createImageBitmap(file);
+    const recortes = [];
+    try {
+      for (const p of partes) {
+        const {tipo,dados,proponente,caixa} = p;
+        if (!tipoLido(tipo,dados) || !Array.isArray(caixa) || caixa.length !== 4 ||
+            caixa.some(v => !Number.isFinite(v) || v < 0 || v > 1000) || caixa[2] <= caixa[0] || caixa[3] <= caixa[1])
+          throw new Error('Use Vincular também se a imagem servir para mais de um documento.');
+        const [x1,y1,x2,y2] = caixa;
+        const x = Math.floor(x1 * imagem.width / 1000), y = Math.floor(y1 * imagem.height / 1000);
+        const w = Math.ceil(x2 * imagem.width / 1000) - x, h = Math.ceil(y2 * imagem.height / 1000) - y;
+        const tela = document.createElement('canvas');
+        tela.width = w;
+        tela.height = h;
+        tela.getContext('2d').drawImage(imagem,x,y,w,h,0,0,w,h);
+        const blob = await new Promise(resolve => tela.toBlob(resolve,'image/png'));
+        if (!blob) throw new Error('A imagem precisa de classificação manual.');
+        const recorte = new File([blob],file.name.replace(/\.[^.]+$/,'') + ' - parte ' + (recortes.length + 1) + '.png',{type:'image/png'});
+        confereArquivo(recorte);
+        recortes.push({file:recorte,tipo,dados,proponente});
+      }
+    } finally { imagem.close(); }
+    for (const p of recortes) guardar(p.file,p.tipo,p.dados,p.proponente);
+    notas.push('Confira os recortes e os vínculos de ' + file.name + ' antes de cadastrar.');
+  };
+  const separaPagina = async (PDFDocument,pdf,file,i) => {
+    const separado = await PDFDocument.create();
+    const [pagina] = await separado.copyPages(pdf,[i]);
+    separado.addPage(pagina);
+    return new File([await separado.save()],file.name.replace(/\.pdf$/i,'') + ' - pág ' + (i+1) + '.pdf',{type:'application/pdf'});
+  };
+  const importarPdf = async file => {
     const { PDFDocument, PDFSignature } = await import('./pdf-lib-1.17.1.min.mjs');
     const pdf = await PDFDocument.load(await file.arrayBuffer());
     const n = pdf.getPageCount();
@@ -243,18 +309,14 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
       const r = await ler(file,'proposta');
       aplicarProposta(r);
       const p = r?.paginas?.find(x => x?.pagina === 1);
-      guardar(file, p?.tipo || ((comoProposta || temDadosProposta(r)) ? 'proposta' : ''), p?.dados, p?.proponente);
+      guardar(file, p?.tipo || (temDadosProposta(r) ? 'proposta' : ''), p?.dados, p?.proponente);
       return;
     }
     const pacote = file.size <= limiteLeitura ? await ler(file,'proposta') : null;
     aplicarProposta(pacote);
     const paginas=[];
     for (let i = 0; i < n; i++) {
-      const separado = await PDFDocument.create();
-      const [pagina] = await separado.copyPages(pdf,[i]);
-      separado.addPage(pagina);
-      const nome = file.name.replace(/\.pdf$/i,'') + ' - pág ' + (i+1) + '.pdf';
-      const f = new File([await separado.save()], nome, {type:'application/pdf'});
+      const f = await separaPagina(PDFDocument,pdf,file,i);
       let p = pacote?.paginas?.find(x => x?.pagina === i+1);
       if (!pacote) {
         msg('Lendo página ' + (i+1) + ' de ' + n + '…');
@@ -264,8 +326,13 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
       }
       paginas.push({file:f,leitura:p});
     }
-    const proposta=comoProposta||paginas.some(x=>x.leitura?.tipo==='proposta');
+    const proposta=temDadosProposta(pacote)||paginas.some(x=>x.leitura?.tipo==='proposta');
     const grupo=paginas.map(x=>x.leitura);
+    if (!proposta && !grupo.some(p => tipoLido(p?.tipo,p?.dados))) {
+      guardar(file,'').separavel = true;
+      notas.push('Classifique ' + file.name + ' pela lista, ou use Separar páginas se houver mais de um documento.');
+      return;
+    }
     const tipo=grupo[0]?.tipo;
     if(!proposta && ['rg','cpf','endereco'].includes(tipo) && grupo.every(x=>x?.tipo===tipo) &&
         new Set(grupo.map(x=>x.proponente).filter(Boolean)).size<=1 &&
@@ -284,27 +351,26 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
       guardar(file,leitura?.tipo,leitura?.dados,leitura?.proponente);
     }
   };
-  async function importar(lista, proposta) {
+  async function importar(lista) {
     if (ocupado || salvo) return;
     ocupado = true;
     el('#cv-edicao').disabled = true;
     notas.length = 0;
     try {
-      for (let file of lista) {
+      for (const escolhido of lista) {
+        let file;
+        try { file = preparaArquivo(escolhido); }
+        catch (e) { notas.push(escolhido.name + ': ' + e.message); continue; }
         msg('Lendo ' + file.name + '…');
         try {
           if (arquivoPdf(file)) {
-            if (file.size > 30e6) throw new Error('O PDF deve ter até 30 MB.');
-            if (file.type !== 'application/pdf') file = new File([file],file.name,{type:'application/pdf'});
-            await importarPdf(file, proposta);
-          } else {
-            if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size > 4e6)
-              throw new Error('Use uma foto JPG, PNG ou WebP de até 4 MB.');
-            const r = await ler(file,proposta ? 'proposta' : 'documento');
-            if (proposta) { aplicarProposta(r); guardar(file,'proposta'); }
-            else guardar(file,r?.tipo,r,0);
-          }
-        } catch (e) { notas.push(file.name + ': ' + e.message); }
+            if (file.size > 30e6) throw new Error('O PDF é grande demais para leitura automática.');
+            await importarPdf(file);
+          } else await importarImagem(file);
+        } catch (e) {
+          guardar(file,'');
+          notas.push(file.name + ': ' + e.message + ' Arquivo mantido na lista para classificação manual.');
+        }
       }
       for (const a of arquivos.filter(a => !a.destino && a.tipo && !['proposta','outro'].includes(a.tipo))) {
         const p = localizarPessoa(a.dados,a.indice,false);
@@ -345,9 +411,8 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   const prepararArquivos = () => {
     const ps = pessoas();
     const out = arquivos.map(a => {
-      const limite=driveStatus.conectado?LIMITE:4e6;
-      if (!a.destino || !a.tipo || a.file.size > limite)
-        throw new Error('Confira o destino, o tipo e o limite de '+(driveStatus.conectado?'250':'4')+' MB de cada anexo.');
+      if (!a.destino || !a.tipo) throw new Error('Selecione o destino e o tipo de documento para ' + a.file.name + '.');
+      confereArquivo(a.file);
       const pessoa = ps.findIndex(p => p.dataset.id === a.destino);
       if ((pessoa < 0 && !['proposta','outro'].includes(a.tipo)) || (pessoa >= 0 && a.tipo === 'proposta'))
         throw new Error('Vincule os documentos aos compradores e a proposta ao contrato.');
@@ -355,8 +420,11 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     });
     ps.forEach((_,i) => {
       const ts = out.filter(a => a.pessoa === i).map(a => a.tipo);
-      if (!(ts.includes('rg_cpf') || (ts.includes('rg') && ts.includes('cpf'))) || !ts.includes('endereco'))
-        throw new Error('Anexe RG ou CNH, CPF e comprovante de endereço do ' + (i+1) + 'º comprador.');
+      const falta = [];
+      if (!ts.includes('rg_cpf') && !ts.includes('rg')) falta.push('RG ou CNH');
+      if (!ts.includes('rg_cpf') && !ts.includes('cpf')) falta.push('CPF');
+      if (!ts.includes('endereco')) falta.push('comprovante de endereço');
+      if (falta.length) throw new Error('Documento pendente para ' + (lerValores(ps[i]).nome || (i+1) + 'º comprador') + ': ' + falta.join(', ') + '.');
     });
     return out;
   };
@@ -440,16 +508,40 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   };
   root.closest('.modal').onclick = null;
   preco.oninput = () => { atualizaComissao(); soma(); };
-  el('#cv-proposta').onchange = e => { const files = [...e.target.files]; e.target.value = ''; importar(files,true); };
-  el('#cv-docs').onchange = e => { const files = [...e.target.files]; e.target.value = ''; importar(files,false); };
+  el('#cv-proposta').onchange = e => { const files = [...e.target.files]; e.target.value = ''; importar(files); };
   el('#cv-add-pessoa').onclick = () => { if (!adicionarPessoa()) msg('O limite é de quatro compradores.',true); };
   el('#cv-add-pag').onclick = () => adicionarGrupo();
   el('#cv-arquivos').addEventListener('change', ({target}) => {
     if (target.dataset.destino != null) arquivos[target.dataset.destino].destino = target.value;
     if (target.dataset.tipo != null) arquivos[target.dataset.tipo].tipo = target.value;
   });
-  el('#cv-arquivos').addEventListener('click', ({target}) => {
+  el('#cv-arquivos').addEventListener('click', async ({target}) => {
+    if (ocupado || salvo) return;
     if (target.dataset.ver != null) baixar(arquivos[target.dataset.ver].file,false);
+    if (target.dataset.reusar != null) {
+      const {file} = arquivos[target.dataset.reusar];
+      arquivos.splice(Number(target.dataset.reusar) + 1,0,{file,tipo:'',destino:''});
+      escolhaArquivo();
+      msg('Selecione o destino e o tipo do novo vínculo de ' + file.name + '.');
+    }
+    if (target.dataset.separar != null) {
+      const i = Number(target.dataset.separar);
+      const {file,tipo,destino} = arquivos[i];
+      if ((tipo || destino) && !confirm('Substituir o PDF inteiro pelas páginas separadas?')) return;
+      ocupado = true;
+      el('#cv-edicao').disabled = true;
+      try {
+        const { PDFDocument } = await import('./pdf-lib-1.17.1.min.mjs');
+        const pdf = await PDFDocument.load(await file.arrayBuffer());
+        const paginas = [];
+        for (let p = 0; p < pdf.getPageCount(); p++)
+          paginas.push({file:await separaPagina(PDFDocument,pdf,file,p),tipo:'',destino:''});
+        arquivos.splice(i,1,...paginas);
+        escolhaArquivo();
+        msg('Páginas separadas. Escolha o destino e o tipo de cada documento.');
+      } catch (e) { msg('Não foi possível separar as páginas: ' + e.message,true); }
+      finally { ocupado = false; el('#cv-edicao').disabled = false; }
+    }
     if (target.dataset.remover != null) {
       arquivos.splice(target.dataset.remover,1); escolhaArquivo();
     }
