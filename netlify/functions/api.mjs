@@ -301,7 +301,9 @@ async function carregar(n, conf) {
   const cessoes = await q(`select id, numero, status, datas, dados - 'textos' dados from carteira.cessoes where contrato=$1 order by numero`, [n]).catch(() => []);
   const tA = await q(`select distinct on (chave) substr(chave, 16) termo, verificacao->>'status' st from carteira.documentos where contrato=$1 and chave like 'termo_assinado_%' order by chave, enviado_em desc`, [n]).catch(() => []);
   const termosAssinados = tA.map(x => x.termo), termosVerif = Object.fromEntries(tA.map(x => [x.termo, x.st || null]));
-  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, termosAssinados, termosVerif, boletos, cessoes, fechamento: fechamento || null, hoje: hojeBR(), conferente: conf };
+  const [assinado] = contrato.fonte === 'emissão pelo sistema' ? await q(`select id,enviado_em
+    from carteira.documentos where contrato=$1 and chave='contrato_assinado' order by enviado_em desc,id desc limit 1`,[n]) : [];
+  return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, termosAssinados, termosVerif, boletos, cessoes, assinado:assinado || null, fechamento: fechamento || null, hoje: hojeBR(), conferente: conf };
 }
 
 /* ---------- puxar descrições do banco antigo pelo número da fatura ---------- */

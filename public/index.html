@@ -1024,8 +1024,13 @@ function desenhaContrato(){if(location.hash.startsWith('#cob/'))return;setTimeou
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash='contratos'">← Contratos</button></div>
   ${COMO?'<div class="aviso" style="background:#eff6ff;color:#1e3a8a;border-color:#bfdbfe"><b>Você está editando a VERSÃO FINAL</b> (a verdade do sistema). Tudo o que salvar aqui vai para a versão final.</div>':''}
   <div class="card"><div class="bt" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">Contrato ${c.numero}</h2><div style="font-size:15px;font-weight:600;margin-bottom:4px">Quadra ${c.quadra} · Lote ${c.lote}</div>
-  <div>${tit}</div><div class="mut">Assinado em ${dbr(c.data_assinatura)} · Imóvel ${brl(c.valor_imovel)} · Fonte: ${esc(c.fonte)} "${esc(c.arquivo)}"</div><div id="pg_line" style="font-size:13px;margin-top:2px"></div></div>
+  <div>${tit}</div><div class="mut">${c.fonte==='emissão pelo sistema'?'Data do contrato':'Assinado em'} ${dbr(c.data_assinatura)} · Imóvel ${brl(c.valor_imovel)} · Fonte: ${esc(c.fonte)} "${esc(c.arquivo)}"</div><div id="pg_line" style="font-size:13px;margin-top:2px"></div></div>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">${cliRapido()}</div></div>
+  ${c.fonte==='emissão pelo sistema'?`<div class="${C.assinado?'info':'aviso'}">
+    <b>${C.assinado?'Assinatura concluída':'Aguardando contrato assinado'}</b>
+    ${C.assinado?` <span class="mut">Anexado em ${dbr(C.assinado.enviado_em)}</span> <button onclick="abreDoc(${C.assinado.id})">Ver contrato assinado</button>`:
+      ` <button onclick="enviaDoc('contrato_assinado')">Anexar contrato assinado</button>`}
+    </div>`:''}
   ${(c.alertas||[]).filter(a=>!/planilha/i.test(a)).length?`<div class="aviso"><b>Pontos de atenção do contrato:</b><ul style="margin:4px 0 0 18px;padding:0">${c.alertas.filter(a=>!/planilha/i.test(a)).map(a=>'<li>'+esc(a)+'</li>').join('')}</ul></div>`:''}
 
   ${C.eventos.filter(e=>e.tipo==='observacao').map(e=>`<div class="aviso" style="background:#eff6ff;border:1px solid #93c5fd;color:#1e3a8a"><b>📝 Observação:</b> ${esc(e.obs||'')} <button style="margin-left:8px;font-size:12px;padding:3px 8px" onclick="apagaObs(${e.id})">Apagar</button></div>`).join('')}
@@ -2290,11 +2295,15 @@ function desenhaDocs(){const D=DOCS,n=C.contrato.numero;const ck=k=>D.check.find
   ${D.pessoas.map(p=>`<tr><th colspan="3">${esc(nome(p.nome))}</th></tr>${D.itens_pessoa.map(([k,l])=>linha('p'+p.i+'_'+k,l)).join('')}${ar('p'+p.i+'_outro').length?linha('p'+p.i+'_outro','Outros anexos'):''}`).join('')}</table>
   ${D.pessoas.length?'':'<div class="mut">Os compradores deste contrato não estão no cadastro do contrato — só os itens do contrato aparecem.</div>'}
   <div class="mut" style="margin-top:6px">Arquivos até 4 MB (PDF ou foto). Ficam guardados no sistema.</div>`);const m=document.querySelector('#modal .card');if(m)m.style.maxWidth='980px'}
-function enviaDoc(k){const i=document.createElement('input');i.type='file';i.accept='.pdf,image/*,.doc,.docx';i.onchange=async()=>{const f=i.files[0];if(!f)return;if(f.size>4e6)return alert('Arquivo grande demais (máximo 4 MB).');
+function enviaDoc(k){const n=C.contrato.numero, assinada=k==='contrato_assinado'&&C.contrato.fonte==='emissão pelo sistema';const i=document.createElement('input');i.type='file';i.accept=assinada?'.pdf,image/*':'.pdf,image/*,.doc,.docx';i.onchange=async()=>{const f=i.files[0];if(!f)return;if(f.size>4e6)return alert('Arquivo grande demais (máximo 4 MB).');
   const u=new Uint8Array(await f.arrayBuffer());let s='';for(let x=0;x<u.length;x+=32768)s+=String.fromCharCode.apply(null,u.subarray(x,x+32768));
-  await api('documento',{method:'POST',body:{contrato:C.contrato.numero,chave:k,nome:f.name,mime:f.type,b64:btoa(s)}});modalDocs()};i.click()}
+  if(assinada&&!/^(application\/pdf|image\/)/i.test(f.type))return alert('Selecione o PDF ou uma foto do contrato assinado.');
+  await api('documento',{method:'POST',body:{contrato:n,chave:k,nome:f.name,mime:f.type,b64:btoa(s)}});
+  if(C?.contrato.numero!==n)return;
+  if(assinada)await recarrega();
+  await modalDocs()};i.click()}
 async function marcaDoc(k,v){await api('documentos/check',{method:'PUT',body:{contrato:C.contrato.numero,chave:k,status:v||null}});modalDocs()}
-async function apagaDoc(id){if(!confirm('Apagar este arquivo?'))return;await api('documento/'+id,{method:'DELETE'});modalDocs()}
+async function apagaDoc(id){if(!confirm('Apagar este arquivo?'))return;const n=C.contrato.numero;await api('documento/'+id,{method:'DELETE'});if(C?.contrato.numero!==n)return;if(C.contrato.fonte==='emissão pelo sistema')await recarrega();await modalDocs()}
 async function abreDoc(id){const r=await api('documento/'+id);const b=Uint8Array.from(atob(r.b64),c=>c.charCodeAt(0));const u=URL.createObjectURL(new Blob([b],{type:r.mime||'application/octet-stream'}));
   if(/pdf|image/.test(r.mime||''))window.open(u,'_blank');else{const a=document.createElement('a');a.href=u;a.download=r.nome||'documento';a.click()}}
 let DOCF='falta';
