@@ -14,6 +14,17 @@ export function qualifica(p) {
 
 export function dadosMinuta(b, brl, reaisExt) {
   const moeda = v => brl(v) + ' (' + reaisExt(v) + ')';
+  const qualificacoes = b.compradores.map((p,i) => {
+    const nome = p.nome.trim();
+    const texto = p.qualificacao.trim();
+    const iniciaPeloNome = texto.slice(0,nome.length).localeCompare(nome,'pt-BR',{sensitivity:'base'}) === 0 &&
+      /^[,\s]|^$/.test(texto.slice(nome.length));
+    return {
+      nome_comprador: iniciaPeloNome ? texto.slice(0,nome.length) : nome,
+      dados_comprador: iniciaPeloNome ? texto.slice(nome.length) : ', ' + texto,
+      separador: i < b.compradores.length - 1 ? '\n' : '',
+    };
+  });
   const condicao = p => {
     const ajuste = p.ajuste_ultima_centavos || 0;
     const ultimoValor = (Math.round(p.valor * 100) + ajuste) / 100;
@@ -41,12 +52,13 @@ export function dadosMinuta(b, brl, reaisExt) {
     textoEntrada += ' a serem pagos da seguinte forma:\n' + detalhamento.join('.\n');
   } else if (entradas.length) textoEntrada += ' a serem pagos no ato da assinatura deste contrato';
   return {
-    numero:b.numero, qualificacao:b.compradores.map(p => p.qualificacao).join('\n'),
+    numero:b.numero, qualificacoes,
     logradouro:b.rua, quadra:b.quadra, lote:b.lote,
     area:new Intl.NumberFormat('pt-BR',{maximumFractionDigits:6}).format(b.area),
     preco:moeda(b.valor_imovel),
     entrada:textoEntrada, condicoes_entrada:entradas.length ? '' : 'Sem entrada.',
-    condicoes_saldo:b.itens.filter(p => p.secao === 'saldo').map(condicao).join('\n') || 'Sem saldo a parcelar.',
+    condicoes_saldo:b.itens.filter(p => p.secao === 'saldo')
+      .map((p,i) => String.fromCharCode(65+i) + ') ' + condicao(p)).join('\n') || 'Sem saldo a parcelar.',
     corretor:b.corretor + ', CRECI nº ' + b.creci_corretor,
     corretagem:moeda(b.corretagem), pagamento_corretagem:b.pagamento_corretagem,
     matricula:b.matricula, cartorio:b.cartorio, cidade:b.cidade,

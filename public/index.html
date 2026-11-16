@@ -808,6 +808,7 @@ async function excluirContratoVenda(botao){
 async function retificarEntrada0252(arquivo){
   if(!arquivo||C.contrato.numero!=='0252')return;
   const botao=$('#retificar-0252');
+  const soPdf=C.minuta?.chave==='contrato_minuta_pdf';
   botao.disabled=true;
   try{
     const {enviaAnexo}=await import('/ferramentas/onedrive.mjs');
@@ -815,13 +816,14 @@ async function retificarEntrada0252(arquivo){
     const doc=await enviaAnexo(api,{contrato:numero,rascunho,chave:'contrato_minuta_pdf',imovel:{quadra,lote}},arquivo);
     await api('retificacao-entrada/'+numero,{method:'POST',body:{rascunho,docId:doc.id}});
     const falhas=[];
-    for(const p of compradores) {
+    for(const p of soPdf ? [] : compradores) {
       try { await api('contrato-novo/asaas',{method:'POST',body:{contrato:numero,cpf:p.cpf},silencioso:true}); }
       catch(e) { falhas.push(p.nome+': '+e.message); }
     }
     await recarrega();
     const aviso=$('#status-atualizacao-0252');
-    if(aviso) aviso.textContent=falhas.length?'PDF salvo. Pendências no Asaas: '+falhas.join(' · '):'PDF atualizado. As duas compradoras estão vinculadas ao Asaas.';
+    if(aviso) aviso.textContent=soPdf?'PDF revisado registrado como minuta atual.':
+      falhas.length?'PDF salvo. Pendências no Asaas: '+falhas.join(' · '):'PDF atualizado. As duas compradoras estão vinculadas ao Asaas.';
   }catch(e){alert(e.message);botao.disabled=false}
 }
 async function telaLista(){

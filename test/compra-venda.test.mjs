@@ -52,6 +52,9 @@ test('prepara as condições e os quatro compradores para a minuta', () => {
   assert.match(dados.entrada,/B\) .* com vencimento em 16 de dezembro de 2026/);
   assert.match(dados.condicoes_saldo,/com primeiro vencimento em 16\/01\/2027/);
   assert.equal(dados.corretor,'Corretor fictício, CRECI nº 12345-F');
+  assert.deepEqual(dados.qualificacoes.map(p=>p.nome_comprador),compra.compradores.map(p=>p.nome));
+  assert.ok(dados.qualificacoes.every(p=>p.dados_comprador.startsWith(', Brasileira')));
+  assert.equal(dados.qualificacoes.at(-1).separador,'');
   assert.deepEqual(dados.assinaturas.map(p => p.nome), [1,2,3,4].map(i => 'COMPRADOR FICTÍCIO '+i));
 });
 
