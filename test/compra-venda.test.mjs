@@ -58,6 +58,7 @@ test('prepara as condições e os quatro compradores para a minuta', () => {
   assert.equal(dados.corretor,'Corretor fictício, CRECI nº 12345-F');
   assert.deepEqual(dados.qualificacoes.map(p=>p.nome_comprador),compra.compradores.map(p=>p.nome.toLocaleUpperCase('pt-BR')));
   assert.ok(dados.qualificacoes.every(p=>p.dados_comprador.startsWith(', brasileira')));
+  assert.deepEqual(dados.qualificacoes.map(p=>p.separador),['; ','; ','; ','']);
   assert.equal(dados.qualificacoes.at(-1).separador,'');
   assert.deepEqual(dados.assinaturas.map(p => p.nome), [1,2,3,4].map(i => 'COMPRADOR FICTÍCIO '+i));
 });

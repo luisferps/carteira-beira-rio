@@ -51,13 +51,15 @@ export function dadosMinuta(b, brl, reaisExt) {
     const nome = p.nome.trim();
     const original = qualificacaoSemContatos(p.qualificacao,p.fone);
     const automatica = original.localeCompare(qualifica(p,false),'pt-BR',{sensitivity:'accent'}) === 0;
-    const texto = automatica ? qualifica(p) : original;
+    const ultimo = i === b.compradores.length - 1;
+    const qualificacao = automatica ? qualifica(p) : original;
+    const texto = ultimo ? qualificacao : qualificacao.replace(/[.;]+$/,'');
     const iniciaPeloNome = texto.slice(0,nome.length).localeCompare(nome,'pt-BR',{sensitivity:'base'}) === 0 &&
       /^[,\s]|^$/.test(texto.slice(nome.length));
     return {
       nome_comprador: (iniciaPeloNome ? texto.slice(0,nome.length) : nome).toLocaleUpperCase('pt-BR'),
       dados_comprador: iniciaPeloNome ? texto.slice(nome.length) : (texto && ', ' + texto),
-      separador: i < b.compradores.length - 1 ? '\n' : '',
+      separador: ultimo ? '' : '; ',
     };
   });
   const condicao = p => {
@@ -95,10 +97,9 @@ export function dadosMinuta(b, brl, reaisExt) {
     preco:moeda(b.valor_imovel),
     entrada:textoEntrada, condicoes_entrada:entradas.length ? '' : 'Sem entrada.',
     condicoes_saldo:condicoesSaldo,
-    linhas_entrada:linhasPagamento('4.1 – VALOR DA ENTRADA: ' + textoEntrada + '.'),
+    linhas_entrada:linhasPagamento('4.1 – VALOR DA ENTRADA: ' + (entradas.length ? textoEntrada : brl(0) + ' (sem entrada)') + '.'),
     linhas_saldo:linhasPagamento(condicoesSaldo),
     corretor:b.corretor + ', CRECI nº ' + b.creci_corretor,
-    nome_corretor:b.corretor, registro_corretor:', CRECI nº ' + b.creci_corretor,
     corretagem:moeda(b.corretagem), pagamento_corretagem:b.pagamento_corretagem,
     matricula:b.matricula, cartorio:b.cartorio, cidade:b.cidade,
     data_por_extenso:dataLonga(b.data_assinatura),
