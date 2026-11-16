@@ -64,6 +64,7 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
         const arquivos = await q(`select id, chave, nome, mime, tamanho, por, enviado_em, verificacao from carteira.documentos where contrato=$1 order by enviado_em`, [n]);
         const itens_contrato = [...ITENS_CONTRATO];
         if (arquivos.some(a => a.chave === 'contrato_minuta')) itens_contrato.push(['contrato_minuta','Minuta emitida em Word']);
+        if (arquivos.some(a => a.chave === 'contrato_minuta_pdf')) itens_contrato.push(['contrato_minuta_pdf','Contrato retificado em PDF']);
         if (arquivos.some(a => a.chave === 'outro')) itens_contrato.push(['outro','Outros anexos']);
         if (arquivos.some(a => a.chave === 'pacote_original')) itens_contrato.push(['pacote_original','PDF original do envio']);
         for(const a of arquivos.filter(x=>/^termo_(word|pdf)_/.test(x.chave)))
@@ -97,6 +98,8 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
         const b = body; if (!b.contrato || !b.chave || (!b.b64 && !b.onedrive)) return json({ erro: 'Arquivo incompleto' }, 400);
         if (b.chave === 'contrato_minuta' && !b.rascunho)
           return json({erro:'Use a emissão ou a revisão de compra e venda para guardar esta minuta.'},409);
+        if (b.chave === 'contrato_minuta_pdf' && (real !== 'luis' || !b.rascunho || b.contrato !== '0252'))
+          return json({erro:'Envie o PDF pela retificação da venda.'},409);
         const cloud = b.onedrive ? await onedrive.confirmaArquivo(b.onedrive.ticket,b.onedrive.id,ator,
           {contrato:b.contrato,rascunho:b.rascunho||null,chave:b.chave,nome:b.nome}) : null;
         if (!cloud && await onedrive?.temConexao()) return json({erro:'Envie o arquivo pelo OneDrive.'},409);
@@ -108,7 +111,7 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
         const destino = b.rascunho ? chaveRascunhoCompra(b.rascunho) : b.contrato;
         if (b.rascunho) {
           const parte = /^p([0-3])_(rg|cpf|endereco|outro)$/.exec(b.chave);
-          if (!destino || !/^\d{4}$/.test(b.contrato) || !(parte || ['proposta','contrato_minuta','outro','pacote_original'].includes(b.chave)))
+          if (!destino || !/^\d{4}$/.test(b.contrato) || !(parte || ['proposta','contrato_minuta','contrato_minuta_pdf','outro','pacote_original'].includes(b.chave)))
             return json({ erro:'O anexo não corresponde a esta venda.' }, 400);
           metadata = {...metadata,numero:b.contrato, inclui_cpf:!!(b.inclui_cpf && parte?.[2] === 'rg')};
           [r] = await q(`select id from carteira.documentos where contrato=$1 and chave=$2 and nome=$3 and b64=$4 and verificacao=$5 and por=$6 limit 1`,
@@ -148,7 +151,7 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
       if (p[0] === 'documento' && p[1] && m === 'DELETE') {
         const [apagado] = await q(`delete from carteira.documentos where id=$1 and contrato not like 'compra-rascunho:%'
           and contrato not like 'venda-excluida:%'
-          and chave<>'contrato_minuta' returning id`, [p[1]]);
+          and chave not in ('contrato_minuta','contrato_minuta_pdf') returning id`, [p[1]]);
         if (!apagado) return json({erro:'Documento inexistente ou minuta protegida pelo histórico da venda.'},409);
         await log(real, 'documento_apagado', { id:p[1] });
         return json({ok:true});

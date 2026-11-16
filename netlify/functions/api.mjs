@@ -165,6 +165,64 @@ async function entradaNoAsaas(item) {
   throw new Error('A fatura informada precisa estar paga no Asaas na data e no valor da entrada.');
 }
 
+async function retificaEntrada0252(ator,rascunho,docId) {
+  const numero='0252', fatura='968837904', dataPix='2026-11-14';
+  const f=await entradaNoAsaas({fatura,data_pagamento:dataPix,valor:9900});
+  const c=await pool.connect();
+  try {
+    await c.query('begin');
+    await c.query("select set_config('app.ator',$1,true)",[ator]);
+    await c.query('select pg_advisory_xact_lock(7714,252)');
+    await c.query("select pg_advisory_xact_lock(hashtext('entrada-fatura:' || $1))",[fatura]);
+    await c.query('lock table carteira.pagamentos, carteira.boletos, carteira.documentos in share row exclusive mode');
+    const {rows:[ct]}=await c.query(`select * from carteira.contratos where numero=$1 and fonte='emissão pelo sistema' for update`,[numero]);
+    if (!ct || ct.quadra!=='01' || ct.lote!=='10' || +ct.valor_imovel!==149000 || +ct.entrada_total!==14900)
+      throw new Error('O contrato não corresponde à retificação conferida.');
+    const {rows:docs}=await c.query(`select id from carteira.documentos where contrato=$1 and chave in ('contrato_assinado','contrato_minuta_pdf')`,[numero]);
+    if (docs.length) throw new Error('A ficha já tem uma via assinada ou uma retificação registrada.');
+    const {rows:[pdf]}=await c.query(`select id from carteira.documentos where contrato=$1 and id=$2 and por=$3
+      and verificacao->>'numero'=$4 and chave='contrato_minuta_pdf' and mime='application/pdf' for update`,[rascunho,docId,ator,numero]);
+    if (!pdf) throw new Error('Anexe o PDF corrigido nesta retificação.');
+    const {rows:entradas}=await c.query(`select t.id,t.numero,t.valor_face,t.vencimento,g.id pagamento_id,g.valor_pago,g.fatura,g.id_asaas,g.forma,g.conferente,g.pago_cliente_em
+      from carteira.titulos t left join carteira.pagamentos g on g.titulo_id=t.id where t.contrato=$1 and t.grupo='entrada'`,[numero]);
+    const [e]=entradas;
+    const [original]=ct.itens.filter(p=>p.tipo==='entrada');
+    if (entradas.length!==1 || +e.numero!==1 || +e.valor_face!==14900 || +e.valor_pago!==14900 ||
+        e.fatura || e.id_asaas || e.forma!=='Pix' || e.conferente!=='luis' || e.pago_cliente_em!==dataPix ||
+        !original || +original.valor!==14900 || !original.pago)
+      throw new Error('A entrada original mudou. A retificação não foi aplicada.');
+    const vinculada=await c.query('select 1 from carteira.pagamentos where fatura=$1 or id_asaas=$2 limit 1',[fatura,f.id]);
+    if (vinculada.rowCount) throw new Error('A fatura já está vinculada. Confira a baixa existente.');
+    const cobrancas=await c.query("select 1 from carteira.boletos where contrato=$1 and titulo_id=$2 limit 1",[numero,e.id]);
+    if (cobrancas.rowCount) throw new Error('Há boleto vinculado à entrada original. Confira antes de retificar.');
+    await c.query("update carteira.titulos set valor_face=9900,total=2,rotulo='Entrada 1/2' where id=$1",[e.id]);
+    const {rows:[t2]}=await c.query(`insert into carteira.titulos(contrato,grupo,numero,total,rotulo,vencimento,valor_face,meio)
+      values($1,'entrada',2,2,'Entrada 2/2',$2,5000,'Pagamento à construtora') returning id`,[numero,e.vencimento]);
+    await c.query(`update carteira.pagamentos set valor_cobranca=9900,valor_pago=9900,fatura=$2,id_asaas=$3,
+      id_cliente_asaas=$4,valor_liquido=$5,confirmada_em=$6,saque_em=$7,situacao_asaas=$8,
+      link_fatura=$9,descricao=$10,obs='Entrada recebida pela Inerente. Repasse integral à FCA, sem administração.'
+      where id=$1`,[e.pagamento_id,fatura,f.id,f.customer,f.netValue??9900,f.confirmedDate||dataPix,f.creditDate||null,SIT_A[f.status]||f.status,f.invoiceUrl,f.description]);
+    const {rows:[p2]}=await c.query(`insert into carteira.pagamentos(conferente,titulo_id,forma,valor_cobranca,valor_pago,
+      vencimento_original,obs) values('luis',$1,'Pagamento à construtora',5000,5000,$2,
+      'Pago diretamente ao corretor por conta da FCA. Data do pagamento não informada. Sem entrada no caixa da Inerente.') returning id`,[t2.id,e.vencimento]);
+    await c.query("insert into carteira.conferencia_titulo(conferente,titulo_id,situacao) values('luis',$1,'paga')",[t2.id]);
+    const itens=ct.itens.flatMap(p=>p.tipo!=='entrada'?[p]:[
+      {...p,valor:9900,recebedor:'Inerente',fatura,entrada_na_minuta:'assinatura'},
+      {...p,valor:5000,recebedor:'Corretor, por conta da FCA',meio:'Pagamento à construtora',
+        data_pagamento:null,fatura:null,entrada_na_minuta:'assinatura'},
+    ]);
+    await c.query('update carteira.contratos set itens=$2,venda_recebida=true where numero=$1',[numero,JSON.stringify(itens)]);
+    await c.query("update carteira.documentos set contrato=$1,verificacao=verificacao-'numero' where id=$2",[numero,docId]);
+    await c.query("insert into carteira.historico(conferente,acao,detalhe) values('luis','venda_entrada_retificada',$1)",
+      [{contrato:numero,por:ator,docId,baixa_original:e.pagamento_id,baixada_externa:p2.id,antes:14900,inerente:9900,fca:5000,fatura}]);
+    await c.query('commit');
+    return {ok:true,numero,docId};
+  } catch(e) {
+    await c.query('rollback');
+    throw e;
+  } finally { c.release(); }
+}
+
 const configVenda = b => ({matricula:b.matricula,cartorio:b.cartorio,pagamento_corretagem:b.pagamento_corretagem});
 
 async function geraTitulosVenda(c,b) {
@@ -391,9 +449,9 @@ async function carregar(n, conf) {
   const tA = await q(`select distinct on (chave) substr(chave, 16) termo, verificacao->>'status' st from carteira.documentos where contrato=$1 and chave like 'termo_assinado_%' order by chave, enviado_em desc`, [n]).catch(() => []);
   const termosAssinados = tA.map(x => x.termo), termosVerif = Object.fromEntries(tA.map(x => [x.termo, x.st || null]));
   const documentosVenda = contrato.fonte === 'emissão pelo sistema' ? await q(`select distinct on (chave) id,chave,enviado_em
-    from carteira.documentos where contrato=$1 and chave in ('contrato_assinado','contrato_minuta') order by chave,enviado_em desc,id desc`,[n]) : [];
+    from carteira.documentos where contrato=$1 and chave in ('contrato_assinado','contrato_minuta','contrato_minuta_pdf') order by chave,enviado_em desc,id desc`,[n]) : [];
   const assinado = documentosVenda.find(d=>d.chave==='contrato_assinado') || null;
-  const minuta = documentosVenda.find(d=>d.chave==='contrato_minuta') || null;
+  const minuta = documentosVenda.find(d=>d.chave==='contrato_minuta_pdf') || documentosVenda.find(d=>d.chave==='contrato_minuta') || null;
   return { contrato, titulos, pagamentos, situacoes, acordos, correcoes, eventos, propostas, termosArq, termosAssinados, termosVerif, boletos, cessoes, assinado, minuta, fechamento: fechamento || null, hoje: hojeBR(), conferente: conf };
 }
 
@@ -2396,6 +2454,14 @@ export default async (req) => {
     if (p[0] === 'correcao-anual' && real === 'luis') {
       if (p[1] === 'previa' && m === 'GET') return json(await previaCorrecao(url.searchParams.get('ano'), url.searchParams.get('igpm') || 0, url.searchParams.get('desde')));
       if (p[1] === 'aplicar' && m === 'POST') return json(await aplicarCorrecao(body.itens || [], real, body.ano));
+    }
+    if (p[0] === 'retificacao-entrada' && p[1] === '0252' && !p[2] && m === 'POST') {
+      if (real !== 'luis') return json({erro:'Só o administrador pode registrar esta retificação.'},403);
+      const rascunho=chaveRascunhoCompra(body.rascunho);
+      if (!rascunho || !Number.isSafeInteger(body.docId) || body.docId<1) return json({erro:'Documento da retificação ausente.'},400);
+      await garanteBoletos();
+      try {return json(await retificaEntrada0252(usuario?.email || real,rascunho,body.docId));}
+      catch(e){return json({erro:e.message},409);}
     }
     if (p[0] === 'contrato-excluir' && m === 'DELETE') {
       if (!['luis','assistente'].includes(real) || !/^\d{4}$/.test(p[1] || '') || p[2]) return json({erro:'Exclusão indisponível.'},403);
