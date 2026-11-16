@@ -4,6 +4,15 @@ const dataLonga = iso => new Intl.DateTimeFormat('pt-BR', {
   day:'numeric', month:'long', year:'numeric', timeZone:'UTC'
 }).format(new Date(iso));
 
+function linhasPagamento(texto) {
+  const destaque = /(^4\.1\s+[–-]\s+VALOR DA ENTRADA:|^[A-Z]\)|\b\d+ parcelas?\b(?: (?:mensais|anuais))?|R\$\s*[\d.,]+)/g;
+  return texto.split('\n').map(linha => ({
+    trechos:linha.split(destaque).map((parte,i) => i % 2
+      ? {negrito:parte, normal:''}
+      : {negrito:'', normal:parte}),
+  }));
+}
+
 export function qualifica(p) {
   const cpf = String(p.cpf || '').replace(/\D/g,'').replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4');
   return [p.nome, p.nacionalidade, p.estado_civil, p.profissao,
@@ -51,15 +60,19 @@ export function dadosMinuta(b, brl, reaisExt) {
     });
     textoEntrada += ' a serem pagos da seguinte forma:\n' + detalhamento.join('.\n');
   } else if (entradas.length) textoEntrada += ' a serem pagos no ato da assinatura deste contrato';
+  const condicoesSaldo = b.itens.filter(p => p.secao === 'saldo')
+    .map((p,i) => String.fromCharCode(65+i) + ') ' + condicao(p)).join('\n') || 'Sem saldo a parcelar.';
   return {
     numero:b.numero, qualificacoes,
     logradouro:b.rua, quadra:b.quadra, lote:b.lote,
     area:new Intl.NumberFormat('pt-BR',{maximumFractionDigits:6}).format(b.area),
     preco:moeda(b.valor_imovel),
     entrada:textoEntrada, condicoes_entrada:entradas.length ? '' : 'Sem entrada.',
-    condicoes_saldo:b.itens.filter(p => p.secao === 'saldo')
-      .map((p,i) => String.fromCharCode(65+i) + ') ' + condicao(p)).join('\n') || 'Sem saldo a parcelar.',
+    condicoes_saldo:condicoesSaldo,
+    linhas_entrada:linhasPagamento('4.1 – VALOR DA ENTRADA: ' + textoEntrada + '.'),
+    linhas_saldo:linhasPagamento(condicoesSaldo),
     corretor:b.corretor + ', CRECI nº ' + b.creci_corretor,
+    nome_corretor:b.corretor, registro_corretor:', CRECI nº ' + b.creci_corretor,
     corretagem:moeda(b.corretagem), pagamento_corretagem:b.pagamento_corretagem,
     matricula:b.matricula, cartorio:b.cartorio, cidade:b.cidade,
     data_por_extenso:dataLonga(b.data_assinatura),
