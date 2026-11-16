@@ -56,10 +56,23 @@ test('prepara as condições e os quatro compradores para a minuta', () => {
     ['A)','2 parcelas mensais','R$\u00a01.000,00']);
   assert.equal(dados.linhas_saldo[0].trechos.map(t=>t.negrito || t.normal).join(''),dados.condicoes_saldo);
   assert.equal(dados.corretor,'Corretor fictício, CRECI nº 12345-F');
-  assert.deepEqual(dados.qualificacoes.map(p=>p.nome_comprador),compra.compradores.map(p=>p.nome));
-  assert.ok(dados.qualificacoes.every(p=>p.dados_comprador.startsWith(', Brasileira')));
+  assert.deepEqual(dados.qualificacoes.map(p=>p.nome_comprador),compra.compradores.map(p=>p.nome.toLocaleUpperCase('pt-BR')));
+  assert.ok(dados.qualificacoes.every(p=>p.dados_comprador.startsWith(', brasileira')));
   assert.equal(dados.qualificacoes.at(-1).separador,'');
   assert.deepEqual(dados.assinaturas.map(p => p.nome), [1,2,3,4].map(i => 'COMPRADOR FICTÍCIO '+i));
+});
+
+test('formata as qualificações de cadastro sem reescrever uma qualificação personalizada', () => {
+  const p = {...compra.compradores[0], nacionalidade:'BRASILEIRA', estado_civil:'SOLTEIRA',
+    profissao:'EMPRESÁRIA', endereco:'RUA DO SURUBIM, QD 01, CAROLINA PARK, GOIÂNIA, GO'};
+  const automatico = {...p, qualificacao:qualifica(p,false)};
+  const personalizado = {...p, qualificacao:p.nome + ', qualificação conforme o documento apresentado'};
+  const dados = dadosMinuta({...validaCompraVenda(compra), rua:'RUA DO SURUBIM',
+    compradores:[automatico,personalizado]}, String, String);
+  assert.match(dados.qualificacoes[0].dados_comprador,/^, brasileira, solteira, empresária/);
+  assert.match(dados.qualificacoes[0].dados_comprador,/Rua do Surubim, QD 01, Carolina Park, Goiânia, GO/);
+  assert.equal(dados.qualificacoes[1].dados_comprador,', qualificação conforme o documento apresentado');
+  assert.equal(dados.logradouro,'Rua do Surubim');
 });
 
 test('registra separadamente a entrada recebida e o pagamento por conta da FCA', () => {

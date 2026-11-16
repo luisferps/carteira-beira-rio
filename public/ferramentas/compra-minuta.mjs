@@ -13,11 +13,27 @@ function linhasPagamento(texto) {
   }));
 }
 
-export function qualifica(p) {
+const abreviacoesEndereco = new Set(['CEP','CP','QD','LT','KM','AC','AL','AP','AM','BA','CE','DF','ES',
+  'GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
+
+function enderecoNaMinuta(valor) {
+  if (!valor || valor !== valor.toLocaleUpperCase('pt-BR')) return valor;
+  return valor.replace(/\p{L}+/gu, (palavra, posicao) => {
+    if (abreviacoesEndereco.has(palavra)) return palavra;
+    const normal = palavra.toLocaleLowerCase('pt-BR');
+    return posicao && /^(da|das|de|do|dos|e)$/.test(normal) ? normal : palavra[0] + normal.slice(1);
+  });
+}
+
+export function qualifica(p, formatar = true) {
   const cpf = String(p.cpf || '').replace(/\D/g,'').replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4');
-  return [p.nome, p.nacionalidade, p.estado_civil, p.profissao,
+  const descricao = [p.nacionalidade,p.estado_civil,p.profissao];
+  const endereco = formatar ? enderecoNaMinuta(p.endereco) : p.endereco;
+  const email = formatar && /@(?:gmail|hotmail|outlook)\.com$/i.test(p.email || '')
+    ? p.email.toLowerCase() : p.email;
+  return [p.nome, ...(formatar ? descricao.map(v=>v?.toLocaleLowerCase('pt-BR')) : descricao),
     p.rg && 'RG nº ' + [p.rg,p.emissor].filter(Boolean).join(' '), cpf && 'CPF nº ' + cpf,
-    p.endereco && 'com endereço em ' + p.endereco, p.email && 'e-mail ' + p.email,
+    endereco && 'com endereço em ' + endereco, email && 'e-mail ' + email,
     p.fone && 'telefone ' + p.fone.replace(/\s+/g,'\u00a0')].filter(Boolean).join(', ');
 }
 
@@ -25,11 +41,13 @@ export function dadosMinuta(b, brl, reaisExt) {
   const moeda = v => brl(v) + ' (' + reaisExt(v) + ')';
   const qualificacoes = b.compradores.map((p,i) => {
     const nome = p.nome.trim();
-    const texto = p.qualificacao.trim();
+    const original = p.qualificacao.trim();
+    const automatica = original.localeCompare(qualifica(p,false),'pt-BR',{sensitivity:'accent'}) === 0;
+    const texto = automatica ? qualifica(p) : original;
     const iniciaPeloNome = texto.slice(0,nome.length).localeCompare(nome,'pt-BR',{sensitivity:'base'}) === 0 &&
       /^[,\s]|^$/.test(texto.slice(nome.length));
     return {
-      nome_comprador: iniciaPeloNome ? texto.slice(0,nome.length) : nome,
+      nome_comprador: (iniciaPeloNome ? texto.slice(0,nome.length) : nome).toLocaleUpperCase('pt-BR'),
       dados_comprador: iniciaPeloNome ? texto.slice(nome.length) : ', ' + texto,
       separador: i < b.compradores.length - 1 ? '\n' : '',
     };
@@ -64,7 +82,7 @@ export function dadosMinuta(b, brl, reaisExt) {
     .map((p,i) => String.fromCharCode(65+i) + ') ' + condicao(p)).join('\n') || 'Sem saldo a parcelar.';
   return {
     numero:b.numero, qualificacoes,
-    logradouro:b.rua, quadra:b.quadra, lote:b.lote,
+    logradouro:enderecoNaMinuta(b.rua), quadra:b.quadra, lote:b.lote,
     area:new Intl.NumberFormat('pt-BR',{maximumFractionDigits:6}).format(b.area),
     preco:moeda(b.valor_imovel),
     entrada:textoEntrada, condicoes_entrada:entradas.length ? '' : 'Sem entrada.',
