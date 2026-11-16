@@ -2242,7 +2242,7 @@ async function copiaTxt(t){try{await navigator.clipboard.writeText(t);alert('Tex
 function editaPessoais(id){const c=CLI.find(x=>x.id==id),d=cliDados(c),P=d.P,M=c.manual||{};
   const F=[['rg','RG / CNH'],['emissor','Órgão emissor'],['nascimento','Nascimento','date'],['estado_civil','Estado civil'],['sexo','Sexo'],['naturalidade','Naturalidade'],['uf_nat','UF de nascimento'],['nacionalidade','Nacionalidade'],['profissao','Profissão'],['empresa','Empresa'],['renda','Renda']];
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Dados pessoais — ${esc(d.nome)}</h3><button onclick="fechaModal()">Fechar</button></div>
-  <div class="f2">${F.map(([k,l,t])=>`<div><label>${l}</label><input id="dp_${k}" ${t?'type="'+t+'"':''} value="${esc(P[k]||'')}"></div>`).join('')}</div>
+  <div class="f2">${F.map(([k,l,t])=>`<div><label>${l}</label><input id="dp_${k}" ${t?'type="'+t+'"':''}${k==='nascimento'?' max="'+hojeL()+'"':''} value="${esc(P[k]||'')}"></div>`).join('')}</div>
   ${d.em.length?`<h4>E-mails que voltaram (inválidos)</h4>${d.em.map(e=>`<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto" class="dp_ei" value="${esc(e.v)}" ${(M.emails_invalidos||[]).includes(e.v)?'checked':''}> ${esc(e.v)}</label>`).join('')}`:''}
   <div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaPessoais(${id})">Salvar</button></div>`)}
 async function salvaPessoais(id){const c=CLI.find(x=>x.id==id),M=c.manual||{};const ks=['rg','emissor','nascimento','estado_civil','sexo','naturalidade','uf_nat','nacionalidade','profissao','empresa','renda'];

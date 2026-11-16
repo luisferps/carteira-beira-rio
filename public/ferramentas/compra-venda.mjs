@@ -50,6 +50,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   const campos = itens => itens.map(([key, label, tipo = 'text']) =>
     '<label>' + label + '<input data-campo="' + key + '" type="' + tipo + '"' +
     (somenteLeitura.has(key) ? ' readonly' : opcionais.has(key) ? '' : ' required') +
+    (key === 'nascimento' ? ' max="' + hoje() + '"' : '') +
     (tipo === 'number' ? ' min="0" step="any"' : '') + '></label>').join('');
   const options = (itens, value) => itens.map(([k,v]) =>
     '<option value="' + esc(k) + '"' + (k === value ? ' selected' : '') + '>' + esc(v) + '</option>').join('');
