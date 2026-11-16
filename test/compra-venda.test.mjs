@@ -75,6 +75,20 @@ test('formata as qualificações de cadastro sem reescrever uma qualificação p
   assert.equal(dados.logradouro,'Rua do Surubim');
 });
 
+test('omite contatos da minuta e mantém os campos de cadastro dos compradores', () => {
+  const p = {...compra.compradores[0], email:'comprador@example.com'};
+  const historico = qualifica(p) + ', e-mail COMPRADOR@EXAMPLE.COM, telefone (62) 99999-9999';
+  const manual = p.nome + ', professora, comprador@example.com, 62 99999-9999, endereço informado.';
+  for (const qualificacao of [historico,manual]) {
+    const b = validaCompraVenda({...compra, compradores:[{...p, qualificacao}]});
+    const minuta = dadosMinuta(b, String, String).qualificacoes[0].dados_comprador;
+    assert.doesNotMatch(minuta,/99999|example\.com|e-mail|telefone/i);
+    assert.match(minuta,/endere[çc]o/i);
+    assert.equal(b.compradores[0].fone,p.fone);
+    assert.equal(b.compradores[0].email,p.email);
+  }
+});
+
 test('registra separadamente a entrada recebida e o pagamento por conta da FCA', () => {
   const itens = [
     {...compra.itens[0],recebedor:'Inerente',fatura:'968837904'},

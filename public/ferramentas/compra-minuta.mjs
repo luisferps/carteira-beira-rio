@@ -29,26 +29,34 @@ export function qualifica(p, formatar = true) {
   const cpf = String(p.cpf || '').replace(/\D/g,'').replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4');
   const descricao = [p.nacionalidade,p.estado_civil,p.profissao];
   const endereco = formatar ? enderecoNaMinuta(p.endereco) : p.endereco;
-  const email = formatar && /@(?:gmail|hotmail|outlook)\.com$/i.test(p.email || '')
-    ? p.email.toLowerCase() : p.email;
   return [p.nome, ...(formatar ? descricao.map(v=>v?.toLocaleLowerCase('pt-BR')) : descricao),
     p.rg && 'RG nº ' + [p.rg,p.emissor].filter(Boolean).join(' '), cpf && 'CPF nº ' + cpf,
-    endereco && 'com endereço em ' + endereco, email && 'e-mail ' + email,
-    p.fone && 'telefone ' + p.fone.replace(/\s+/g,'\u00a0')].filter(Boolean).join(', ');
+    endereco && 'com endereço em ' + endereco].filter(Boolean).join(', ');
+}
+
+function qualificacaoSemContatos(texto, fone) {
+  const email = /(?:[,;]\s*|\b)(?:(?:e-?mail)\s*:?\s*)?[\p{L}\d.!#$%&'*+/=?^_`{|}~-]+@[\p{L}\d.-]+\.[\p{L}]{2,}/giu;
+  const telefone = /(?:[,;]\s*|\b)(?:telefone|tel\.?|celular|whatsapp)\s*:?\s*(?:\+?55[\s.-]*)?(?:\(?\d{2}\)?[\s.-]*)?(?:9[\s.-]*)?\d{4}[\s.-]*\d{4}(?!\d)/giu;
+  const digitos = (fone || '').replace(/\D/g,'');
+  const cadastrado = digitos.length >= 10
+    ? new RegExp('(?:[,;]\\s*)?(?<![\\d/-])(?:\\(?' + digitos.split('').join('[\\s().-]*') + ')(?![\\d/-])','g')
+    : null;
+  const semRotulos = texto.replace(email,'').replace(telefone,'');
+  return (cadastrado ? semRotulos.replace(cadastrado,'') : semRotulos).replace(/\s+([,;.])/g,'$1').trim();
 }
 
 export function dadosMinuta(b, brl, reaisExt) {
   const moeda = v => brl(v) + ' (' + reaisExt(v) + ')';
   const qualificacoes = b.compradores.map((p,i) => {
     const nome = p.nome.trim();
-    const original = p.qualificacao.trim();
+    const original = qualificacaoSemContatos(p.qualificacao,p.fone);
     const automatica = original.localeCompare(qualifica(p,false),'pt-BR',{sensitivity:'accent'}) === 0;
     const texto = automatica ? qualifica(p) : original;
     const iniciaPeloNome = texto.slice(0,nome.length).localeCompare(nome,'pt-BR',{sensitivity:'base'}) === 0 &&
       /^[,\s]|^$/.test(texto.slice(nome.length));
     return {
       nome_comprador: (iniciaPeloNome ? texto.slice(0,nome.length) : nome).toLocaleUpperCase('pt-BR'),
-      dados_comprador: iniciaPeloNome ? texto.slice(nome.length) : ', ' + texto,
+      dados_comprador: iniciaPeloNome ? texto.slice(nome.length) : (texto && ', ' + texto),
       separador: i < b.compradores.length - 1 ? '\n' : '',
     };
   });
