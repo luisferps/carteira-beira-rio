@@ -21,7 +21,7 @@ const tipos = [['proposta','Proposta'],['rg_cpf','RG ou CNH com CPF'],['rg','RG 
   ['endereco','Comprovante de endereço'],['outro','Outro anexo']];
 const tipoPag = [['entrada','Entrada'],['mensal','Mensais'],['anual','Anuais']];
 const formas = [['','Selecione'],['boleto','Emitir boleto'],['direto','Pagamento direto pendente'],
-  ['pix_pago','Pix já pago'],['conta_pago','Já pago em conta'],['construtora_pago','Já pago à construtora']];
+  ['pix_pago','Pix já pago'],['conta_pago','Já pago em conta'],['construtora_pago','Já pago por conta da FCA']];
 const opcionais = new Set(['nascimento','emissor','naturalidade','email','fatura','cartorio','pagamento_corretagem']);
 const somenteLeitura = new Set(['cidade','corretagem']);
 const cpf = v => String(v ?? '').replace(/\D/g,'');
@@ -163,7 +163,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
       options(tipoPag, dados.tipo || 'entrada') + '</select></label>' +
       campos([['qtd','Quantidade','number'],['valor','Valor por parcela (R$)','number'],['primeiro_venc','Primeiro vencimento','date']]) +
       '<label data-forma>Forma da entrada<select data-campo="forma" required>' + options(formas,dados.forma) + '</select></label>' +
-      '<label data-recebedor>Quem recebe a entrada<input data-campo="recebedor" placeholder="Ex.: FCA" maxlength="240" required></label>' +
+      '<label data-recebedor>Recebedor da entrada (controle interno)<input data-campo="recebedor" placeholder="Ex.: Inerente, FCA ou corretor" maxlength="240" required></label>' +
       '<small data-aviso-boleto hidden>O boleto é emitido pela conta Asaas integrada à Carteira.</small>' +
       '<div data-pago class="cv-grade">' + campos([['data_pagamento','Data em que pagou','date'],['fatura','Fatura do Asaas (se houver)']]) +
       '</div></div><button type="button">Remover grupo</button>';

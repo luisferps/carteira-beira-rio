@@ -40,12 +40,27 @@ test('distingue entrada paga, entrada com boleto e parcelas futuras, preservando
 test('prepara as condições e os quatro compradores para a minuta', () => {
   const dados = dadosMinuta(validaCompraVenda(compra), new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format, z=>''+z);
   assert.equal(dados.numero,'9999');
-  assert.match(dados.condicoes_entrada,/já paga em 14\/11\/2026 \(Pix\)/);
-  assert.match(dados.condicoes_entrada,/a favor de FCA/);
+  assert.match(dados.condicoes_entrada,/já paga à vista por Pix em 14\/11\/2026/);
+  assert.doesNotMatch(dados.condicoes_entrada,/a favor de FCA/);
   assert.match(dados.condicoes_entrada,/com vencimento em 16\/12\/2026/);
   assert.match(dados.condicoes_saldo,/com primeiro vencimento em 16\/01\/2027/);
   assert.equal(dados.corretor,'Corretor fictício, CRECI nº 12345-F');
   assert.deepEqual(dados.assinaturas.map(p => p.nome), [1,2,3,4].map(i => 'COMPRADOR FICTÍCIO '+i));
+});
+
+test('registra separadamente a entrada recebida e o pagamento por conta da FCA', () => {
+  const itens = [
+    {...compra.itens[0],recebedor:'Inerente',fatura:'968837904'},
+    {...compra.itens[1],forma:'construtora_pago',recebedor:'Corretor',data_pagamento:'2026-11-16'},
+    compra.itens[2],
+  ];
+  const b = validaCompraVenda({...compra,itens});
+  assert.deepEqual(b.itens.slice(0,2).map(p=>[p.recebedor,p.fatura,p.emitir]),[
+    ['Inerente','968837904',false],['Corretor',null,false],
+  ]);
+  const dados = dadosMinuta(b, v => v.toFixed(2), String);
+  assert.match(dados.condicoes_entrada,/1000\.00 .*já paga à vista\./);
+  assert.doesNotMatch(dados.condicoes_entrada,/Corretor|construtora|Inerente/);
 });
 
 test('sugere 5% do preço da venda e ajusta um centavo na última anual', () => {

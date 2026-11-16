@@ -23,7 +23,10 @@ export function dadosMinuta(b, brl, reaisExt) {
         ? ', as ' + (p.qtd - 1) + ' primeiras de ' + moeda(p.valor) + ' e a última de ' + moeda(ultimoValor)
         : ' de ' + moeda(p.valor));
     const recebedor = p.recebedor ? ', a favor de ' + p.recebedor : '';
-    if (p.pago) return descricao + ', já paga em ' + dataBR(p.data_pagamento) + ' (' + p.meio + ')' + recebedor + '.';
+    if (p.pago) {
+      if (p.meio === 'Pagamento à construtora') return descricao + ', já paga à vista.';
+      return descricao + ', já paga à vista por ' + p.meio + ' em ' + dataBR(p.data_pagamento) + '.';
+    }
     return descricao + ', por ' + p.meio.toLowerCase() + recebedor + ', ' + (p.qtd === 1 ? 'com vencimento em ' : 'com primeiro vencimento em ') + dataBR(p.primeiro_venc) + '.';
   };
   const linhas = (secao, vazio) => b.itens.filter(p => p.secao === secao).map(condicao).join('\n') || vazio;
