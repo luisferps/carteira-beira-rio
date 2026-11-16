@@ -5,6 +5,9 @@
 [functions]
   node_bundler = "esbuild"
 
+[functions.api]
+  included_files = ["netlify/functions/modelos/compra-venda.docx"]
+
 [[headers]]
   for = "/"
   [headers.values]

@@ -82,6 +82,16 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 .org{font-size:11px;border-radius:6px;padding:0 6px;margin-left:6px;background:#eef2ff;color:#3730a3}.org.pl{background:#fef3c7;color:#92400e}.org.mn{background:#dcfce7;color:#166534}
 .pc.rep{outline:3px dotted #0d9488;outline-offset:2px}
 .tpars{border-collapse:collapse;width:100%;max-width:520px}.tpars th,.tpars td{border:1px solid var(--ln);padding:2px 8px;font-size:13px}.tpars th{background:#f1f5f9;text-align:left;font-weight:600}.tpars td:first-child{white-space:nowrap;font-weight:600;width:70px}.tpars input{border:0;padding:3px 2px;margin:0;width:100%;background:transparent;font-size:13px;height:auto}
+#compra-venda fieldset{border:0;margin:0;padding:0;min-width:0}
+#compra-venda [hidden]{display:none!important}
+#compra-venda .cv-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(195px,100%),1fr));gap:8px;align-items:end}
+#compra-venda label{display:block;margin:0}
+#compra-venda input,#compra-venda select,#compra-venda textarea{width:100%;margin:3px 0 0}
+#compra-venda .cv-bloco{border:1px solid #d8e0e7;border-radius:8px;margin-bottom:8px;padding:10px}
+#compra-venda .cv-anexo{display:grid;grid-template-columns:minmax(120px,2fr) minmax(120px,1fr) minmax(135px,1fr) auto auto;gap:6px;align-items:center;margin:6px 0}
+#compra-venda .cv-anexo span{overflow-wrap:anywhere}
+#cv-total{margin-top:8px}
+@media(max-width:650px){#compra-venda .cv-anexo{grid-template-columns:1fr 1fr}#compra-venda .cv-anexo span{grid-column:1/-1}}
 </style>
 </head>
 <body>
@@ -104,7 +114,7 @@ async function api(path,opt={}){
   const r=await fetch('/api/'+path,{method:opt.method||'GET',headers:{'x-pin':PIN,'x-como':COMO,'content-type':'application/json'},body:opt.body?JSON.stringify(opt.body):undefined});
   const d=(await r.json().catch(()=>({erro:'Resposta inválida'})))??(r.ok?{}:{erro:'Resposta vazia do servidor'});
   if(r.status===401){PIN='';try{localStorage.removeItem('cbr_pin')}catch(e){}telaLogin(d.erro||'Senha inválida');throw new Error('401')}
-  if(!r.ok||d.erro){alert(d.erro||'Erro');throw new Error(d.erro)}
+  if(!r.ok||d.erro){if(!opt.silencioso)alert(d.erro||'Erro');throw new Error(d.erro||'Erro')}
   return d;
 }
 function telaLogin(msg){
@@ -778,11 +788,17 @@ function modalPagadores(){const L=window._PGO||[];
   <div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaPagadores()">Salvar escolhas</button></div>`)}
 async function salvaPagadores(){const L=window._PGO||[];const itens=L.filter((x,i)=>document.querySelector(`input[name=pgo${i}]:checked`)?.value==='manter').map(x=>({contrato:x.contrato,nome:x.hoje_no_nome_de.nome,cpf:x.hoje_no_nome_de.cpf}));
   const r=await api('manutencao/pagadores',{method:'POST',body:{itens}});alert(`Feito. ${r.n} contrato(s) mantidos como estão; ${L.length-r.n} passam para o 1º titular a partir do próximo boleto.`);fechaModal();telaLista()}
+async function novoContratoVenda(){
+  try {
+    const {abreCompraVenda}=await import('/ferramentas/compra-venda.mjs');
+    await abreCompraVenda({api,abreModal,fechaModal,esc,libsDocx,brl,reaisExt});
+  } catch(e) { alert(e.message); }
+}
 async function telaLista(){
   app.innerHTML='<div class="card">Carregando…</div>';setTimeout(()=>{avisoPagadores();avisoTermos();avisoProcuradores()},1500);
   const pat=(EU==='luis'||EU==='assistente')?api('cobranca/ativos').catch(()=>[]):Promise.resolve([]);
   LISTA=await api('contratos');COBAT=Object.fromEntries((await pat).map(x=>[x.contrato,x]));LSELS.clear();LSEL=false;if(LSEL_GO){LSEL_GO=false;LSEL=true;FILTRO.clear();FILTRO.add('grave')}
-  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div><div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Contratos (${LISTA.length})</h3><span id="lcont" class="mut"></span></div><div id="pgorg"></div><div id="tmorg"></div><div id="prorg"></div><br>
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div><div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Contratos (${LISTA.length})</h3><span id="lcont" class="mut"></span>${EU==='luis'?'<button class="pri" onclick="novoContratoVenda()">Novo contrato</button>':''}</div><div id="pgorg"></div><div id="tmorg"></div><div id="prorg"></div><br>
   <input id="bus" placeholder="Buscar por número, quadra, lote ou nome (com ou sem acento)">
   <div class="filtros" id="filt"></div><div class="mut" style="font-size:12px;margin-top:6px">Clique em mais de um filtro para ver juntos. "Todos" limpa a seleção. Atraso grave = dívida acima de R$ 5 mil.</div>${EU==='luis'||EU==='assistente'?`<div id="lselbar"></div>`:''}</div><div class="cgrid mini" id="tb"></div>`;
   const conta=k=>k==='todos'?LISTA.length:LISTA.filter(c=>k==='fech'?!!c.fechado_em:k==='pend'?!!c.pendencia:GRP(statusC(c))===k).length;
@@ -2264,14 +2280,14 @@ async function verFoto(id){const f=await api('painel/foto/'+id),hoje=await itens
 /* ===== Documentos do contrato e dos compradores ===== */
 let DOCS=null;
 async function modalDocs(){DOCS=await api('documentos?contrato='+C.contrato.numero);desenhaDocs()}
-function desenhaDocs(){const D=DOCS,n=C.contrato.numero;const ck=k=>D.check.find(x=>x.chave===k),ar=k=>D.arquivos.filter(x=>x.chave===k);
+function desenhaDocs(){const D=DOCS,n=C.contrato.numero;const ck=k=>D.check.find(x=>x.chave===k),ar=k=>D.arquivos.filter(x=>x.chave===k||(/_cpf$/.test(k)&&x.chave===k.replace(/_cpf$/,'_rg')&&x.verificacao?.inclui_cpf));
   const linha=(k,l)=>{const c=ck(k),A=ar(k),okk=c?.status==='ok'||A.length,disp=c?.status==='dispensado';
-    return `<tr><td>${okk?'✅':disp?'➖':'⬜'} ${esc(l)}</td><td>${A.map(a=>`<a href="#" onclick="abreDoc(${a.id});return false">${esc(a.nome||'arquivo')}</a> <span class="mut">${dbr(a.enviado_em)}</span> <button style="padding:1px 6px" onclick="apagaDoc(${a.id})">×</button>`).join('<br>')||'<span class="mut">—</span>'}</td>
+    return `<tr><td>${okk?'✅':disp?'➖':'⬜'} ${esc(l)}</td><td>${A.map(a=>`<a href="#" onclick="abreDoc(${a.id});return false">${esc(a.nome||'arquivo')}</a> <span class="mut">${a.chave===k?dbr(a.enviado_em):'CPF no RG ou na CNH'}</span>${a.chave===k?` <button style="padding:1px 6px" onclick="apagaDoc(${a.id})">×</button>`:''}`).join('<br>')||'<span class="mut">—</span>'}</td>
      <td style="white-space:nowrap"><button onclick="enviaDoc('${k}')">Anexar</button><select style="width:auto;padding:4px" onchange="marcaDoc('${k}',this.value)"><option value="" ${!c?'selected':''}>${A.length?'Tem arquivo':'Falta'}</option><option value="ok" ${c?.status==='ok'?'selected':''}>Tem (físico / em outra pasta)</option><option value="dispensado" ${disp?'selected':''}>Não precisa</option></select></td></tr>`};
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Documentos — contrato ${n}</h3><button onclick="fechaModal()">Fechar</button></div>
   ${ck('obs_planilha')?`<div class="aviso">Nota da planilha de documentos: ${esc(ck('obs_planilha').obs)}</div>`:''}
   <table><tr><th colspan="3">Do contrato</th></tr>${D.itens_contrato.map(([k,l])=>linha(k,l)).join('')}
-  ${D.pessoas.map(p=>`<tr><th colspan="3">${esc(nome(p.nome))}</th></tr>${D.itens_pessoa.map(([k,l])=>linha('p'+p.i+'_'+k,l)).join('')}`).join('')}</table>
+  ${D.pessoas.map(p=>`<tr><th colspan="3">${esc(nome(p.nome))}</th></tr>${D.itens_pessoa.map(([k,l])=>linha('p'+p.i+'_'+k,l)).join('')}${ar('p'+p.i+'_outro').length?linha('p'+p.i+'_outro','Outros anexos'):''}`).join('')}</table>
   ${D.pessoas.length?'':'<div class="mut">Os compradores deste contrato não estão no cadastro do contrato — só os itens do contrato aparecem.</div>'}
   <div class="mut" style="margin-top:6px">Arquivos até 4 MB (PDF ou foto). Ficam guardados no sistema.</div>`);const m=document.querySelector('#modal .card');if(m)m.style.maxWidth='980px'}
 function enviaDoc(k){const i=document.createElement('input');i.type='file';i.accept='.pdf,image/*,.doc,.docx';i.onchange=async()=>{const f=i.files[0];if(!f)return;if(f.size>4e6)return alert('Arquivo grande demais (máximo 4 MB).');
