@@ -67,7 +67,7 @@ export function dadosMinuta(b, brl, reaisExt) {
     const ultimoValor = (Math.round(p.valor * 100) + ajuste) / 100;
     const frequencia = p.tipo === 'anual' ? 'anuais' : 'mensais';
     const descricao = p.qtd === 1 ? '1 parcela de ' + moeda(ultimoValor) :
-      p.qtd + ' parcelas ' + frequencia + (ajuste
+      p.qtd + ' parcelas ' + frequencia + (Math.abs(ajuste) > 1
         ? ', as ' + (p.qtd - 1) + ' primeiras de ' + moeda(p.valor) + ' e a última de ' + moeda(ultimoValor)
         : ' de ' + moeda(p.valor));
     return descricao + ', por ' + p.meio.toLowerCase() + ', ' + (p.qtd === 1 ? 'com vencimento em ' : 'com primeiro vencimento em ') + dataBR(p.primeiro_venc) + '.';

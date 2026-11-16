@@ -141,7 +141,8 @@ test('sugere 5% do preço da venda e ajusta um centavo na última anual', () => 
   assert.equal(b.itens[1].emitir,false);
   const dados = dadosMinuta(b, v => v.toFixed(2), String);
   assert.equal(dados.corretor,'Júnior, CRECI nº 12345-F');
-  assert.match(dados.condicoes_saldo,/6 primeiras de 2128\.57 .* e a última de 2128\.58/);
+  assert.match(dados.condicoes_saldo,/7 parcelas anuais de 2128\.57/);
+  assert.doesNotMatch(dados.condicoes_saldo,/primeiras|última/);
   assert.throws(() => validaCompraVenda({...venda,valor_imovel:149001}), /soma/);
   assert.throws(() => validaCompraVenda({...venda,itens:[{...itens[0],valor:9899.99}],valor_imovel:9900}), /soma/);
 });
