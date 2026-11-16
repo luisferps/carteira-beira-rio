@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "arial",
+        "createdAt": "2026-11-14T19:31:01.507Z",
+        "reason": "Claude: prévia de documento oficial Inerente; os termos já gerados (termo.js) usam Arial, a prévia precisa bater com o PDF"
+      }
+    ]
+  }
+}
