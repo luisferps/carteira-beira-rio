@@ -56,11 +56,17 @@ export async function telaOneDrive({root,api,admin}) {
     const campo=(texto,tipo)=>{const label=node('label',texto),i=node('input');i.type=tipo;i.required=true;i.autocomplete='off';label.append(i);form.append(label);return i;};
     const client=campo('ID do aplicativo','text');
     const secret=campo('Valor do segredo do aplicativo','password');
+    secret.autocomplete='new-password';
+    const tipo=node('select'), tipoLabel=node('label','Tipo de conta Microsoft');
+    for(const [id,nome] of [['pessoal','Conta pessoal (Outlook, Hotmail ou MSN)'],['empresa','Conta corporativa ou escolar']]){
+      const option=node('option',nome);option.value=id;tipo.append(option);
+    }
+    tipoLabel.append(tipo);form.append(tipoLabel);
     const b=node('button','Autorizar na Microsoft');b.type='submit';b.className='pri';form.append(b,msg);
     form.onsubmit=async e=>{
       e.preventDefault();b.disabled=true;
       try{
-        const r=await api('onedrive/conectar',{method:'POST',body:{client:client.value,secret:secret.value},silencioso:true});
+        const r=await api('onedrive/conectar',{method:'POST',body:{client:client.value,secret:secret.value,tipo:tipo.value},silencioso:true});
         secret.value='';
         location.assign(r.url);
       }catch(e){msg.textContent=e.message;b.disabled=false;}
@@ -68,6 +74,10 @@ export async function telaOneDrive({root,api,admin}) {
     conteudo.replaceChildren(form);
   };
   if(admin && status.configuravel)controls.append(btn(status.conectado?'Reconectar OneDrive':'Conectar OneDrive',abrirConfig));
+  if(admin && status.retomavel)controls.append(btn('Retomar autorização',async()=>{
+    try{const r=await api('onedrive/conectar',{method:'POST',body:{retomar:true},silencioso:true});location.assign(r.url);}
+    catch(e){conteudo.append(node('p',e.message));}
+  }));
   if(!status.conectado){
     conteudo.append(node('p',status.configuravel?'O administrador precisa conectar a conta Microsoft que contém a pasta Beira Rio ADM → Documentos.':'A ativação do OneDrive está pendente.'));
     return;

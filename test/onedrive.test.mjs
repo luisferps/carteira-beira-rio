@@ -20,9 +20,7 @@ test('conecta com estado descartável e mantém toda a navegação no acervo con
   const q=async(sql,args=[])=>{
     if(sql.startsWith('select'))return configs.has(args[0])?[{valor:configs.get(args[0])}]:[];
     if(sql.startsWith('insert'))configs.set(...args);
-    if(sql.includes('returning valor')){
-      const valor=configs.get(args[0]);configs.delete(args[0]);return valor?[{valor}]:[];
-    }
+    if(sql.startsWith('delete') && args.length)configs.delete(args[0]);
     return [];
   };
   const env={ONEDRIVE_TOKEN_KEY:Buffer.alloc(32,4).toString('base64')};
@@ -48,14 +46,24 @@ test('conecta com estado descartável e mantém toda a navegação no acervo con
     return json({id:url.pathname.includes('/me/drive/')?'root':'folder',folder:{},parentReference:{driveId:'drive'}});
   };
   const od=criaOneDrive({q,json,fetcher,env});
-  const route=(p,m,body,real='luis',query='',prepara)=>od.rota(['onedrive',p],m,body,real,new URL('https://local.invalid/api/onedrive/'+p+query),'equipe',prepara);
+  const route=(p,m,body,real='luis',query='',prepara,req)=>od.rota(['onedrive',p],m,body,real,new URL('https://local.invalid/api/onedrive/'+p+query),'equipe',prepara,req);
   assert.equal((await route('conectar','POST',{},'assistente')).status,404);
   const r=await route('conectar','POST',{client:'11111111-1111-1111-1111-111111111111',secret:'segredo-de-teste'});
-  const state=new URL((await r.json()).url).searchParams.get('state');
+  const auth=new URL((await r.json()).url);
+  assert.match(auth.pathname,/consumers\/oauth2/);
+  const state=auth.searchParams.get('state');
   const cookie=r.headers.get('Set-Cookie').split(';')[0];
   const url=new URL('https://papaya-cocada-88fc90.netlify.app/api/onedrive/retorno?state='+state+'&code=abc');
-  assert.equal((await od.confirmaConta(new Request(url,{headers:{cookie}}),url)).status,303);
-  await assert.rejects(()=>od.confirmaConta(new Request(url,{headers:{cookie}}),url),/expirada/);
+  const erro=new URL(url);erro.searchParams.set('error','server_error');
+  await assert.rejects(()=>od.confirmaConta(new Request(erro,{headers:{cookie}}),erro),/server_error/);
+  const req=new Request(url,{headers:{cookie}});
+  assert.equal((await (await route('status','GET',{},'luis','',null,req)).json()).retomavel,true);
+  const rr=await route('conectar','POST',{retomar:true},'luis','',null,req);
+  const novo=new URL(url);novo.searchParams.set('state',new URL((await rr.json()).url).searchParams.get('state'));
+  const novoCookie=rr.headers.get('Set-Cookie').split(';')[0];
+  await assert.rejects(()=>od.confirmaConta(req,url),/expirou/);
+  assert.equal((await od.confirmaConta(new Request(novo,{headers:{cookie:novoCookie}}),novo)).status,303);
+  await assert.rejects(()=>od.confirmaConta(new Request(novo,{headers:{cookie:novoCookie}}),novo),/expirou/);
   assert.ok(![...configs.values()].some(v=>v.includes('refresh-test')));
   const list=await (await route('listar','GET',{},'assistente')).json();
   assert.deepEqual(list.itens.map(i=>i.nome),['Propostas','Teste.pdf']);

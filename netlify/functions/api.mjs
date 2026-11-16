@@ -1951,8 +1951,11 @@ export default async (req) => {
   ATOR = null;
   if (p[0]==='onedrive' && p[1]==='retorno' && req.method==='GET') {
     try {return await onedrive.confirmaConta(req,url);}
-    catch(e){return new Response(e.status?e.message:'Não consegui conectar o OneDrive. Confira se a conta tem acesso ao acervo.',
-      {status:e.status||502,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer'}});}
+    catch(e){
+      const msg=(e.status?e.message:'Não consegui conectar o OneDrive. Tente novamente.').replace(/[&<>]/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[x]);
+      return new Response('<!doctype html><meta charset="utf-8"><title>Conexão do OneDrive</title><main style="font:16px system-ui;max-width:640px;margin:48px auto;padding:12px"><h1>Conexão do OneDrive</h1><p>'+msg+'</p><a href="/#onedrive">Voltar aos documentos do OneDrive</a></main>',
+        {status:e.status||502,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer'}});
+    }
   }
   { const pub = await rotasPublicas(p, req, url); if (pub) return pub; }
   const pinTentado = (req.headers.get('x-pin') || '').trim();
@@ -2004,7 +2007,7 @@ export default async (req) => {
   { const rd = await DEV.rotas(p, m, body, real); if (rd) return rd; }
   { const rc2 = await rotasCessoes(p, m, body, real); if (rc2) return rc2; }
   { const rp = await rotasPainel(p, m, body, real); if (rp) return rp; }
-  if (p[0]==='onedrive') return onedrive.rota(p,m,body,real,url,usuario?.email||real,preparaAnexo);
+  if (p[0]==='onedrive') return onedrive.rota(p,m,body,real,url,usuario?.email||real,preparaAnexo,req);
   { const rdc = await rotasDocumentos(p, m, body, real, url, usuario?.email || real); if (rdc) return rdc; }
 
   try {

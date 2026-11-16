@@ -1,9 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'node:crypto';
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
-const MICROSOFT = 'https://login.microsoftonline.com/common/oauth2/v2.0';
+const microsoft = tipo => 'https://login.microsoftonline.com/'+(tipo==='pessoal'?'consumers':'common')+'/oauth2/v2.0';
 const ROOT = ['Beira Rio','Beira Rio ADM','Documentos'];
-const SCOPES = 'offline_access Files.ReadWrite';
+const SCOPES = 'offline_access https://graph.microsoft.com/Files.ReadWrite';
 const SELECT = 'id,name,size,file,folder,parentReference,remoteItem';
 const esc = encodeURIComponent;
 export const MAX_FILE = 250 * 1024 * 1024;
@@ -77,13 +77,19 @@ export function criaOneDrive({q,pool,json,fetcher=fetch, env=process.env}) {
     await garante();
     return Boolean((await q(confSql,[configKey]))[0]);
   }
-  async function token(campos, secret, client) {
-    const r=await fetcher(MICROSOFT+'/token',{method:'POST',signal:AbortSignal.timeout(12000),
+  function erroMicrosoft(codigo,descricao) {
+    const info=/\bAADSTS\d{4,8}\b/.exec(descricao || '')?.[0];
+    const simples=/^[a-z_]{3,40}$/.test(codigo || '')?codigo:null;
+    return [info,simples].filter(Boolean).join(', ');
+  }
+  async function token(campos, secret, client, tipo) {
+    const r=await fetcher(microsoft(tipo)+'/token',{method:'POST',signal:AbortSignal.timeout(12000),
       body:new URLSearchParams({client_id:client,client_secret:secret,...campos})});
     const d=await r.json();
-    if (!r.ok || !d.access_token) throw new DriveError(r.status === 400 ?
-      'A Microsoft recusou a autorização. Confira o aplicativo ou reconecte o OneDrive.' :
-      'A Microsoft não respondeu à autenticação.', r.status === 400 ? 409 : 502);
+    if (!r.ok || !d.access_token) {
+      const codigo=erroMicrosoft(d.error,d.error_description);
+      throw new DriveError('A Microsoft recusou a autenticação'+(codigo?' ('+codigo+')':'')+'.',r.status===400?409:502);
+    }
     return {access:d.access_token,refresh:d.refresh_token,exp:Date.now()+Number(d.expires_in)*1000};
   }
   async function sessao() {
@@ -97,7 +103,7 @@ export function criaOneDrive({q,pool,json,fetcher=fetch, env=process.env}) {
       const {rows:[r]}=await c.query(confSql+' for update',[configKey]);
       const d=abre(configKey,r.valor);
       if (d.exp <= Date.now()+60e3) {
-        const t=await token({grant_type:'refresh_token',refresh_token:d.refresh,scope:SCOPES},d.secret,d.client);
+        const t=await token({grant_type:'refresh_token',refresh_token:d.refresh,scope:SCOPES},d.secret,d.client,d.tipo);
         Object.assign(d,t,{refresh:t.refresh||d.refresh});
         await c.query(gravaSql,[configKey,sela(configKey,d)]);
       }
@@ -129,29 +135,38 @@ export function criaOneDrive({q,pool,json,fetcher=fetch, env=process.env}) {
     if (!item.folder || item.remoteItem) throw new DriveError('O destino não é uma pasta do acervo.');
     return item;
   }
+  const COOKIE='cbr_od_state';
+  const cookie = req => (req.headers.get('cookie')||'').split(/;\s*/).find(s=>s.startsWith(COOKIE+'='))?.split('=')[1];
+  async function estadoPendente(req,raw) {
+    if (!/^[a-f0-9]{64}$/.test(raw || '')) return null;
+    const [row]=await q(confSql,['onedrive_state:'+raw]);
+    if (!row) return null;
+    const state=abreTicket('oauth',row.valor);
+    if (cookie(req)!==raw+'.'+state.browser) return null;
+    return state;
+  }
   async function confirmaConta(req,url) {
     if (!ok) throw new DriveError('Ativação do OneDrive indisponível.',503);
     await garante();
     const raw=url.searchParams.get('state');
     if (!/^[a-f0-9]{64}$/.test(raw || '')) throw new DriveError('Autorização inválida. Volte a Documentos.');
-    const [row]=await q('delete from carteira.config_geral where chave=$1 returning valor',['onedrive_state:'+raw]);
-    if (!row) throw new DriveError('Autorização expirada. Abra Documentos e tente novamente.',403);
-    const state=abreTicket('oauth',row.valor);
-    const esperado='cbr_od_state='+state.browser;
-    if (!(req.headers.get('cookie')||'').split(/;\s*/).includes(esperado))
-      throw new DriveError('Finalize a autorização no mesmo navegador.',403);
+    const erro=url.searchParams.get('error'), diag=erroMicrosoft(erro,url.searchParams.get('error_description'));
+    if(erro)throw new DriveError('A Microsoft não concluiu a autorização'+(diag?' ('+diag+')':'')+'.',409);
+    const state=await estadoPendente(req,raw);
+    if(!state)throw new DriveError('A autorização expirou ou foi aberta em outro navegador.',403);
     const code=url.searchParams.get('code');
-    if (!code || url.searchParams.has('error')) throw new DriveError('A autorização do OneDrive foi cancelada.');
-    const t=await token({grant_type:'authorization_code',code,redirect_uri:callback,code_verifier:state.pkce},state.secret,state.client);
+    if (!code) throw new DriveError('A Microsoft não enviou o código de autorização.');
+    const t=await token({grant_type:'authorization_code',code,redirect_uri:callback,code_verifier:state.pkce},state.secret,state.client,state.tipo);
     if (!t.refresh) throw new DriveError('A Microsoft não autorizou acesso contínuo.');
     const root=await graph(t.access,'/me/drive/root:/'+caminho(ROOT)+'?$select='+SELECT);
     if (!root.folder || !root.parentReference?.driveId) throw new DriveError('A conta não contém a pasta Documentos do Beira Rio.');
-    const d={...t,client:state.client,secret:state.secret,drive:root.parentReference.driveId,root:root.id};
+    const d={...t,client:state.client,secret:state.secret,tipo:state.tipo,drive:root.parentReference.driveId,root:root.id};
     for(const p of [['Propostas'],['Compradores'],['Contratos','Assinados'],['Contratos','Redigidos','Word'],['Contratos','Negociações']])
       await pasta(d,p);
     await q(gravaSql,[configKey,sela(configKey,d)]);
+    await q('delete from carteira.config_geral where chave=$1',['onedrive_state:'+raw]);
     return new Response(null,{status:303,headers:{Location:new URL('/#onedrive',origin).href,
-      'Set-Cookie':'cbr_od_state=; Path=/api/onedrive/retorno; Secure; HttpOnly; SameSite=Lax; Max-Age=0','Cache-Control':'no-store'}});
+      'Set-Cookie':COOKIE+'=; Path=/api/onedrive; Secure; HttpOnly; SameSite=Lax; Max-Age=0','Cache-Control':'no-store'}});
   }
   async function listagem(url) {
     const d=await sessao(), cursor=url.searchParams.get('cursor');
@@ -223,24 +238,32 @@ export function criaOneDrive({q,pool,json,fetcher=fetch, env=process.env}) {
     if(!r.ok) throw new DriveError('Não foi possível ler o documento no OneDrive.',502);
     return Buffer.from(await r.arrayBuffer()).toString('base64');
   }
-  async function rota(p, m, body, real, url, ator, prepara) {
+  async function rota(p, m, body, real, url, ator, prepara, req) {
     if (p[0]!=='onedrive') return null;
     if (!['luis','assistente'].includes(real)) return json({erro:'Use o login individual da equipe.'},403);
     try {
-      if(m==='GET'&&p[1]==='status') return json({configuravel:ok,conectado:await temConexao()});
+      const anterior=req && cookie(req)?.split('.')[0];
+      if(m==='GET'&&p[1]==='status'){
+        const retomavel=ok && real==='luis' && anterior && await estadoPendente(req,anterior).catch(()=>null);
+        return json({configuravel:ok,conectado:await temConexao(),retomavel:!!retomavel});
+      }
       if(m==='POST'&&p[1]==='conectar'&&real==='luis'){
         if (!ok) throw new DriveError('O armazenamento seguro do OneDrive ainda não foi configurado.',503);
-        const client=String(body.client||'').trim(), secret=String(body.secret||'').trim();
+        await garante();
+        const anteriorEstado=body.retomar&&req?await estadoPendente(req,anterior).catch(()=>null):null;
+        if(body.retomar&&!anteriorEstado)throw new DriveError('A tentativa anterior expirou. Informe os dados do aplicativo novamente.',403);
+        const client=String(anteriorEstado?.client||body.client||'').trim(), secret=String(anteriorEstado?.secret||body.secret||'').trim();
+        const tipo=(anteriorEstado?.tipo||body.tipo)==='empresa'?'empresa':'pessoal';
         if(!/^[a-f\d-]{36}$/i.test(client)||secret.length<8||secret.length>512) throw new DriveError('Preencha o ID e o valor do segredo do aplicativo Microsoft.');
         const state=randomBytes(32).toString('hex'), browser=randomBytes(24).toString('hex'), pkce=randomBytes(32).toString('base64url');
-        await garante();
         await q("delete from carteira.config_geral where chave like 'onedrive_state:%' and em<now()-interval '1 hour'");
-        await q(gravaSql,['onedrive_state:'+state,ticket('oauth',{client,secret,browser,pkce},10*60e3)]);
-        const auth=new URL(MICROSOFT+'/authorize');
-        auth.search=new URLSearchParams({client_id:client,response_type:'code',redirect_uri:callback,scope:SCOPES,state,
-          code_challenge_method:'S256',code_challenge:createHash('sha256').update(pkce).digest('base64url'),prompt:'select_account'});
+        await q(gravaSql,['onedrive_state:'+state,ticket('oauth',{client,secret,browser,pkce,tipo},20*60e3)]);
+        if(anteriorEstado)await q('delete from carteira.config_geral where chave=$1',['onedrive_state:'+anterior]);
+        const auth=new URL(microsoft(tipo)+'/authorize');
+        auth.search=new URLSearchParams({client_id:client,response_type:'code',response_mode:'query',redirect_uri:callback,scope:SCOPES,state,
+          code_challenge_method:'S256',code_challenge:createHash('sha256').update(pkce).digest('base64url')});
         const r=json({url:auth.href});
-        r.headers.set('Set-Cookie','cbr_od_state='+browser+'; Path=/api/onedrive/retorno; Secure; HttpOnly; SameSite=Lax; Max-Age=600');
+        r.headers.set('Set-Cookie',COOKIE+'='+state+'.'+browser+'; Path=/api/onedrive; Secure; HttpOnly; SameSite=Lax; Max-Age=1200');
         return r;
       }
       if(m==='GET'&&p[1]==='listar') return json(await listagem(url));
