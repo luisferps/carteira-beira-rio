@@ -181,69 +181,60 @@ async function geraTitulosVenda(c,b) {
   return gerados;
 }
 
-async function estadoEdicaoVenda(consulta, numero) {
-  const [estado] = await consulta(`select c.*, xmin::text revisao,
-    (c.venda_recebida or exists(select 1 from carteira.pagamentos p join carteira.titulos t on t.id=p.titulo_id
-      where t.contrato=c.numero and p.valor_pago>0) or exists(select 1 from carteira.boletos b
-      where b.contrato=c.numero and (b.status=any($2) or b.dados->>'status'=any($2)))) recebeu,
-    exists(select 1 from carteira.documentos d where d.contrato=c.numero and d.chave='contrato_assinado') assinado,
-    exists(select 1 from carteira.boletos b where b.contrato=c.numero
-      and (b.status is null or b.status not in ('DELETED','SUBSTITUIDO','CANCELLED'))) boleto,
-    (exists(select 1 from carteira.acordos a where a.contrato=c.numero)
-      or exists(select 1 from carteira.correcoes k where k.contrato=c.numero)
-      or exists(select 1 from carteira.eventos e where e.contrato=c.numero and e.tipo not in ('observacao','pendencia'))
-      or exists(select 1 from carteira.propostas p where p.contrato=c.numero)) historico
-    from carteira.contratos c where c.numero=$1 and c.fonte='emissão pelo sistema'`, [numero,PAGO_A]);
-  return estado;
-}
+const consultaProximoContrato = `select coalesce(
+  (select min(l.numero::int) from carteira.numeros_venda_livres l
+    where not exists (select 1 from carteira.contratos c where c.numero=l.numero)),
+  (select coalesce(max(numero::int),0)+1 from carteira.contratos where numero ~ '^\\d{4}$')
+) proximo`;
 
-function motivoEdicaoVenda(estado) {
-  if (estado.recebeu) return 'Edição bloqueada. O contrato já tem recebimento registrado.';
-  if (estado.assinado) return 'Edição bloqueada. O contrato já tem uma via assinada.';
-}
-
-const assinaturaCronograma = itens => JSON.stringify(itens.map(p => [
-  p.tipo,+p.qtd,+p.valor,p.primeiro_venc,p.meio,+(p.ajuste_ultima_centavos || 0),
-]));
-
-async function editarCompraVenda(raw, ator, rascunho, id) {
+async function excluirCompraVenda(numero, revisao, ator) {
   const c = await pool.connect();
   try {
     await c.query('begin');
     await c.query("select set_config('app.ator',$1,true)", [ator]);
-    const {rows:[trava]} = await c.query('select pg_try_advisory_xact_lock(7714, $1::int) ok', [raw.numero]);
+    const {rows:[trava]} = await c.query('select pg_try_advisory_xact_lock(7714, $1::int) ok', [numero]);
     if (!trava.ok) throw new Error('Há uma operação em andamento neste contrato. Tente novamente.');
     await c.query('lock table carteira.pagamentos, carteira.boletos, carteira.documentos in share row exclusive mode');
-    await c.query('select numero from carteira.contratos where numero=$1 for update', [raw.numero]);
-    const consulta = async (s,p) => (await c.query(s,p)).rows;
-    const atual = await estadoEdicaoVenda(consulta,raw.numero);
+    const {rows:[atual]} = await c.query(`select c.numero,c.quadra,c.lote,c.xmin::text revisao,
+      (c.venda_recebida or c.itens @> '[{"pago":true}]'::jsonb
+        or exists(select 1 from carteira.pagamentos p join carteira.titulos t on t.id=p.titulo_id
+          where t.contrato=c.numero and p.valor_pago>0)
+        or exists(select 1 from carteira.boletos b where b.contrato=c.numero
+          and (b.status=any($2) or b.dados->>'status'=any($2)))) recebeu,
+      exists(select 1 from carteira.documentos d where d.contrato=c.numero and d.chave='contrato_assinado') assinado,
+      exists(select 1 from carteira.boletos b where b.contrato=c.numero
+        and (b.status is null or b.status not in ('DELETED','SUBSTITUIDO','CANCELLED'))) boleto,
+      (exists(select 1 from carteira.acordos a where a.contrato=c.numero)
+        or exists(select 1 from carteira.correcoes k where k.contrato=c.numero)
+        or exists(select 1 from carteira.eventos e where e.contrato=c.numero and e.tipo not in ('observacao','pendencia'))
+        or exists(select 1 from carteira.propostas p where p.contrato=c.numero)) operacoes
+      from carteira.contratos c where c.numero=$1 and c.fonte='emissão pelo sistema' for update of c`, [numero,PAGO_A]);
     if (!atual) throw new Error('Contrato de compra e venda não encontrado.');
-    if (motivoEdicaoVenda(atual)) throw new Error(motivoEdicaoVenda(atual));
-    if (raw.revisao !== atual.revisao) throw new Error('O contrato mudou. Abra a edição novamente.');
-    const b = validaCompraVenda({...raw,quadra:atual.quadra,lote:atual.lote,compradores:atual.compradores});
-    if (b.itens.some(p => p.pago)) throw new Error('Registre recebimentos pelo módulo de parcelas depois de salvar a edição.');
-    const alteraParcelas = +atual.valor_imovel !== b.valor_imovel || atual.data_assinatura !== b.data_assinatura ||
-      assinaturaCronograma(atual.itens) !== assinaturaCronograma(b.itens);
-    if (alteraParcelas && (atual.boleto || atual.historico))
-      throw new Error(atual.boleto ? 'Cancele os boletos ativos antes de alterar o valor ou os vencimentos.' :
-        'O cronograma já tem eventos, correções ou acordos. Use as operações da ficha para alterá-lo.');
-    const [minuta] = await consulta(`select id,nome,verificacao from carteira.documentos where id=$1 and contrato=$2
-      and verificacao->>'numero'=$3 and por=$4 and chave='contrato_minuta' for update`, [id,rascunho,b.numero,ator]);
-    if (!minuta) throw new Error('A minuta da revisão não foi encontrada.');
-    const destino = destinoArquivo({chave:'contrato_minuta',nome:minuta.nome,numero:b.numero,quadra:b.quadra,lote:b.lote});
-    const arquivo = minuta.verificacao?.onedrive?.destino;
-    if (arquivo && (destino.nome !== arquivo.nome || JSON.stringify(destino.pastas) !== JSON.stringify(arquivo.pastas)))
-      throw new Error('O destino da minuta mudou. Envie a revisão novamente.');
-    await c.query(`update carteira.contratos set rua=$2,area=$3,valor_imovel=$4,data_assinatura=$5,
-      entrada_total=$6,corretor=$7,creci_corretor=$8,corretagem=$9,itens=$10,venda_config=$11 where numero=$1`,
-    [b.numero,b.rua,b.area,b.valor_imovel,b.data_assinatura,b.entrada_total,b.corretor,b.creci_corretor,
-      b.corretagem,JSON.stringify(b.itens),configVenda(b)]);
-    if (alteraParcelas) await geraTitulosVenda(c,b);
-    await c.query("update carteira.documentos set contrato=$1,verificacao=verificacao-'numero' where id=$2", [b.numero,id]);
-    await c.query("insert into carteira.historico(conferente,acao,detalhe) values('luis','compra_venda_editada',$1)",
-      [{contrato:b.numero,minuta:id,alterou_parcelas:alteraParcelas,por:ator}]);
+    if (atual.recebeu) throw new Error('Exclusão bloqueada. O contrato já tem recebimento registrado.');
+    if (revisao !== atual.revisao) throw new Error('O cadastro deste número mudou. Abra a ficha novamente.');
+    if (atual.assinado) throw new Error('Exclusão bloqueada. O contrato já tem uma via assinada.');
+    if (atual.boleto) throw new Error('Cancele os boletos ativos antes de excluir o contrato.');
+    if (atual.operacoes) throw new Error('Exclusão bloqueada. O contrato já tem um acordo, correção ou outra operação vinculada.');
+    // Vínculos sem chave estrangeira não podem reaparecer em uma venda que reutilize este número.
+    for (const tabela of ['cessoes','comissoes','asaas_auto','cobranca_casos','cobranca_registros','ia_sugestoes','termos_arq']) {
+      const {rows:[existe]} = await c.query('select to_regclass($1) is not null ok',['carteira.'+tabela]);
+      if (!existe.ok) continue;
+      await c.query('lock table carteira.'+tabela+' in share row exclusive mode');
+      const {rowCount} = await c.query('select 1 from carteira.'+tabela+' where contrato=$1 limit 1',[numero]);
+      if (rowCount) throw new Error('Exclusão bloqueada. O contrato já tem uma operação vinculada.');
+    }
+    const arquivo = 'venda-excluida:' + crypto.randomUUID();
+    const {rowCount:documentos} = await c.query('update carteira.documentos set contrato=$2 where contrato=$1',[numero,arquivo]);
+    await c.query('update carteira.boletos set contrato=$2 where contrato=$1',[numero,arquivo]);
+    await c.query('delete from carteira.doc_check where contrato=$1',[numero]);
+    const {rows:[existeFora]} = await c.query("select to_regclass('carteira.cobranca_fora') is not null ok");
+    if (existeFora.ok) await c.query('delete from carteira.cobranca_fora where contrato=$1',[numero]);
+    await c.query('delete from carteira.contratos where numero=$1',[numero]);
+    await c.query('insert into carteira.numeros_venda_livres(numero) values($1) on conflict do nothing',[numero]);
+    await c.query("insert into carteira.historico(conferente,acao,detalhe) values('luis','compra_venda_excluida',$1)",
+      [{contrato:numero,quadra:atual.quadra,lote:atual.lote,arquivo,documentos,por:ator}]);
     await c.query('commit');
-    return {numero:b.numero,emitir:[]};
+    return {ok:true,numero};
   } catch(e) {
     await c.query('rollback');
     throw e;
@@ -286,6 +277,7 @@ async function cadastrarCompraVenda(b, ator, rascunho, ids) {
       values($1,$2,$3,$4,$5,$6,$7,$8,'IGPM',2,$9,$10,$11,$12,$13,'emissão pelo sistema',$14,$15)`,
     [b.numero,b.quadra,b.lote,b.rua,b.area,b.valor_imovel,b.data_assinatura,b.entrada_total,b.corretor,b.creci_corretor,b.corretagem,
       JSON.stringify(b.compradores),JSON.stringify(b.itens),`${b.numero} - Q${b.quadra} L${b.lote}.docx`, configVenda(b)]);
+    await c.query('delete from carteira.numeros_venda_livres where numero=$1',[b.numero]);
     for (const p of [...b.compradores].sort((a, z) => a.cpf.localeCompare(z.cpf))) {
       const {fone, email, endereco, qualificacao, ...pessoais} = p;
       const manual = Object.fromEntries(Object.entries({telefone:fone, email, endereco, qualificacao}).filter(([,v]) => v));
@@ -381,7 +373,7 @@ Números com ponto decimal (967.68). Descrição colada pelo usuário: """${body
 
 const ORDEM = `order by case grupo when 'entrada' then 0 when 'mensal' then 1 when 'anual' then 2 when 'outra' then 3 else 4 end, vencimento, numero`;
 async function carregar(n, conf) {
-  const [contrato] = await q('select * from carteira.contratos where numero=$1', [n]);
+  const [contrato] = await q('select *, xmin::text revisao_venda from carteira.contratos where numero=$1', [n]);
   if (!contrato) return null;
   const titulos = await q(`select * from carteira.titulos where contrato=$1 and (conferente is null or conferente=$2) ${ORDEM}`, [n, conf]);
   const ids = titulos.map(t => t.id);
@@ -1535,7 +1527,7 @@ async function rotasPublicas(p, req, url) {
 async function permitidoAssistente(p, m, body) {
   const a = p[0], s = p[1];
   if (a === 'onedrive') return !p[2] && ((m==='GET'&&['status','listar','abrir'].includes(s)) || (m==='POST'&&s==='enviar'));
-  if (a === 'contrato-edicao') return ['GET','PUT'].includes(m) && !p[2] && /^\d{4}$/.test(s || '');
+  if (a === 'contrato-excluir') return m === 'DELETE' && !p[2] && /^\d{4}$/.test(s || '');
   if (a === 'contrato-novo') return !p[2] && (
     (m === 'GET' && (!s || s === 'modelo')) ||
     (m === 'POST' && (['ler','asaas','boleto'].includes(s) || (!s && body.origem === 'compra-venda')))
@@ -1951,6 +1943,7 @@ async function garanteEsquema() {
     await q(`alter table carteira.contratos add column if not exists creci_corretor text`);
     await q(`alter table carteira.contratos add column if not exists venda_config jsonb,
       add column if not exists venda_recebida boolean not null default false`);
+    await q('create table if not exists carteira.numeros_venda_livres(numero text primary key)');
     await q(`create or replace function carteira.trava_edicao_venda_paga() returns trigger language plpgsql as $f$
       begin
         if tg_op <> 'INSERT' and old.valor_pago > 0 then
@@ -2404,18 +2397,11 @@ export default async (req) => {
       if (p[1] === 'previa' && m === 'GET') return json(await previaCorrecao(url.searchParams.get('ano'), url.searchParams.get('igpm') || 0, url.searchParams.get('desde')));
       if (p[1] === 'aplicar' && m === 'POST') return json(await aplicarCorrecao(body.itens || [], real, body.ano));
     }
-    if (p[0] === 'contrato-edicao' && ['GET','PUT'].includes(m)) {
-      if (!['luis','assistente'].includes(real) || !/^\d{4}$/.test(p[1] || '') || p[2]) return json({erro:'Edição indisponível.'},403);
+    if (p[0] === 'contrato-excluir' && m === 'DELETE') {
+      if (!['luis','assistente'].includes(real) || !/^\d{4}$/.test(p[1] || '') || p[2]) return json({erro:'Exclusão indisponível.'},403);
+      if (typeof body.revisao !== 'string' || !/^\d+$/.test(body.revisao)) return json({erro:'Abra a ficha novamente antes de excluir.'},400);
       await garanteBoletos();
-      const atual = await estadoEdicaoVenda(q,p[1]);
-      if (!atual) return json({erro:'Contrato de compra e venda não encontrado.'},404);
-      const motivo = motivoEdicaoVenda(atual);
-      if (motivo) return json({erro:motivo},409);
-      if (m === 'GET') return json({...atual,...atual.venda_config});
-      const rascunho = chaveRascunhoCompra(body.rascunho);
-      if (!rascunho || !Number.isSafeInteger(body.minuta) || body.minuta < 1)
-        return json({erro:'Envie a minuta da revisão.'},400);
-      try { return json(await editarCompraVenda({...body,numero:p[1]},usuario?.email || real,rascunho,body.minuta)); }
+      try { return json(await excluirCompraVenda(p[1],body.revisao,usuario?.email || real)); }
       catch (e) { return json({erro:e.message},409); }
     }
 
@@ -2454,7 +2440,7 @@ export default async (req) => {
       }
       if (p[1]) return json({ erro: 'Rota inválida' }, 404);
       if (m === 'GET') {
-        const [row] = await q(`select coalesce(max(numero::int),0)+1 proximo from carteira.contratos where numero ~ '^\\d{4}$'`);
+        const [row] = await q(consultaProximoContrato);
         return json({ numero: String(row.proximo).padStart(4,'0') });
       }
       if (body.origem === 'compra-venda') {
@@ -2703,7 +2689,7 @@ export default async (req) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(body.data_assinatura || '')) return json({ erro: 'Data inválida' }, 400);
       const [a] = await q(`select data_assinatura,fonte from carteira.contratos where numero=$1`, [body.contrato]);
       if (!a) return json({ erro: 'Contrato não encontrado' }, 404);
-      if (a.fonte === 'emissão pelo sistema') return json({erro:'Use Editar contrato na ficha da venda.'},409);
+      if (a.fonte === 'emissão pelo sistema') return json({erro:'A data de uma venda finalizada fica travada.'},409);
       await q(`update carteira.contratos set data_assinatura=$2 where numero=$1`, [body.contrato, body.data_assinatura]);
       await log(conf, 'data_assinatura_corrigida', { contrato: body.contrato, antes: a.data_assinatura, depois: body.data_assinatura, motivo: body.motivo || null });
       return json({ ok: true });

@@ -60,7 +60,7 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
       if (p[0] === 'documentos' && m === 'GET' && p[1] !== 'cadeia') {
         const n = url.searchParams.get('contrato');
         const [c] = await q(`select numero, compradores, fonte from carteira.contratos where numero=$1`, [n]);
-        if (n?.startsWith('compra-rascunho:')) return json({ erro:'Contrato não encontrado' }, 404);
+        if (/^(compra-rascunho|venda-excluida):/.test(n || '')) return json({ erro:'Contrato não encontrado' }, 404);
         const arquivos = await q(`select id, chave, nome, mime, tamanho, por, enviado_em, verificacao from carteira.documentos where contrato=$1 order by enviado_em`, [n]);
         const itens_contrato = [...ITENS_CONTRATO];
         if (arquivos.some(a => a.chave === 'contrato_minuta')) itens_contrato.push(['contrato_minuta','Minuta emitida em Word']);
@@ -103,7 +103,7 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
         const bin = cloud ? '' : b.b64;
         const tam = cloud?.tamanho || Math.round(bin.length * 3 / 4);
         if (!cloud && tam > 4.2e6) return json({ erro: 'Arquivo grande demais (máximo 4 MB)' }, 400);
-        if (!b.rascunho && String(b.contrato).startsWith('compra-rascunho:')) return json({ erro:'Destino inválido' },400);
+        if (!b.rascunho && /^(compra-rascunho|venda-excluida):/.test(String(b.contrato))) return json({ erro:'Destino inválido' },400);
         let r, metadata = cloud ? {onedrive:cloud} : null;
         const destino = b.rascunho ? chaveRascunhoCompra(b.rascunho) : b.contrato;
         if (b.rascunho) {
@@ -129,7 +129,8 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
         return json({ ...r, verificacao });
       }
       if (p[0] === 'documento' && p[1] && p[2] === 'verificacao') {
-        const [d] = await q(`select id, contrato, chave, nome, mime, b64, verificacao from carteira.documentos where id=$1 and contrato not like 'compra-rascunho:%'`, [p[1]]); if (!d) return json({ erro: 'Não encontrado' }, 404);
+        const [d] = await q(`select id, contrato, chave, nome, mime, b64, verificacao from carteira.documentos
+          where id=$1 and contrato not like 'compra-rascunho:%' and contrato not like 'venda-excluida:%'`, [p[1]]); if (!d) return json({ erro: 'Não encontrado' }, 404);
         if (d.verificacao && m === 'GET' && !url.searchParams.get('refaz')) return json(d.verificacao);
         if (!(/pdf/i.test(d.mime || '') || /\.pdf$/i.test(d.nome || ''))) return json({ status: 'nao_pdf' });
         const ref=d.verificacao?.onedrive;
@@ -138,13 +139,15 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
       }
       if (p[0] === 'documentos' && p[1] === 'cadeia' && m === 'GET' && infoCadeia) return json(await infoCadeia());
       if (p[0] === 'documento' && p[1] && m === 'GET') {
-        const [r] = await q(`select nome,mime,b64,verificacao->'onedrive' onedrive from carteira.documentos where id=$1 and contrato not like 'compra-rascunho:%'`, [p[1]]);
+        const [r] = await q(`select nome,mime,b64,verificacao->'onedrive' onedrive from carteira.documentos
+          where id=$1 and contrato not like 'compra-rascunho:%' and contrato not like 'venda-excluida:%'`, [p[1]]);
         if(!r)return json({erro:'Não encontrado'},404);
         if(r.onedrive){const res=json(await onedrive.abrirRef(r.onedrive));res.headers.set('Cache-Control','no-store');return res;}
         return json({nome:r.nome,mime:r.mime,b64:r.b64});
       }
       if (p[0] === 'documento' && p[1] && m === 'DELETE') {
         const [apagado] = await q(`delete from carteira.documentos where id=$1 and contrato not like 'compra-rascunho:%'
+          and contrato not like 'venda-excluida:%'
           and chave<>'contrato_minuta' returning id`, [p[1]]);
         if (!apagado) return json({erro:'Documento inexistente ou minuta protegida pelo histórico da venda.'},409);
         await log(real, 'documento_apagado', { id:p[1] });

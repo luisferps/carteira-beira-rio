@@ -30,6 +30,10 @@ create table if not exists carteira.contratos (
   criado_em         timestamptz not null default now()
 );
 
+create table if not exists carteira.numeros_venda_livres (
+  numero text primary key
+);
+
 create table if not exists carteira.titulos (
   id           bigserial primary key,
   contrato     text not null references carteira.contratos(numero) on delete cascade,
