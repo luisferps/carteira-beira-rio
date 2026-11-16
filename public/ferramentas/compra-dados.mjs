@@ -6,6 +6,11 @@ const dinheiro = v => {
   return Number.isFinite(n) && n > 0 && n <= 100000000 ? Math.round(n * 100) : 0;
 };
 export const comissaoPadrao = valor => Math.round(dinheiro(valor) * 0.05) / 100;
+export const primeiraMensalNoPrazo = (vencimento, hoje) => {
+  if (!data(vencimento) || !data(hoje)) return false;
+  const dias = (Date.parse(vencimento) - Date.parse(hoje)) / 864e5;
+  return dias >= 0 && dias < 30;
+};
 export const padroesCompraVenda = Object.freeze({
   cidade: 'Goiânia',
   matricula: 'Livro de Registro Geral 2 nº 2.996',

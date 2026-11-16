@@ -1,4 +1,4 @@
-import { ajusteDoGrupo, comissaoPadrao, cpfValido, modoEntradaSugerido, padroesCompraVenda, somaParcelasCentavos, totalRedondo, validaCompraVenda } from './compra-dados.mjs';
+import { ajusteDoGrupo, comissaoPadrao, cpfValido, modoEntradaSugerido, padroesCompraVenda, primeiraMensalNoPrazo, somaParcelasCentavos, totalRedondo, validaCompraVenda } from './compra-dados.mjs';
 import { dadosMinuta, gerarMinuta, mimeWord, qualifica } from './compra-minuta.mjs';
 import { enviaAnexo, LIMITE } from './onedrive.mjs';
 
@@ -463,7 +463,8 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
       el('#cv-retry').hidden = !falhas.length;
       msg(falhas.length ? 'Contrato gravado. Pendências: ' + falhas.join(' · ') :
         'Contrato ' + salvo.numero + ' cadastrado. Documentos e Word guardados, compradores vinculados ao Asaas.' +
-        (salvo.emitir.length ? ' Boleto da entrada emitido.' : ''), !!falhas.length);
+        (salvo.emitir.length ? ' Boleto da entrada emitido.' : '') +
+        (salvo.primeiraMensal ? ' Primeiro boleto mensal emitido.' : ''), !!falhas.length);
     } finally { ocupado = false; }
   };
   el('#cv-word').onclick = async () => {
@@ -480,8 +481,10 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     try {
       const raw = dadosFormulario(), b = validaCompraVenda(raw), lista = prepararArquivos();
       const gera = b.itens.some(p => p.emitir), paga = b.itens.some(p => p.pago);
+      const mensal=b.itens.find(p=>p.tipo==='mensal');
       if (!confirm('Cadastrar o contrato ' + b.numero + ' e vincular os compradores ao Asaas?' +
         (gera ? ' Serão emitidos os boletos das entradas em aberto marcadas para emissão.' : '') +
+        (primeiraMensalNoPrazo(mensal?.primeiro_venc,hoje()) ? ' O primeiro boleto mensal será emitido porque vence em menos de 30 dias.' : '') +
         (paga ? ' As entradas já pagas serão registradas.' : ''))) return;
       ocupado = true;
       el('#cv-edicao').disabled = true;
@@ -511,6 +514,10 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
         rotulo:'Emitir boleto da entrada ' + (i+1),
         fazer:() => post('contrato-novo/boleto',{titulo_id:id}),
       })));
+      if (salvo.primeiraMensal) tarefas.push({
+        rotulo:'Emitir o primeiro boleto mensal',
+        fazer:() => post('contrato-novo/boleto',{titulo_id:salvo.primeiraMensal}),
+      });
       baixar(word);
     } catch (e) { msg(e.message,true); }
     finally {

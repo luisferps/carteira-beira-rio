@@ -811,10 +811,17 @@ async function retificarEntrada0252(arquivo){
   botao.disabled=true;
   try{
     const {enviaAnexo}=await import('/ferramentas/onedrive.mjs');
-    const rascunho=crypto.randomUUID(), {numero,quadra,lote}=C.contrato;
+    const rascunho=crypto.randomUUID(), {numero,quadra,lote,compradores}=C.contrato;
     const doc=await enviaAnexo(api,{contrato:numero,rascunho,chave:'contrato_minuta_pdf',imovel:{quadra,lote}},arquivo);
     await api('retificacao-entrada/'+numero,{method:'POST',body:{rascunho,docId:doc.id}});
+    const falhas=[];
+    for(const p of compradores) {
+      try { await api('contrato-novo/asaas',{method:'POST',body:{contrato:numero,cpf:p.cpf},silencioso:true}); }
+      catch(e) { falhas.push(p.nome+': '+e.message); }
+    }
     await recarrega();
+    const aviso=$('#status-atualizacao-0252');
+    if(aviso) aviso.textContent=falhas.length?'PDF salvo. Pendências no Asaas: '+falhas.join(' · '):'PDF atualizado. As duas compradoras estão vinculadas ao Asaas.';
   }catch(e){alert(e.message);botao.disabled=false}
 }
 async function telaLista(){
@@ -1064,9 +1071,10 @@ function desenhaContrato(){if(location.hash.startsWith('#cob/'))return;setTimeou
     ${C.assinado?` <span class="mut">Anexado em ${dbr(C.assinado.enviado_em)}</span> <button onclick="abreDoc(${C.assinado.id})">Ver contrato assinado</button>`:
       ` <button onclick="enviaDoc('contrato_assinado')">Anexar contrato assinado</button>`}
     ${C.minuta?` <button onclick="abreDoc(${C.minuta.id})">Ver minuta atual</button>`:''}
-    ${EU==='luis'&&c.numero==='0252'&&!C.assinado&&C.minuta?.chave!=='contrato_minuta_pdf'?
-      ` <button id="retificar-0252" onclick="document.getElementById('retificar-pdf-0252').click()">Registrar retificação do 0252</button>
-      <input hidden id="retificar-pdf-0252" type="file" accept="application/pdf" onchange="retificarEntrada0252(this.files[0]);this.value=''">`:''}
+    ${EU==='luis'&&c.numero==='0252'&&!C.assinado?
+      ` <button id="retificar-0252" onclick="document.getElementById('retificar-pdf-0252').click()">${C.minuta?.chave==='contrato_minuta_pdf'?'Atualizar PDF do 0252':'Registrar retificação do 0252'}</button>
+      <input hidden id="retificar-pdf-0252" type="file" accept="application/pdf" onchange="retificarEntrada0252(this.files[0]);this.value=''">
+      <span id="status-atualizacao-0252" role="status"></span>`:''}
     ${['luis','assistente'].includes(EU)?vendaPaga?' <span class="mut">Exclusão bloqueada após recebimento.</span>':
       !C.assinado?'<button class="per" onclick="excluirContratoVenda(this)">Excluir contrato</button>':'':''}
     </div>`:''}

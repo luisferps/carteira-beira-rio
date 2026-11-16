@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 import { criaAcerto } from './acerto-lib.mjs';
 import { reclassificaCobranca } from './cobranca-origens.mjs';
-import { validaCompraVenda } from '../../public/ferramentas/compra-dados.mjs';
+import { primeiraMensalNoPrazo, validaCompraVenda } from '../../public/ferramentas/compra-dados.mjs';
 import { custoRateadoNaBaixa, rateioConferido, rateiosConferidos } from './rateio-acordos-lib.mjs';
 import { criaDevolucoes } from './devolucoes-lib.mjs';
 import { criaCessoes } from './cessoes-lib.mjs';
@@ -167,7 +167,8 @@ async function entradaNoAsaas(item) {
 
 async function retificaEntrada0252(ator,rascunho,docId) {
   const numero='0252', fatura='968837904', dataPix='2026-11-14';
-  const f=await entradaNoAsaas({fatura,data_pagamento:dataPix,valor:9900});
+  const [anterior]=await q("select id from carteira.documentos where contrato=$1 and chave='contrato_minuta_pdf' limit 1",[numero]);
+  const f=anterior?null:await entradaNoAsaas({fatura,data_pagamento:dataPix,valor:9900});
   const c=await pool.connect();
   try {
     await c.query('begin');
@@ -178,11 +179,21 @@ async function retificaEntrada0252(ator,rascunho,docId) {
     const {rows:[ct]}=await c.query(`select * from carteira.contratos where numero=$1 and fonte='emissão pelo sistema' for update`,[numero]);
     if (!ct || ct.quadra!=='01' || ct.lote!=='10' || +ct.valor_imovel!==149000 || +ct.entrada_total!==14900)
       throw new Error('O contrato não corresponde à retificação conferida.');
-    const {rows:docs}=await c.query(`select id from carteira.documentos where contrato=$1 and chave in ('contrato_assinado','contrato_minuta_pdf')`,[numero]);
-    if (docs.length) throw new Error('A ficha já tem uma via assinada ou uma retificação registrada.');
+    const {rows:docs}=await c.query(`select id,chave from carteira.documentos where contrato=$1 and chave in ('contrato_assinado','contrato_minuta_pdf')`,[numero]);
+    if (docs.some(d=>d.chave==='contrato_assinado')) throw new Error('A ficha já tem uma via assinada.');
     const {rows:[pdf]}=await c.query(`select id from carteira.documentos where contrato=$1 and id=$2 and por=$3
       and verificacao->>'numero'=$4 and chave='contrato_minuta_pdf' and mime='application/pdf' for update`,[rascunho,docId,ator,numero]);
     if (!pdf) throw new Error('Anexe o PDF corrigido nesta retificação.');
+    const atual=docs.find(d=>d.chave==='contrato_minuta_pdf');
+    if (atual) {
+      await c.query("update carteira.documentos set chave='contrato_minuta_pdf_anterior' where id=$1",[atual.id]);
+      await c.query("update carteira.documentos set contrato=$1,verificacao=verificacao-'numero' where id=$2",[numero,docId]);
+      await c.query("insert into carteira.historico(conferente,acao,detalhe) values('luis','venda_pdf_revisado',$1)",
+        [{contrato:numero,por:ator,pdf_anterior:atual.id,pdf_atual:docId}]);
+      await c.query('commit');
+      return {ok:true,numero,docId};
+    }
+    if (!f) throw new Error('A retificação anterior mudou. Reabra a ficha.');
     const {rows:entradas}=await c.query(`select t.id,t.numero,t.valor_face,t.vencimento,g.id pagamento_id,g.valor_pago,g.fatura,g.id_asaas,g.forma,g.conferente,g.pago_cliente_em
       from carteira.titulos t left join carteira.pagamentos g on g.titulo_id=t.id where t.contrato=$1 and t.grupo='entrada'`,[numero]);
     const [e]=entradas;
@@ -305,7 +316,7 @@ async function cadastrarCompraVenda(b, ator, rascunho, ids) {
   for (const item of b.itens.filter(x => x.fatura)) pagas.set(item, await entradaNoAsaas(item));
   const emitir = [];
   const c = await pool.connect();
-  let gerados;
+  let gerados, primeiraMensal=null;
   try {
     await c.query('begin');
     await c.query("select set_config('app.ator',$1,true)", [ator]);
@@ -347,6 +358,8 @@ async function cadastrarCompraVenda(b, ator, rascunho, ids) {
       ['cpf:' + p.cpf, p.cpf, p.nome, manual]);
     }
     gerados = await geraTitulosVenda(c,b);
+    const {rows:[mensal]}=await c.query("select id,vencimento from carteira.titulos where contrato=$1 and grupo='mensal' and numero=1",[b.numero]);
+    if (mensal && primeiraMensalNoPrazo(mensal.vencimento,hojeBR())) primeiraMensal=mensal.id;
     const entradas = (await c.query(`select id,vencimento from carteira.titulos
       where contrato=$1 and grupo='entrada' order by numero`, [b.numero])).rows;
     let inicio = 0;
@@ -385,7 +398,7 @@ async function cadastrarCompraVenda(b, ator, rascunho, ids) {
     throw e;
   } finally { c.release(); }
   MAPA_CAMP = null;
-  return { ok:true, numero:b.numero, titulos:gerados, emitir };
+  return { ok:true, numero:b.numero, titulos:gerados, emitir, primeiraMensal };
 }
 
 async function lerPrint(body) {
@@ -2497,10 +2510,11 @@ export default async (req) => {
       }
       if (p[1] === 'boleto' && m === 'POST') {
         if (!/^\d+$/.test(String(body.titulo_id))) return json({ erro: 'Parcela inválida' }, 400);
-        const [t] = await q(`select c.compradores->0 comprador from carteira.titulos t
+        const [t] = await q(`select c.compradores->0 comprador,t.grupo,t.numero,t.vencimento from carteira.titulos t
           join carteira.contratos c on c.numero=t.contrato
-          where t.id=$1 and t.grupo='entrada' and t.meio='Boleto Bancário' and c.fonte='emissão pelo sistema'`, [body.titulo_id]);
-        if (!t) return json({ erro: 'Parcela de entrada não encontrada' }, 404);
+          where t.id=$1 and t.grupo in ('entrada','mensal') and t.meio='Boleto Bancário' and c.fonte='emissão pelo sistema'`, [body.titulo_id]);
+        if (!t || (t.grupo==='mensal' && (+t.numero!==1 || !primeiraMensalNoPrazo(t.vencimento,hojeBR()))))
+          return json({ erro: 'Parcela fora da emissão inicial de venda.' }, 404);
         const id = await clientePagador(t.comprador, { estrito:true });
         const r = await emitirBoleto(body.titulo_id, real, id);
         return r.id_asaas ? json({ ...r, erro: undefined, ok:true }) : json({ erro:r.erro || 'Boleto indisponível' }, 422);

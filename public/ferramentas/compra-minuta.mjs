@@ -9,7 +9,7 @@ export function qualifica(p) {
   return [p.nome, p.nacionalidade, p.estado_civil, p.profissao,
     p.rg && 'RG nº ' + [p.rg,p.emissor].filter(Boolean).join(' '), cpf && 'CPF nº ' + cpf,
     p.endereco && 'com endereço em ' + p.endereco, p.email && 'e-mail ' + p.email,
-    p.fone && 'telefone ' + p.fone].filter(Boolean).join(', ');
+    p.fone && 'telefone ' + p.fone.replace(/\s+/g,'\u00a0')].filter(Boolean).join(', ');
 }
 
 export function dadosMinuta(b, brl, reaisExt) {

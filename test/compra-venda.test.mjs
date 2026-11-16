@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {comissaoPadrao, somaParcelasCentavos, totalRedondo, validaCompraVenda} from '../public/ferramentas/compra-dados.mjs';
+import {comissaoPadrao, primeiraMensalNoPrazo, somaParcelasCentavos, totalRedondo, validaCompraVenda} from '../public/ferramentas/compra-dados.mjs';
 import {dadosMinuta, qualifica} from '../public/ferramentas/compra-minuta.mjs';
 
 function comprador(i) {
@@ -11,6 +11,13 @@ function comprador(i) {
     profissao:'Professor', nacionalidade:'Brasileira', endereco:'Rua de Teste, 101', fone:'(62) 99999-9999'};
   return {...p, qualificacao:qualifica(p)};
 }
+test('emite a primeira mensal apenas quando o vencimento está a menos de 30 dias', () => {
+  assert.equal(primeiraMensalNoPrazo('2026-12-15','2026-11-16'),true);
+  assert.equal(primeiraMensalNoPrazo('2026-12-16','2026-11-16'),false);
+  assert.equal(primeiraMensalNoPrazo('2026-12-20','2026-11-16'),false);
+  assert.equal(primeiraMensalNoPrazo('2026-11-15','2026-11-16'),false);
+  assert.equal(primeiraMensalNoPrazo(undefined,'2026-11-16'),false);
+});
 const compra = {
   numero:'9999',quadra:'5',lote:'11b',rua:'Alameda de Testes',area:1200.50,matricula:'999',
   cartorio:'Registro Fictício',cidade:'Goiânia',data_assinatura:'2026-11-16',
