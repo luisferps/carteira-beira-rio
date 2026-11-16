@@ -10,7 +10,8 @@ import { custoRateadoNaBaixa, rateioConferido, rateiosConferidos } from './ratei
 import { criaDevolucoes } from './devolucoes-lib.mjs';
 import { criaCessoes } from './cessoes-lib.mjs';
 import { criaPainel } from './painel-lib.mjs';
-import { chaveRascunhoCompra, criaDocumentos } from './documentos-lib.mjs';
+import { chaveRascunhoCompra, criaDocumentos, preparaArquivoOneDrive } from './documentos-lib.mjs';
+import { criaOneDrive, destinoArquivo } from './onedrive-lib.mjs';
 import { fazBackup, listaBackups, baixaBackup } from './backup-lib.mjs';
 import { verificaPdf, comparaDevedores, infoCadeiaGovBr } from './assinatura-lib.mjs';
 
@@ -141,7 +142,7 @@ async function lerPropostaVenda(imagem, tipo) {
         { type: foto[1] === 'application/pdf' ? 'document' : 'image', source: { type: 'base64', media_type: foto[1], data: foto[2] } },
         { type: 'text', text: tipo === 'documento'
           ? 'Extraia ' + CAMPOS_PROPONENTE + ', mais tipo: rg|cpf|endereco|outro. Para RG ou CNH com CPF classifique como rg e leia o CPF. Ignore dados de familiares, testemunhas e terceiros. Datas AAAA-MM-DD. Use null para campos ausentes ou ambíguos.'
-          : `A proposta FCA tem áreas DADOS DO COMPRADOR, DADOS DO CÔNJUGE OU SEGUNDO PROPONENTE, CARACTERÍSTICAS DO IMÓVEL e CONDIÇÕES DE PAGAMENTO. Se houver página de proposta, extraia no objeto principal: quadra, lote, rua, area, matricula, cartorio, cidade, valor_imovel, corretor, corretagem, pagamento_corretagem, compradores [{${CAMPOS_PROPONENTE}}], e itens [{tipo: entrada|mensal|anual, qtd, valor (unitário), primeiro_venc, forma: boleto|direto}]. Use a ordem dos proponentes e deixe em branco data de assinatura do contrato. Em PDF inclua paginas [{pagina (1 em diante), tipo: proposta|rg|cpf|endereco|estado_civil|outro, proponente: 1|2 (somente se identificável comparando com a proposta), dados:{${CAMPOS_PROPONENTE}} (somente nas páginas de documento)}]. CPF e RG em um documento: classifique como rg. Não associe documento por mera proximidade. Datas AAAA-MM-DD, quantias numéricas e null para ausentes. Omita tipo ou forma de pagamento incertos. A proposta por si só não comprova pagamento.` },
+          : `A proposta FCA tem áreas DADOS DO COMPRADOR, DADOS DO CÔNJUGE OU SEGUNDO PROPONENTE, CARACTERÍSTICAS DO IMÓVEL e CONDIÇÕES DE PAGAMENTO. Se houver página de proposta, extraia no objeto principal: quadra, lote, rua, area, matricula, cartorio, cidade, valor_imovel, corretor, corretagem, pagamento_corretagem, compradores [{${CAMPOS_PROPONENTE}}], e itens [{tipo: entrada|mensal|anual, qtd, valor (unitário), primeiro_venc, forma: boleto|direto}]. Use a ordem dos proponentes e deixe em branco data de assinatura do contrato. Em PDF inclua paginas [{pagina (1 em diante), tipo: proposta|auditoria|rg|cpf|endereco|estado_civil|outro, proponente: 1|2|3|4 (somente se identificável comparando com a proposta), dados:{${CAMPOS_PROPONENTE}} (somente nas páginas de documento)}]. Classifique páginas de certificação eletrônica, relatório de assinaturas e trilha de auditoria como auditoria, sem extrair dados delas como documentos pessoais. CPF e RG em um documento: classifique como rg. Não associe documento por mera proximidade. Datas AAAA-MM-DD, quantias numéricas e null para ausentes. Omita tipo ou forma de pagamento incertos. A proposta por si só não comprova pagamento.` },
       ] }],
     }),
   }).catch(() => null);
@@ -173,7 +174,7 @@ async function cadastrarCompraVenda(b, ator, rascunho, ids) {
   try {
     await c.query('begin');
     await c.query("select set_config('app.ator',$1,true)", [ator]);
-    const anexos = (await c.query(`select id,chave,verificacao from carteira.documentos
+    const anexos = (await c.query(`select id,chave,nome,verificacao from carteira.documentos
       where contrato=$1 and verificacao->>'numero'=$2 and id = any($3::int[]) and por=$4 for update`,
     [rascunho,b.numero,ids,ator])).rows;
     if (anexos.length !== ids.length || anexos.filter(a => a.chave === 'contrato_minuta').length !== 1)
@@ -185,6 +186,15 @@ async function cadastrarCompraVenda(b, ator, rascunho, ids) {
     }
     if (anexos.some(a => /^p\d_/.test(a.chave) && +a.chave[1] >= b.compradores.length))
       throw new Error('Há um documento associado a um comprador removido.');
+    for (const a of anexos) {
+      if (!a.verificacao?.onedrive) continue;
+      const m=/^p([0-3])_/.exec(a.chave);
+      const destino=destinoArquivo({chave:a.chave,nome:a.nome,numero:b.numero,quadra:b.quadra,lote:b.lote,
+        comprador:m?b.compradores[+m[1]]?.nome:null});
+      if (JSON.stringify(destino.pastas)!==JSON.stringify(a.verificacao.onedrive.destino.pastas) ||
+          destino.nome!==a.verificacao.onedrive.destino.nome)
+        throw new Error('O destino dos documentos mudou. Envie novamente os anexos.');
+    }
     await c.query(`insert into carteira.contratos(numero,quadra,lote,rua,area,valor_imovel,data_assinatura,
       entrada_total,indice,juros_aa,corretor,corretagem,compradores,itens,fonte,arquivo)
       values($1,$2,$3,$4,$5,$6,$7,$8,'IGPM',2,$9,$10,$11,$12,'emissão pelo sistema',$13)`,
@@ -1408,6 +1418,7 @@ async function rotasPublicas(p, req, url) {
 /* o que o assistente administrativo pode fazer */
 async function permitidoAssistente(p, m, body) {
   const a = p[0], s = p[1];
+  if (a === 'onedrive') return !p[2] && ((m==='GET'&&['status','listar','abrir'].includes(s)) || (m==='POST'&&s==='enviar'));
   if (a === 'contrato-novo') return !p[2] && (
     (m === 'GET' && (!s || s === 'modelo')) ||
     (m === 'POST' && (['ler','asaas','boleto'].includes(s) || (!s && body.origem === 'compra-venda')))
@@ -1857,7 +1868,9 @@ async function verificaTermoAssinado(contrato, b64, chave) {
     if (Array.isArray(a?.signatarios) && a.signatarios.length) { const nn = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim(); dev = dev.filter(d => a.signatarios.some(n => nn(n) === nn(d.nome))); } }
   return { ...comparaDevedores(r, dev), assinaturas: r.assinaturas, conferido_em: new Date().toISOString() };
 }
-const rotasDocumentos = criaDocumentos({ q, json, log: (...a) => log(...a), verificaTermo: verificaTermoAssinado, infoCadeia: () => infoCadeiaGovBr(q) });
+const onedrive = criaOneDrive({q,pool,json:(d,s)=>{const r=json(d,s);r.headers.set('Cache-Control','no-store');return r;}});
+const preparaAnexo = preparaArquivoOneDrive(q);
+const rotasDocumentos = criaDocumentos({ q, json, log: (...a) => log(...a), verificaTermo: verificaTermoAssinado, infoCadeia: () => infoCadeiaGovBr(q), onedrive });
 const rotasPainel = criaPainel({ q, json, log: (...a) => log(...a) });
 const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a), asaas, asaasReq, gravaBoleto, garanteBoletos, refazBoletoPara });
 const DEV = criaDevolucoes({ q, asaas, json, log: (...a) => log(...a) });
@@ -1936,6 +1949,11 @@ export default async (req) => {
     return json({ teste_conexao: teste, chave_ia: k ? (k.startsWith('sk-ant-') && !/\s/.test(k) ? 'ok' : 'com problema') : 'não configurada' });
   }
   ATOR = null;
+  if (p[0]==='onedrive' && p[1]==='retorno' && req.method==='GET') {
+    try {return await onedrive.confirmaConta(req,url);}
+    catch(e){return new Response(e.status?e.message:'Não consegui conectar o OneDrive. Confira se a conta tem acesso ao acervo.',
+      {status:e.status||502,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer'}});}
+  }
   { const pub = await rotasPublicas(p, req, url); if (pub) return pub; }
   const pinTentado = (req.headers.get('x-pin') || '').trim();
   const ehPin = pinTentado && !pinTentado.startsWith('tok:');
@@ -1986,6 +2004,7 @@ export default async (req) => {
   { const rd = await DEV.rotas(p, m, body, real); if (rd) return rd; }
   { const rc2 = await rotasCessoes(p, m, body, real); if (rc2) return rc2; }
   { const rp = await rotasPainel(p, m, body, real); if (rp) return rp; }
+  if (p[0]==='onedrive') return onedrive.rota(p,m,body,real,url,usuario?.email||real,preparaAnexo);
   { const rdc = await rotasDocumentos(p, m, body, real, url, usuario?.email || real); if (rdc) return rdc; }
 
   try {

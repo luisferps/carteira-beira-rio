@@ -1,5 +1,6 @@
 import { cpfValido, validaCompraVenda } from './compra-dados.mjs';
 import { dadosMinuta, gerarMinuta, mimeWord, qualifica } from './compra-minuta.mjs';
+import { enviaAnexo, LIMITE } from './onedrive.mjs';
 
 const formato = 'application/pdf,image/jpeg,image/png,image/webp';
 const limiteLeitura = 2_390_000;
@@ -43,7 +44,7 @@ const lerValores = el => Object.fromEntries([...el.querySelectorAll('[data-campo
 ]));
 
 export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDocx, brl, reaisExt }) {
-  const {numero} = await api('contrato-novo');
+  const [{numero},driveStatus] = await Promise.all([api('contrato-novo'),api('onedrive/status',{silencioso:true})]);
   const campos = itens => itens.map(([key, label, tipo = 'text']) =>
     '<label>' + label + '<input data-campo="' + key + '" type="' + tipo + '"' +
     (opcionais.has(key) ? '' : ' required') +
@@ -208,7 +209,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     arquivos.push({file, tipo:tido, dados, indice, destino:pessoa?.dataset.id || (tido === 'proposta' ? 'contrato' : '')});
   };
   const importarPdf = async (file, comoProposta) => {
-    const { PDFDocument } = await import('./pdf-lib-1.17.1.min.mjs');
+    const { PDFDocument, PDFSignature } = await import('./pdf-lib-1.17.1.min.mjs');
     const pdf = await PDFDocument.load(await file.arrayBuffer());
     const n = pdf.getPageCount();
     if (n > 30) throw new Error('Divida o PDF em arquivos de até 30 páginas.');
@@ -221,6 +222,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     }
     const pacote = file.size <= limiteLeitura ? await ler(file,'proposta') : null;
     aplicarProposta(pacote);
+    const paginas=[];
     for (let i = 0; i < n; i++) {
       const separado = await PDFDocument.create();
       const [pagina] = await separado.copyPages(pdf,[i]);
@@ -234,7 +236,26 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
         aplicarProposta(r);
         p = r?.paginas?.find(x => x?.pagina === 1);
       }
-      guardar(f,p?.tipo,p?.dados,p?.proponente);
+      paginas.push({file:f,leitura:p});
+    }
+    const proposta=comoProposta||paginas.some(x=>x.leitura?.tipo==='proposta');
+    const grupo=paginas.map(x=>x.leitura);
+    const tipo=grupo[0]?.tipo;
+    if(!proposta && ['rg','cpf','endereco'].includes(tipo) && grupo.every(x=>x?.tipo===tipo) &&
+        new Set(grupo.map(x=>x.proponente).filter(Boolean)).size<=1 &&
+        new Set(grupo.map(x=>cpf(x.dados?.cpf)).filter(Boolean)).size<=1 &&
+        new Set(grupo.map(x=>normaliza(x.dados?.nome)).filter(Boolean)).size<=1) {
+      const dados=Object.assign({},...grupo.map(x=>Object.fromEntries(Object.entries(x.dados||{}).filter(([,v])=>v))));
+      guardar(file,tipo,dados,grupo.find(x=>x.proponente)?.proponente);
+      return;
+    }
+    let selo=false;
+    try{selo=pdf.getForm().getFields().some(x=>x instanceof PDFSignature);}catch{}
+    const preserva=proposta&&(selo||paginas.some(x=>x.leitura?.tipo==='auditoria')||!paginas.some(x=>x.leitura?.tipo==='proposta'));
+    if(preserva)guardar(file,'proposta');
+    for(const {file,leitura} of paginas) {
+      if(preserva && ['proposta','auditoria'].includes(leitura?.tipo))continue;
+      guardar(file,leitura?.tipo,leitura?.dados,leitura?.proponente);
     }
   };
   async function importar(lista, proposta) {
@@ -298,7 +319,9 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   const prepararArquivos = () => {
     const ps = pessoas();
     const out = arquivos.map(a => {
-      if (!a.destino || !a.tipo || a.file.size > 4e6) throw new Error('Confira o destino, o tipo e o limite de 4 MB de cada anexo.');
+      const limite=driveStatus.conectado?LIMITE:4e6;
+      if (!a.destino || !a.tipo || a.file.size > limite)
+        throw new Error('Confira o destino, o tipo e o limite de '+(driveStatus.conectado?'250':'4')+' MB de cada anexo.');
       const pessoa = ps.findIndex(p => p.dataset.id === a.destino);
       if ((pessoa < 0 && !['proposta','outro'].includes(a.tipo)) || (pessoa >= 0 && a.tipo === 'proposta'))
         throw new Error('Vincule os documentos aos compradores e a proposta ao contrato.');
@@ -356,8 +379,9 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
       for (const [i,a] of anexos.entries()) {
         msg('Preparando documento ' + (i+1) + ' de ' + anexos.length + '…');
         const chave = (a.pessoa < 0 ? '' : 'p' + a.pessoa + '_') + (a.tipo === 'rg_cpf' ? 'rg' : a.tipo);
-        const r = await post('documento',{contrato:b.numero, rascunho, chave, nome:a.file.name,
-          mime:a.file.type, b64:(await base64(a.file)).split(',')[1], inclui_cpf:a.tipo === 'rg_cpf'});
+        const imovel={quadra:b.quadra,lote:b.lote,comprador:a.pessoa<0?null:b.compradores[a.pessoa].nome};
+        const r = await enviaAnexo(api,{contrato:b.numero,rascunho,chave,imovel,inclui_cpf:a.tipo==='rg_cpf'},a.file,driveStatus,
+          pct=>msg('Enviando documento '+(i+1)+' de '+anexos.length+' · '+pct+'%'));
         enviados.push(r.id);
       }
       msg('Gravando contrato, cadastro e documentos…');

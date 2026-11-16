@@ -1,9 +1,30 @@
 /* Documentos do contrato e dos compradores: checklist (tem / falta) e arquivos anexados. */
+import { destinoArquivo } from './onedrive-lib.mjs';
 export const ITENS_CONTRATO = [['contrato_assinado', 'Contrato assinado'], ['firma', 'Firma reconhecida em cartório'], ['testemunhas', 'Testemunhas assinaram'], ['proposta', 'Proposta']];
 export const ITENS_PESSOA = [['rg', 'RG ou CNH'], ['cpf', 'CPF'], ['endereco', 'Comprovante de endereço'], ['estado_civil', 'Certidão de estado civil']];
 const itensPessoa = fonte => fonte === 'emissão pelo sistema' ? ITENS_PESSOA.filter(([k]) => k !== 'estado_civil') : ITENS_PESSOA;
 export const chaveRascunhoCompra = id => typeof id === 'string' && /^[\da-f-]{36}$/i.test(id) ? 'compra-rascunho:' + id : null;
-export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia }) {
+export function preparaArquivoOneDrive(q) {
+  return async b => {
+    const {contrato,rascunho,chave,nome}=b;
+    if (!/^\d{4}$/.test(contrato) || typeof chave!=='string' || typeof nome!=='string' || nome.length>240)
+      throw Object.assign(new Error('Dados do anexo incompletos.'),{status:400});
+    const parte=/^p([0-3])_/.exec(chave);
+    let dados;
+    if (rascunho) {
+      if (!chaveRascunhoCompra(rascunho) || !/^\d{1,3}$/.test(b.imovel?.quadra) || !/^\d{1,3}[a-z]?$/i.test(b.imovel?.lote))
+        throw Object.assign(new Error('Quadra e lote inválidos.'),{status:400});
+      dados=b.imovel;
+    } else {
+      [dados]=await q('select quadra,lote,compradores from carteira.contratos where numero=$1',[contrato]);
+      if(!dados) throw Object.assign(new Error('Contrato não encontrado.'),{status:404});
+    }
+    const comprador=rascunho ? (parte ? dados.comprador : null) : dados.compradores?.[parte?+parte[1]:0]?.nome;
+    const destino=destinoArquivo({chave,nome,numero:contrato,quadra:dados.quadra,lote:dados.lote,comprador});
+    return {destino,contexto:{contrato,rascunho:rascunho||null,chave,nome}};
+  };
+}
+export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedrive }) {
   let ok = false;
   async function garante() {
     if (ok) return;
@@ -44,6 +65,9 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia }) {
         const itens_contrato = [...ITENS_CONTRATO];
         if (arquivos.some(a => a.chave === 'contrato_minuta')) itens_contrato.push(['contrato_minuta','Minuta emitida em Word']);
         if (arquivos.some(a => a.chave === 'outro')) itens_contrato.push(['outro','Outros anexos']);
+        if (arquivos.some(a => a.chave === 'pacote_original')) itens_contrato.push(['pacote_original','PDF original do envio']);
+        for(const a of arquivos.filter(x=>/^termo_(word|pdf)_/.test(x.chave)))
+          if(!itens_contrato.some(([k])=>k===a.chave)) itens_contrato.push([a.chave,'Termo '+a.chave.split('_').slice(2).join('_')+(a.chave.startsWith('termo_pdf')?' (PDF)':' (Word)')]);
         return json({ itens_contrato, itens_pessoa: itensPessoa(c?.fonte), pessoas: (Array.isArray(c?.compradores) ? c.compradores : []).map((x, i) => ({ i, nome: x.nome })),
           check: await q(`select chave, status, obs, por, em from carteira.doc_check where contrato=$1`, [n]),
           arquivos });
@@ -70,29 +94,35 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia }) {
         return json({ ok: true });
       }
       if (p[0] === 'documento' && !p[1] && m === 'POST') {
-        const b = body; if (!b.contrato || !b.chave || !b.b64) return json({ erro: 'Arquivo incompleto' }, 400);
-        const tam = Math.round(b.b64.length * 3 / 4); if (tam > 4.2e6) return json({ erro: 'Arquivo grande demais (máximo 4 MB)' }, 400);
+        const b = body; if (!b.contrato || !b.chave || (!b.b64 && !b.onedrive)) return json({ erro: 'Arquivo incompleto' }, 400);
+        const cloud = b.onedrive ? await onedrive.confirmaArquivo(b.onedrive.ticket,b.onedrive.id,ator,
+          {contrato:b.contrato,rascunho:b.rascunho||null,chave:b.chave,nome:b.nome}) : null;
+        if (!cloud && await onedrive?.temConexao()) return json({erro:'Envie o arquivo pelo OneDrive.'},409);
+        const bin = cloud ? '' : b.b64;
+        const tam = cloud?.tamanho || Math.round(bin.length * 3 / 4);
+        if (!cloud && tam > 4.2e6) return json({ erro: 'Arquivo grande demais (máximo 4 MB)' }, 400);
         if (!b.rascunho && String(b.contrato).startsWith('compra-rascunho:')) return json({ erro:'Destino inválido' },400);
-        let r, metadata = null;
+        let r, metadata = cloud ? {onedrive:cloud} : null;
         const destino = b.rascunho ? chaveRascunhoCompra(b.rascunho) : b.contrato;
         if (b.rascunho) {
           const parte = /^p([0-3])_(rg|cpf|endereco|outro)$/.exec(b.chave);
-          if (!destino || !/^\d{4}$/.test(b.contrato) || !(parte || ['proposta','contrato_minuta','outro'].includes(b.chave)))
+          if (!destino || !/^\d{4}$/.test(b.contrato) || !(parte || ['proposta','contrato_minuta','outro','pacote_original'].includes(b.chave)))
             return json({ erro:'O anexo não corresponde a esta venda.' }, 400);
-          metadata = {numero:b.contrato, inclui_cpf:!!(b.inclui_cpf && parte?.[2] === 'rg')};
+          metadata = {...metadata,numero:b.contrato, inclui_cpf:!!(b.inclui_cpf && parte?.[2] === 'rg')};
           [r] = await q(`select id from carteira.documentos where contrato=$1 and chave=$2 and nome=$3 and b64=$4 and verificacao=$5 and por=$6 limit 1`,
-            [destino,b.chave,b.nome,b.b64,metadata,ator]);
+            [destino,b.chave,b.nome,bin,metadata,ator]);
           if (b.chave === 'contrato_minuta')
             await q(`delete from carteira.documentos where contrato like 'compra-rascunho:%' and enviado_em < now() - interval '1 day'`);
         }
+        if (cloud && !r) [r]=await q(`select id from carteira.documentos where contrato=$1 and chave=$2 and verificacao->'onedrive'->>'id'=$3 limit 1`,[destino,b.chave,cloud.id]);
         if (!r) {
-          [r] = await q(`insert into carteira.documentos(contrato, chave, nome, mime, tamanho, b64, por, verificacao) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`, [destino, b.chave, b.nome || null, b.mime || null, tam, b.b64, b.rascunho ? ator : real, metadata]);
+          [r] = await q(`insert into carteira.documentos(contrato, chave, nome, mime, tamanho, b64, por, verificacao) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`, [destino, b.chave, b.nome || null, b.mime || cloud?.mime || null, tam, bin, b.rascunho ? ator : real, metadata]);
           if (!b.rascunho) await log(real, 'documento_anexado', { contrato: b.contrato, chave: b.chave, nome:b.nome });
         }
         let verificacao = null;
         if (verificaTermo && String(b.chave).startsWith('termo_assinado_') && (/pdf/i.test(b.mime || '') || /\.pdf$/i.test(b.nome || ''))) {
-          verificacao = await verificaTermo(b.contrato, b.b64, b.chave).catch(e => ({ status: 'erro', erro: e.message }));
-          await q(`update carteira.documentos set verificacao=$2 where id=$1`, [r.id, verificacao]);
+          verificacao = await Promise.resolve().then(async()=>verificaTermo(b.contrato, cloud?await onedrive.lerBytes(cloud):bin,b.chave)).catch(e => ({ status: 'erro', erro: e.message }));
+          await q(`update carteira.documentos set verificacao=$2 where id=$1`, [r.id, {...metadata,...verificacao}]);
         }
         return json({ ...r, verificacao });
       }
@@ -100,13 +130,19 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia }) {
         const [d] = await q(`select id, contrato, chave, nome, mime, b64, verificacao from carteira.documentos where id=$1 and contrato not like 'compra-rascunho:%'`, [p[1]]); if (!d) return json({ erro: 'Não encontrado' }, 404);
         if (d.verificacao && m === 'GET' && !url.searchParams.get('refaz')) return json(d.verificacao);
         if (!(/pdf/i.test(d.mime || '') || /\.pdf$/i.test(d.nome || ''))) return json({ status: 'nao_pdf' });
-        const v = await verificaTermo(d.contrato, d.b64, d.chave).catch(e => ({ status: 'erro', erro: e.message }));
-        await q(`update carteira.documentos set verificacao=$2 where id=$1`, [d.id, v]); return json(v);
+        const ref=d.verificacao?.onedrive;
+        const v = await Promise.resolve().then(async()=>verificaTermo(d.contrato,ref?await onedrive.lerBytes(ref):d.b64,d.chave)).catch(e => ({ status: 'erro', erro: e.message }));
+        await q(`update carteira.documentos set verificacao=$2 where id=$1`, [d.id, {...d.verificacao,...v}]); return json(v);
       }
       if (p[0] === 'documentos' && p[1] === 'cadeia' && m === 'GET' && infoCadeia) return json(await infoCadeia());
-      if (p[0] === 'documento' && p[1] && m === 'GET') { const [r] = await q(`select nome, mime, b64 from carteira.documentos where id=$1 and contrato not like 'compra-rascunho:%'`, [p[1]]); return r ? json(r) : json({ erro: 'Não encontrado' }, 404); }
+      if (p[0] === 'documento' && p[1] && m === 'GET') {
+        const [r] = await q(`select nome,mime,b64,verificacao->'onedrive' onedrive from carteira.documentos where id=$1 and contrato not like 'compra-rascunho:%'`, [p[1]]);
+        if(!r)return json({erro:'Não encontrado'},404);
+        if(r.onedrive){const res=json(await onedrive.abrirRef(r.onedrive));res.headers.set('Cache-Control','no-store');return res;}
+        return json({nome:r.nome,mime:r.mime,b64:r.b64});
+      }
       if (p[0] === 'documento' && p[1] && m === 'DELETE') { await q(`delete from carteira.documentos where id=$1 and contrato not like 'compra-rascunho:%'`, [p[1]]); await log(real, 'documento_apagado', { id: p[1] }); return json({ ok: true }); }
       return json({ erro: 'Rota não encontrada' }, 404);
-    } catch (e) { return json({ erro: e.message }, 500); }
+    } catch (e) { return json({ erro: e.message }, e.status || 500); }
   };
 }

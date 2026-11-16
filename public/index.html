@@ -193,6 +193,7 @@ async function resolveIA(id,acao){try{const r=await api('ia/sugestoes/'+id+'/'+a
 function route(){const h=location.hash.slice(1);COMO='';document.body.classList.toggle('largo',h==='cobranca');
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='rateio-acordos'&&EU==='luis')telaRateioAcordos();
+  else if(h==='onedrive'&&['luis','assistente'].includes(EU))abreOneDrive();
   else if(h.startsWith('c/')){const pp=h.slice(2).split('/');window._ABRE_DEV=pp[1]==='dev';abrirContrato(pp[0])}else if(h==='contratos')telaLista();else if(h==='clientes')telaClientes();else if(h==='asaas'&&EU==='luis')telaAsaas();else if(h==='usuarios'&&EU==='luis')telaUsuarios();else if(h==='boletos'&&(EU==='luis'||EU==='assistente'))telaBoletos();else if(h==='correcao'&&EU==='luis')telaCorrecao();else if(h==='quitacao'&&EU==='luis')telaQuitacao();else if(h==='backups'&&EU==='luis')telaBackups();else if((h==='acerto'||h.startsWith('acerto/'))&&EU==='luis')telaAcerto(h.slice(7));else if(h==='devolucoes'&&EU==='luis')telaDevolucoes();else if(h==='cessoes'&&EU==='luis')telaCessoes();else if(h==='mapa')telaMapa();else if(h==='painel'&&EU==='luis')telaPainel();else if(h==='comissoes'&&EU==='luis')telaComissoes();else if(h==='documentos'&&(EU==='luis'||EU==='assistente'))telaDocumentos();else if(h==='cobranca'&&(EU==='luis'||EU==='assistente'))telaCobranca();else if(h.startsWith('cob/')&&(EU==='luis'||EU==='assistente'))telaCaso(h.slice(4));else if(h.startsWith('cl/'))fichaCliente(h.slice(3));else telaModulos()}
 
 async function telaRateioAcordos(){
@@ -773,11 +774,11 @@ async function corrigeProcuradores(){const cs=[...document.querySelectorAll('.pr
 async function avisoTermos(){if(EU!=='luis')return;const L=await api('manutencao/termos').catch(()=>[]);const el=$('#tmorg');if(!el||!Array.isArray(L))return;
   el.innerHTML='<div class="bt" style="margin-top:8px"><span class="mut">Termos: Documentos / Contratos / Negociações</span><button onclick="configuraPastaTermos()">Escolher pasta dos termos</button></div>';if(!L.length)return;
   el.innerHTML+=`<div class="aviso" style="margin-top:8px"><b>${L.length} termo(s) de renegociação ainda não gravados na pasta do OneDrive</b> (${L.map(x=>x.termo).join(', ')}). Os novos vão sozinhos ao efetivar o acordo. <button class="pri" onclick="registraTermosPasta()">Gravar agora</button></div>`}
-async function configuraPastaTermos(){await carregaTermo();if(await window.escolhePastaTermo())alert('Pasta Negociações configurada. Os próximos termos serão gravados nela ao efetivar o acordo.');avisoTermos()}
-async function registraTermosPasta(){await carregaTermo();const hP=await window.pastaRenegociacoes().catch(()=>null);if(!hP)return alert('Pasta Negociações não escolhida.');
+async function configuraPastaTermos(){if((await estadoOneDrive()).configuravel){location.hash='onedrive';return}await carregaTermo();if(await window.escolhePastaTermo())alert('Pasta Negociações configurada. Os próximos termos serão gravados nela ao efetivar o acordo.');avisoTermos()}
+async function registraTermosPasta(){await carregaTermo();const od=await estadoOneDrive(),hP=od.conectado?null:await pastaTermoLocal(od);if(!od.conectado&&!hP)return alert('Pasta Negociações não escolhida.');
   const L=await api('manutencao/termos');if(!Array.isArray(L)||!L.length)return alert('Nenhum termo de renegociação encontrado.');const C0=C,ok=[],er=[];const el=$('#tmorg');if(el)el.innerHTML='<div class="aviso" style="margin-top:8px">Gravando os termos na pasta (Word e PDF)… aguarde, leva uns segundos por termo.</div>';
   for(const x of L){try{C=await api('contrato/'+x.contrato);C.clientes=await api('clientes?contrato='+x.contrato).catch(()=>[]);const d=acordoParaTermo(x.id);if(!d){er.push(x.termo+': acordo não encontrado');continue}
-    const h=await htmlSalvo(x.termo);const r=await window.gravaTermoNaPasta(d,h||undefined,hP);if(r.ok){ok.push(r.caminho);await api('manutencao/termos',{method:'POST',body:{termo:x.termo}}).catch(()=>{})}else er.push(x.termo+': '+r.erro)}catch(e){er.push(x.termo+': '+e.message)}}
+    const h=await htmlSalvo(x.termo);const r=od.conectado?await gravaTermoOnline(d,h,od):await window.gravaTermoNaPasta(d,h||undefined,hP);if(r.ok){ok.push(r.caminho);await api('manutencao/termos',{method:'POST',body:{termo:x.termo}}).catch(()=>{})}else er.push(x.termo+': '+r.erro)}catch(e){er.push(x.termo+': '+e.message)}}
   C=C0;$('#tmorg')&&($('#tmorg').innerHTML='');avisoTermos();alert((ok.length?ok.length+' termo(s) registrados (Word e PDF) em OneDrive\\Beira Rio ADM\\Documentos:\n'+ok.join('\n'):'')+(er.length?'\n\nNão consegui:\n'+er.join('\n'):''))}
 function modalPagadores(){const L=window._PGO||[];
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Em nome de quem saem os boletos</h3><button onclick="fechaModal()">Fechar</button></div>
@@ -1509,12 +1510,20 @@ async function htmlSalvo(termo){if(!termo||!tArq(termo))return null;const r=awai
 function aguardeT(on,txt){let el=document.getElementById('aguardeT');if(!on){el&&el.remove();return}if(!el){el=document.createElement('div');el.id='aguardeT';el.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111;color:#fff;padding:12px 18px;border-radius:10px;z-index:99999;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,.3)';document.body.appendChild(el)}el.textContent=txt||'Gerando o termo… aguarde alguns segundos'}
 async function termoComo(d,tipo){try{await carregaTermo();const h=await htmlSalvo(d?.termo);const o=window.showSaveFilePicker;if(o)window.showSaveFilePicker=async(...a)=>{const r=await o(...a);aguardeT(true,tipo==='pdf'?'Gerando o PDF… aguarde alguns segundos':'Gerando o Word… aguarde');return r};else aguardeT(true);try{const r=await window.salvaTermoComo(d,h||undefined,tipo);aguardeT(true,'Termo salvo.');setTimeout(()=>aguardeT(false),2500);return r}finally{if(o)window.showSaveFilePicker=o}}catch(e){aguardeT(false);console.error(e);alert('Erro ao gerar o termo: '+e.message)}}
 /* registra o termo (Word + PDF) na pasta Renegociações do OneDrive */
-async function termoNaPasta(d,hP){aguardeT(true,'Gravando o termo (Word e PDF) na pasta do OneDrive… aguarde');await carregaTermo();const h=await htmlSalvo(d?.termo);const r=await window.gravaTermoNaPasta(d,h||undefined,hP);
-  aguardeT(false);
+async function gravaTermoOnline(d,html,od){const contrato=C.contrato.numero,F=await window.termoBlobs(d,html||undefined);
+  const termo=String(d.termo).replace(/[^\w.-]/g,'_');
+  for(const [tipo,blob,ext] of [['word',F.docx,'docx'],['pdf',F.pdf,'pdf']])
+    await salvaAnexo({contrato,chave:'termo_'+tipo+'_'+termo},new File([blob],F.base+'.'+ext,{type:blob.type}),od);
+  return {ok:true,caminho:'Contratos\\Negociações'};
+}
+async function termoNaPasta(d,hP){aguardeT(true,'Gravando o termo (Word e PDF) na pasta do OneDrive… aguarde');let r;
+  try{await carregaTermo();const h=await htmlSalvo(d?.termo),od=await estadoOneDrive();
+    r=od.conectado?await gravaTermoOnline(d,h,od):await window.gravaTermoNaPasta(d,h||undefined,hP);
+  }catch(e){r={erro:e.message}}finally{aguardeT(false)}
   if(r.ok&&d?.termo)api('manutencao/termos',{method:'POST',body:{termo:d.termo}}).catch(()=>{});
   if(r.ok)alert('Termo '+(d.termo||'')+' (Word e PDF) registrado na pasta OneDrive\\Beira Rio ADM\\Documentos\\'+r.caminho+'.');
   else alert('Não consegui registrar o termo na pasta do OneDrive ('+r.erro+'). O termo continua salvo no sistema; use o botão "Registrar na pasta" no acordo para tentar de novo.');return r}
-async function termoNaPastaClique(d){await carregaTermo();const hP=await window.pastaRenegociacoes().catch(()=>null);return termoNaPasta(d,hP)}
+async function termoNaPastaClique(d){await carregaTermo();return termoNaPasta(d,await pastaTermoLocal(await estadoOneDrive()))}
 async function editaTermo(d){if(!d?.termo)return alert('Este acordo não tem número de termo.');await carregaTermo();let h=await htmlSalvo(d.termo);try{if(!h)h=window.htmlTermo(d)}catch(e){return alert(e.message)}
   PILHA.push($('#modal').innerHTML);
   $('#modal').innerHTML=`<div class="modal"><div class="card" style="max-width:900px;width:96vw">
@@ -1556,7 +1565,7 @@ function pDados(id){return (C.propostas||[]).find(x=>x.id==id)?.dados}
 const chaveTA=t=>'termo_assinado_'+String(t||'').replace(/[^\w.-]/g,'_');
 async function efetivaProposta(id){const d=pDados(id);if(!d)return;
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Efetivar acordo ${esc(d.termo||'')} — termo assinado</h3><button onclick="fechaModal()">Fechar</button></div>
-  <div class="f2"><div><label for="ef_arq">Termo assinado (PDF, foto ou Word · até 4 MB)</label><input type="file" id="ef_arq" accept=".pdf,image/*,.doc,.docx"></div>
+  <div class="f2"><div><label for="ef_arq">Termo assinado (PDF, foto ou Word)</label><input type="file" id="ef_arq" accept=".pdf,image/*,.doc,.docx"></div>
   <div><label for="ef_data">Data em que o termo voltou assinado</label><input type="date" id="ef_data" value="${C.hoje}" max="${C.hoje}" onchange="efPrevia(${id})"></div></div>
   <div id="ef_prev" style="margin-top:10px"></div>
   <div class="info">Sem o arquivo, o acordo é efetivado e fica a pendência "falta o termo assinado" — dá para anexar depois pelo botão <b>Anexar assinado</b> no acordo.</div>
@@ -1565,15 +1574,18 @@ function efParcelas(d,dt){const ps=(d.parcelas||[]).map(x=>({...x}));if(ps[0]&&d
 function efPrevia(id){const d=pDados(id),dt=$('#ef_data').value,ps=efParcelas(d,dt),o=(d.parcelas||[])[0];
   $('#ef_prev').innerHTML=`<table><thead><tr><th>Parcela</th><th>Vencimento</th><th>Valor</th></tr></thead><tbody>${ps.map((x,k)=>`<tr><td>${k+1}/${ps.length}</td><td>${dbr(x.vencimento)}${k===0&&o&&String(o.vencimento).slice(0,10)!==String(x.vencimento).slice(0,10)?` <span class="tag al">no termo era ${dbr(o.vencimento)}</span>`:''}</td><td>${brl(+x.valor)}</td></tr>`).join('')}<tr><td><b>Total</b></td><td></td><td><b>${brl(ps.reduce((a,x)=>a+(+x.valor||0),0))}</b></td></tr></tbody></table>`}
 async function leArq(f){const u=new Uint8Array(await f.arrayBuffer());let s='';for(let k=0;k<u.length;k+=32768)s+=String.fromCharCode.apply(null,u.subarray(k,k+32768));return btoa(s)}
+const estadoOneDrive=()=>api('onedrive/status',{silencioso:true});
+const pastaTermoLocal=async od=>od.conectado?null:window.pastaRenegociacoes().catch(()=>null);
+async function salvaAnexo(meta,arquivo,status){const {enviaAnexo}=await import('/ferramentas/onedrive.mjs');return enviaAnexo(api,meta,arquivo,status)}
 async function gravaAssinadoNaPasta(d,f,hP){try{await carregaTermo();const h=hP||await window.pastaRenegociacoes().catch(()=>null);if(!h||!window.termoBlobs)return false;const F=await window.termoBlobs(d);
   const sub=await h.getDirectoryHandle(F.pastaNome,{create:true});const ext=(f.name.match(/\.[^.]+$/)||['.pdf'])[0];const fh=await sub.getFileHandle(F.base+' - ASSINADO'+ext,{create:true});const w=await fh.createWritable();await w.write(f);await w.close();return true}catch(e){console.warn('assinado na pasta',e);return false}}
 async function efetivaPropostaOk(id){const d0=pDados(id);if(!d0)return;const f=$('#ef_arq').files[0],dt=$('#ef_data').value||C.hoje;
-  if(f&&f.size>4e6){$('#ef_erro').textContent='Arquivo grande demais (máximo 4 MB).';return}
   const btn=$('#ef_ok');btn.disabled=true;btn.textContent='Efetivando…';
-  try{await carregaTermo();const hP=d0.termo?await window.pastaRenegociacoes().catch(()=>null):null;
+  try{await carregaTermo();const od=await estadoOneDrive(),hP=d0.termo?await pastaTermoLocal(od):null;
+    if(f&&f.size>(od.conectado?250*1024*1024:4e6))throw new Error('Arquivo acima do limite disponível.');
     const d={...d0,parcelas:efParcelas(d0,dt),termo_assinado_em:dt};
     const na=await api('acordo',{method:'POST',body:{...d,tipo:'acordo'}});await api('proposta/'+id,{method:'DELETE'});
-    let vf=null;if(f){const rd=await api('documento',{method:'POST',body:{contrato:C.contrato.numero,chave:chaveTA(d.termo),nome:f.name,mime:f.type,b64:await leArq(f)}});vf=rd?.verificacao||null}
+    let vf=null;if(f){const rd=await salvaAnexo({contrato:C.contrato.numero,chave:chaveTA(d.termo)},f,od);vf=rd?.verificacao||null}
     else{const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{responsavel:'Luis',status:'aberta'},obs:`Falta o termo de acordo ${d.termo||''} assinado.`}})}
     await recarrega();fechaModal();let msg='Acordo '+(d.termo||'')+' efetivado.'+(vf?'\n\n'+textoVerif(vf):'');
     if((EU==='luis'||EU==='assistente')&&!COMO){const r=await api('boletos/ligar-acordo',{method:'POST',body:{acordo_id:+na.id}});await recarrega();
@@ -1581,7 +1593,7 @@ async function efetivaPropostaOk(id){const d0=pDados(id);if(!d0)return;const f=$
       let fila=C.titulos.filter(t=>t.acordo_id==na.id&&!ligados.has(String(t.id))).map(t=>+t.id),er=[],n=0;
       while(fila.length){const rr=await api('boletos/emitir',{method:'POST',body:{titulos:fila.splice(0,4)}});for(const x of rr){if(x.adiado)fila.push(x.titulo_id);else if(x.erro)er.push(x.erro);else n++}}
       await recarrega();msg+=`\n${n} boleto(s) gerado(s) no Asaas${r.ligados?`, ${r.ligados} que já existia(m) ligado(s)`:''}.`+(er.length?'\nAvisos: '+er.join('; '):'')}
-    if(d.termo){const A=C.acordos.find(a=>a.termo===d.termo);const dt2=A?acordoParaTermo(A.id):d;if(f&&await gravaAssinadoNaPasta(dt2,f,hP))msg+='\nTermo assinado gravado na pasta Negociações.';alert(msg);await termoNaPasta(dt2,hP)}else alert(msg)}
+    if(d.termo){const A=C.acordos.find(a=>a.termo===d.termo);const dt2=A?acordoParaTermo(A.id):d;if(f&&(od.conectado||await gravaAssinadoNaPasta(dt2,f,hP)))msg+='\nTermo assinado gravado na pasta Negociações.';alert(msg);await termoNaPasta(dt2,hP)}else alert(msg)}
   catch(e){btn.disabled=false;btn.textContent='Efetivar acordo e gerar os boletos';$('#ef_erro').textContent=e.message||'Não foi possível efetivar.'}}
 /* termo assinado: botão em cada acordo com termo */
 const assinadoTA=a=>(C.termosAssinados||[]).includes(String(a.termo).replace(/[^\w.-]/g,'_'));
@@ -1608,14 +1620,14 @@ function textoVerif(v,html){if(!v)return '';const dt=x=>x?new Date(x).toLocaleSt
 const corVerif=st=>st==='ok'?'#166534':st==='falta_devedor'||st==='sem_assinatura'?'#92400e':'#991b1b';
 async function reconfereAss(id,el){el.textContent='Conferindo…';try{const v=await api('documento/'+id+'/verificacao?refaz=1');el.closest('.verif').innerHTML=blocoVerif(id,v)}catch(e){el.textContent='Erro: '+e.message}}
 function blocoVerif(id,v){return `<div class="verif" style="margin-top:8px;padding:8px 10px;border-radius:8px;background:#f8fafc;border:1px solid var(--ln);color:${corVerif(v?.status)}">${v?textoVerif(v,true):'Ainda não conferido.'}<div class="bt" style="margin-top:6px"><button onclick="reconfereAss(${id},this)">Conferir de novo</button><a href="https://validar.iti.gov.br/" target="_blank" rel="noopener"><button>Conferir no ITI</button></a></div></div>`}
-function anexaAssinado(t,aid){const i=document.createElement('input');i.type='file';i.accept='.pdf,image/*,.doc,.docx';i.onchange=async()=>{const f=i.files[0];if(!f)return;if(f.size>4e6)return alert('Arquivo grande demais (máximo 4 MB).');
-  const rd=await api('documento',{method:'POST',body:{contrato:C.contrato.numero,chave:chaveTA(t),nome:f.name,mime:f.type,b64:await leArq(f)}});
+function anexaAssinado(t,aid){const i=document.createElement('input');i.type='file';i.accept='.pdf,image/*,.doc,.docx';i.onchange=async()=>{const f=i.files[0];if(!f)return;try{const od=await estadoOneDrive();
+  const rd=await salvaAnexo({contrato:C.contrato.numero,chave:chaveTA(t)},f,od);
   if(rd?.verificacao)alert('Termo '+t+' anexado.\n\n'+textoVerif(rd.verificacao));
   for(const e of C.eventos.filter(e=>e.tipo==='pendencia'&&e.dados?.status!=='resolvida'&&(e.obs||'').includes('termo de acordo '+t))){await api('evento/'+e.id,{method:'PUT',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:e.motivo||null,a_partir_titulo:e.a_partir_titulo||null,data:e.data,dados:{...(e.dados||{}),status:'resolvida',resolvida_em:C.hoje,resultado:'Termo assinado anexado.'},obs:e.obs}})}
-  const ok=await gravaAssinadoNaPasta(acordoParaTermo(aid),f);await recarrega();alert('Termo '+t+' assinado anexado ao contrato'+(ok?' e gravado na pasta Negociações.':'.'))};i.click()}
+  const ok=od.conectado||await gravaAssinadoNaPasta(acordoParaTermo(aid),f);await recarrega();alert('Termo '+t+' assinado anexado ao contrato'+(ok?' e gravado na pasta Negociações.':'.'))}catch(e){alert(e.message)}};i.click()}
 async function apagaProposta(id){const d=pDados(id);if(!confirm(d?.boleto?`Desfazer a proposta ${d.termo||''}? O boleto de ${brl(+d.boleto.valor)} (vence ${dbr(d.boleto.vencimento)}) é cancelado no Asaas e as parcelas voltam a ficar como antes (em atraso, com os boletos/cobrança que já tinham).`:'Excluir a proposta '+(d?.termo||'')+'? Ela some sem deixar nada no sistema.'))return;
   const r=await api('proposta/'+id,{method:'DELETE'});await recarrega();if(r.boletos_cancelados?.length)alert('Proposta desfeita. Boleto cancelado no Asaas: fatura '+r.boletos_cancelados.join(', ')+'.')}
-async function salvaAcordo(aid){const b=window._salvaAcordoDados();let hP=null;if(b.termo&&!aid){try{await carregaTermo();hP=await window.pastaRenegociacoes()}catch(e){}}
+async function salvaAcordo(aid){const b=window._salvaAcordoDados();let hP=null;if(b.termo&&!aid){try{await carregaTermo();hP=await pastaTermoLocal(await estadoOneDrive())}catch(e){}}
   const s=r2(b.parcelas.reduce((a,p)=>a+Number(p.valor||0),0));const fin=/Juros de financiamento/.test(b.obs||'');if(fin?s<b.valor_acordado-0.009:Math.abs(s-b.valor_acordado)>0.009)return alert('A soma das parcelas precisa ser igual ao valor acordado.');
   const r=await api(aid?'acordo/'+aid:'acordo',{method:aid?'PUT':'POST',body:b});
   SEL.clear();SELMODO=false;fechaModal();await recarrega();if(b.termo){const A=C.acordos.find(a=>a.termo===b.termo);if(A){await guardaTermoAuto(acordoParaTermo(A.id));desenhaContrato();if(!aid)await termoNaPasta(acordoParaTermo(A.id),hP)}}if(r&&r.avisos&&r.avisos.length)alert(r.avisos.join('\n'));else if(aid&&(C.boletos||[]).some(x=>C.titulos.find(t=>t.id==x.titulo_id)?.acordo_id==aid))alert('Acordo salvo. Os boletos em aberto deste acordo foram ajustados no Asaas.')}
@@ -2294,23 +2306,37 @@ function desenhaDocs(){const D=DOCS,n=C.contrato.numero;const ck=k=>D.check.find
   <table><tr><th colspan="3">Do contrato</th></tr>${D.itens_contrato.map(([k,l])=>linha(k,l)).join('')}
   ${D.pessoas.map(p=>`<tr><th colspan="3">${esc(nome(p.nome))}</th></tr>${D.itens_pessoa.map(([k,l])=>linha('p'+p.i+'_'+k,l)).join('')}${ar('p'+p.i+'_outro').length?linha('p'+p.i+'_outro','Outros anexos'):''}`).join('')}</table>
   ${D.pessoas.length?'':'<div class="mut">Os compradores deste contrato não estão no cadastro do contrato — só os itens do contrato aparecem.</div>'}
-  <div class="mut" style="margin-top:6px">Arquivos até 4 MB (PDF ou foto). Ficam guardados no sistema.</div>`);const m=document.querySelector('#modal .card');if(m)m.style.maxWidth='980px'}
-function enviaDoc(k){const n=C.contrato.numero, assinada=k==='contrato_assinado'&&C.contrato.fonte==='emissão pelo sistema';const i=document.createElement('input');i.type='file';i.accept=assinada?'.pdf,image/*':'.pdf,image/*,.doc,.docx';i.onchange=async()=>{const f=i.files[0];if(!f)return;if(f.size>4e6)return alert('Arquivo grande demais (máximo 4 MB).');
-  const u=new Uint8Array(await f.arrayBuffer());let s='';for(let x=0;x<u.length;x+=32768)s+=String.fromCharCode.apply(null,u.subarray(x,x+32768));
+  <div class="mut" style="margin-top:6px"><a href="#onedrive" onclick="fechaModal()">Consultar pastas do OneDrive</a></div>`);const m=document.querySelector('#modal .card');if(m)m.style.maxWidth='980px'}
+function enviaDoc(k){const n=C.contrato.numero, assinada=k==='contrato_assinado'&&C.contrato.fonte==='emissão pelo sistema';const i=document.createElement('input');i.type='file';i.accept=assinada?'.pdf,image/*':'.pdf,image/*,.doc,.docx';i.onchange=async()=>{const f=i.files[0];if(!f)return;
   if(assinada&&!/^(application\/pdf|image\/)/i.test(f.type))return alert('Selecione o PDF ou uma foto do contrato assinado.');
-  await api('documento',{method:'POST',body:{contrato:n,chave:k,nome:f.name,mime:f.type,b64:btoa(s)}});
-  if(C?.contrato.numero!==n)return;
-  if(assinada)await recarrega();
-  await modalDocs()};i.click()}
+  try{aguardeT(true,'Salvando o documento…');await salvaAnexo({contrato:n,chave:k},f);
+    if(C?.contrato.numero!==n)return;
+    if(assinada)await recarrega();
+    await modalDocs();
+  }catch(e){alert(e.message)}finally{aguardeT(false)}};i.click()}
 async function marcaDoc(k,v){await api('documentos/check',{method:'PUT',body:{contrato:C.contrato.numero,chave:k,status:v||null}});modalDocs()}
-async function apagaDoc(id){if(!confirm('Apagar este arquivo?'))return;const n=C.contrato.numero;await api('documento/'+id,{method:'DELETE'});if(C?.contrato.numero!==n)return;if(C.contrato.fonte==='emissão pelo sistema')await recarrega();await modalDocs()}
-async function abreDoc(id){const r=await api('documento/'+id);const b=Uint8Array.from(atob(r.b64),c=>c.charCodeAt(0));const u=URL.createObjectURL(new Blob([b],{type:r.mime||'application/octet-stream'}));
-  if(/pdf|image/.test(r.mime||''))window.open(u,'_blank');else{const a=document.createElement('a');a.href=u;a.download=r.nome||'documento';a.click()}}
+async function apagaDoc(id){const cloud=DOCS?.arquivos.find(x=>x.id==id)?.verificacao?.onedrive;if(!confirm(cloud?'Remover o vínculo deste arquivo no contrato? O original fica no OneDrive.':'Apagar este arquivo?'))return;const n=C.contrato.numero;await api('documento/'+id,{method:'DELETE'});if(C?.contrato.numero!==n)return;if(C.contrato.fonte==='emissão pelo sistema')await recarrega();await modalDocs()}
+async function abreDoc(id){
+  const w=window.open('about:blank','_blank');if(w)w.opener=null;
+  try{
+    const r=await api('documento/'+id,{silencioso:true});
+    if(r.url){if(w)w.location.replace(r.url);else alert('Libere a abertura de janelas neste site.');return;}
+    const b=Uint8Array.from(atob(r.b64),c=>c.charCodeAt(0)),u=URL.createObjectURL(new Blob([b],{type:r.mime||'application/octet-stream'}));
+    if(/pdf|image/.test(r.mime||'')&&w)w.location.replace(u);
+    else{w?.close();const a=document.createElement('a');a.href=u;a.download=r.nome||'documento';a.click()}
+    setTimeout(()=>URL.revokeObjectURL(u),60000);
+  }catch(e){w?.close();alert(e.message)}
+}
+async function abreOneDrive(){
+  app.innerHTML='<div class="card">Abrindo OneDrive…</div>';
+  try{const {telaOneDrive}=await import('/ferramentas/onedrive.mjs');await telaOneDrive({root:app,api,admin:EU==='luis'});}
+  catch(e){app.textContent=e.message;}
+}
 let DOCF='falta';
 async function telaDocumentos(){app.innerHTML='<div class="card">Carregando…</div>';const L=await api('documentos/pendencias');
   const F=DOCF==='falta'?L.filter(x=>x.falta.length):DOCF==='ok'?L.filter(x=>!x.falta.length):L;
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
-  <div class="card"><h3 style="margin-top:0">Documentos</h3><div class="tot"><div><span class="mut">Contratos ativos</span><b>${L.length}</b></div><div><span class="mut">Com documento faltando</span><b>${L.filter(x=>x.falta.length).length}</b></div><div><span class="mut">Completos</span><b>${L.filter(x=>!x.falta.length).length}</b></div></div>
+  <div class="card"><div class="bt"><h3 style="margin:0;flex:1">Documentos</h3><a class="btn" href="#onedrive">Documentos no OneDrive</a></div><div class="tot"><div><span class="mut">Contratos ativos</span><b>${L.length}</b></div><div><span class="mut">Com documento faltando</span><b>${L.filter(x=>x.falta.length).length}</b></div><div><span class="mut">Completos</span><b>${L.filter(x=>!x.falta.length).length}</b></div></div>
    <div class="filtros" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">${[['falta','Falta documento'],['ok','Completos'],['todos','Todos']].map(([k,t])=>`<button class="${DOCF===k?'on':''}" onclick="DOCF='${k}';telaDocumentos()">${t}</button>`).join('')}</div>
    <div class="mut" style="margin-top:6px">Abra o contrato e clique em "Documentos" para anexar ou marcar o que já tem.</div></div>
   <div class="cgrid">${F.map(x=>blk({cor:x.falta.length?(x.falta.length>=x.total-1?VERM:AMAR):VERDE,num:x.contrato,ql:`Q${x.quadra} L${x.lote}`,nome:esc(nome(x.titular||'')),linhas:[x.falta.length?`Faltam ${x.falta.length} de ${x.total}`:'',x.falta.length?esc(x.falta.slice(0,3).join(' · '))+(x.falta.length>3?'…':''):''],tag:x.falta.length?'':'<span class="tag ok">Completo</span>',on:`location.hash='c/${x.contrato}'`})).join('')}</div>`}
