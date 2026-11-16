@@ -163,7 +163,8 @@ async function entradaNoAsaas(item) {
   throw new Error('A fatura informada precisa estar paga no Asaas na data e no valor da entrada.');
 }
 
-async function cadastrarCompraVenda(b, real, rascunho, ids) {
+async function cadastrarCompraVenda(b, ator, rascunho, ids) {
+  const conferente = 'luis';
   const pagas = new Map();
   for (const item of b.itens.filter(x => x.fatura)) pagas.set(item, await entradaNoAsaas(item));
   const emitir = [];
@@ -171,10 +172,10 @@ async function cadastrarCompraVenda(b, real, rascunho, ids) {
   let gerados;
   try {
     await c.query('begin');
-    await c.query("select set_config('app.ator',$1,true)", [real]);
+    await c.query("select set_config('app.ator',$1,true)", [ator]);
     const anexos = (await c.query(`select id,chave,verificacao from carteira.documentos
-      where contrato=$1 and verificacao->>'numero'=$2 and id = any($3::int[]) for update`,
-    [rascunho,b.numero,ids])).rows;
+      where contrato=$1 and verificacao->>'numero'=$2 and id = any($3::int[]) and por=$4 for update`,
+    [rascunho,b.numero,ids,ator])).rows;
     if (anexos.length !== ids.length || anexos.filter(a => a.chave === 'contrato_minuta').length !== 1)
       throw new Error('Envie novamente a minuta e os anexos desta venda.');
     for (let i = 0; i < b.compradores.length; i++) {
@@ -223,14 +224,14 @@ async function cadastrarCompraVenda(b, real, rascunho, ids) {
         link_fatura: f?.invoiceUrl, descricao: f?.description, obs: 'Entrada já paga informada no cadastro da venda' };
       await c.query(`insert into carteira.pagamentos(conferente,titulo_id,${CAMPOS_PAG.join(',')})
         values($1,$2,${CAMPOS_PAG.map((_, i) => '$' + (i + 3)).join(',')})`,
-      [real, t.id, ...CAMPOS_PAG.map(k => limpa(dados[k]))]);
-      await c.query("insert into carteira.conferencia_titulo(conferente,titulo_id,situacao) values($1,$2,'paga')", [real,t.id]);
+      [conferente, t.id, ...CAMPOS_PAG.map(k => limpa(dados[k]))]);
+      await c.query("insert into carteira.conferencia_titulo(conferente,titulo_id,situacao) values($1,$2,'paga')", [conferente,t.id]);
     }
-    await c.query('insert into carteira.fechamentos(contrato,conferente) values($1,$2)', [b.numero, real]);
+    await c.query('insert into carteira.fechamentos(contrato,conferente) values($1,$2)', [b.numero, conferente]);
     await c.query(`update carteira.documentos set contrato=$1, verificacao=verificacao-'numero' where id=any($2::int[])`,
       [b.numero,ids]);
     await c.query("insert into carteira.historico(conferente,acao,detalhe) values($1,'compra_venda_cadastrada',$2)",
-      [real,{contrato:b.numero,titulos:gerados}]);
+      [conferente,{contrato:b.numero,titulos:gerados,por:ator}]);
     await c.query('commit');
   } catch (e) {
     await c.query('rollback');
@@ -1405,6 +1406,10 @@ async function rotasPublicas(p, req, url) {
 /* o que o assistente administrativo pode fazer */
 async function permitidoAssistente(p, m, body) {
   const a = p[0], s = p[1];
+  if (a === 'contrato-novo') return !p[2] && (
+    (m === 'GET' && (!s || s === 'modelo')) ||
+    (m === 'POST' && (['ler','asaas','boleto'].includes(s) || (!s && body.origem === 'compra-venda')))
+  );
   if (m === 'GET') return ['eu', 'contratos', 'contrato', 'clientes', 'print', 'termo-arq', 'relatorios', 'boleto', 'documentos', 'documento'].includes(a)
     || (a === 'boletos' && ['previa', 'cobranca', 'sem-vinculo', 'sobras'].includes(s));
   if (a === 'sair' || a === 'cobranca' || a === 'documentos' || a === 'documento') return true;
@@ -1979,7 +1984,7 @@ export default async (req) => {
   { const rd = await DEV.rotas(p, m, body, real); if (rd) return rd; }
   { const rc2 = await rotasCessoes(p, m, body, real); if (rc2) return rc2; }
   { const rp = await rotasPainel(p, m, body, real); if (rp) return rp; }
-  { const rdc = await rotasDocumentos(p, m, body, real, url); if (rdc) return rdc; }
+  { const rdc = await rotasDocumentos(p, m, body, real, url, usuario?.email || real); if (rdc) return rdc; }
 
   try {
     if (p[0] === 'eu') return json({ conferente: real, nome: usuario?.nome || null });
@@ -2237,7 +2242,7 @@ export default async (req) => {
       if (p[1] === 'aplicar' && m === 'POST') return json(await aplicarCorrecao(body.itens || [], real, body.ano));
     }
     if (p[0] === 'contrato-novo' && ['GET','POST'].includes(m)) {
-      if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+      if (!['luis','assistente'].includes(real)) return json({ erro: 'Use o login individual da equipe.' }, 403);
       if (p[1] === 'modelo' && m === 'GET') {
         const segredo = (process.env.COMPRA_VENDA_REPRESENTANTE_B64 || '').trim();
         const representante = Buffer.from(segredo,'base64').toString('utf8');
@@ -2282,12 +2287,13 @@ export default async (req) => {
         let b;
         try { b = validaCompraVenda(body); }
         catch (e) { return json({ erro:e.message }, 400); }
-        try { return json(await cadastrarCompraVenda(b, real, rascunho, ids)); }
+        try { return json(await cadastrarCompraVenda(b, usuario?.email || real, rascunho, ids)); }
         catch (e) {
           if (e.code === '23505') return json({ erro:'Já existe um contrato com esse número.' }, 409);
           throw e;
         }
       }
+      if (real !== 'luis') return json({ erro:'Só o administrador.' },403);
       const b = body;
       if (!/^\d{4}$/.test(b.numero || '')) return json({ erro: 'Número inválido' }, 400);
       const [ja] = await q('select numero from carteira.contratos where numero=$1', [b.numero]);

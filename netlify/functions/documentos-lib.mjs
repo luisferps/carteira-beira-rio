@@ -12,7 +12,7 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia }) {
     await q(`create table if not exists carteira.doc_check(contrato text not null, chave text not null, status text, obs text, por text, em timestamptz default now(), primary key(contrato, chave))`);
     ok = true;
   }
-  return async function rotasDocumentos(p, m, body, real, url) {
+  return async function rotasDocumentos(p, m, body, real, url, ator = real) {
     if (p[0] !== 'documentos' && p[0] !== 'documento') return null;
     if (!['luis', 'assistente'].includes(real)) return json({ erro: 'Sem permissão' }, 403);
     await garante();
@@ -77,16 +77,16 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia }) {
         const destino = b.rascunho ? chaveRascunhoCompra(b.rascunho) : b.contrato;
         if (b.rascunho) {
           const parte = /^p([0-3])_(rg|cpf|endereco|outro)$/.exec(b.chave);
-          if (real !== 'luis' || !destino || !/^\d{4}$/.test(b.contrato) || !(parte || ['proposta','contrato_minuta','outro'].includes(b.chave)))
+          if (!destino || !/^\d{4}$/.test(b.contrato) || !(parte || ['proposta','contrato_minuta','outro'].includes(b.chave)))
             return json({ erro:'O anexo não corresponde a esta venda.' }, 400);
           metadata = {numero:b.contrato, inclui_cpf:!!(b.inclui_cpf && parte?.[2] === 'rg')};
-          [r] = await q(`select id from carteira.documentos where contrato=$1 and chave=$2 and nome=$3 and b64=$4 and verificacao=$5 limit 1`,
-            [destino,b.chave,b.nome,b.b64,metadata]);
+          [r] = await q(`select id from carteira.documentos where contrato=$1 and chave=$2 and nome=$3 and b64=$4 and verificacao=$5 and por=$6 limit 1`,
+            [destino,b.chave,b.nome,b.b64,metadata,ator]);
           if (b.chave === 'contrato_minuta')
             await q(`delete from carteira.documentos where contrato like 'compra-rascunho:%' and enviado_em < now() - interval '1 day'`);
         }
         if (!r) {
-          [r] = await q(`insert into carteira.documentos(contrato, chave, nome, mime, tamanho, b64, por, verificacao) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`, [destino, b.chave, b.nome || null, b.mime || null, tam, b.b64, real, metadata]);
+          [r] = await q(`insert into carteira.documentos(contrato, chave, nome, mime, tamanho, b64, por, verificacao) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`, [destino, b.chave, b.nome || null, b.mime || null, tam, b.b64, b.rascunho ? ator : real, metadata]);
           if (!b.rascunho) await log(real, 'documento_anexado', { contrato: b.contrato, chave: b.chave, nome:b.nome });
         }
         let verificacao = null;
