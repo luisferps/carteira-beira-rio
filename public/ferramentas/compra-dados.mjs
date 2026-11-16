@@ -6,6 +6,12 @@ const dinheiro = v => {
   return Number.isFinite(n) && n > 0 && n <= 100000000 ? Math.round(n * 100) : 0;
 };
 export const comissaoPadrao = valor => Math.round(dinheiro(valor) * 0.05) / 100;
+export const padroesCompraVenda = Object.freeze({
+  cidade: 'Goiânia',
+  matricula: 'Livro de Registro Geral 2 nº 2.996',
+  cartorio: 'Cartório de Registro de Imóveis do 1º Registro do Município de Varjão/GO',
+  pagamento_corretagem: 'à vista',
+});
 export const somaParcelasCentavos = itens => itens.reduce((total, p) => total + (Number(p.qtd) || 0) * dinheiro(p.valor), 0);
 export const totalRedondo = centavos => Math.round(centavos / 100) * 100;
 export function ajusteDoGrupo(itens, preco, soma) {
@@ -20,18 +26,19 @@ export const cpfValido = cpf => /^\d{11}$/.test(cpf) && !/^(\d)\1+$/.test(cpf) &
   [9, 10].every(i => [...cpf.slice(0,i)].reduce((s, d, j) => s + +d * (i + 1 - j), 0) * 10 % 11 % 10 === +cpf[i]);
 
 export function validaCompraVenda(raw = {}) {
-  const b = Object.fromEntries(['numero','quadra','lote','rua','matricula','cartorio','cidade','corretor','pagamento_corretagem']
+  const b = Object.fromEntries(['numero','quadra','lote','rua','matricula','cartorio','corretor','creci_corretor','pagamento_corretagem']
     .map(k => [k, texto(raw[k])]));
+  for (const [campo, valor] of Object.entries(padroesCompraVenda)) b[campo] ||= valor;
   if (!/^\d{4}$/.test(b.numero) || +b.numero < 1) throw new Error('Informe o número do contrato com quatro dígitos.');
-  if (!/^\d{1,3}$/.test(b.quadra) || !/^\d{1,3}[A-Za-z]?$/.test(b.lote) || !b.rua || !b.matricula || !b.cartorio || !b.cidade)
-    throw new Error('Confira quadra, lote, endereço, matrícula, cartório e cidade de assinatura.');
+  if (!/^\d{1,3}$/.test(b.quadra) || !/^\d{1,3}[A-Za-z]?$/.test(b.lote) || !b.rua)
+    throw new Error('Confira quadra, lote e endereço do imóvel.');
   b.quadra = b.quadra.padStart(2, '0');
   b.lote = b.lote.replace(/^\d+/, s => s.padStart(2, '0')).toUpperCase();
   const area = Number(raw.area);
   if (!Number.isFinite(area) || area <= 0 || !data(raw.data_assinatura)) throw new Error('Informe a área e a data do contrato.');
-  const preco = dinheiro(raw.valor_imovel), corretagem = dinheiro(raw.corretagem);
-  if (!preco || !b.corretor || !b.pagamento_corretagem || (Number(raw.corretagem) !== 0 && !corretagem))
-    throw new Error('Confira o valor do imóvel e as condições de corretagem.');
+  const preco = dinheiro(raw.valor_imovel);
+  if (!preco || !b.corretor || !/\d/.test(b.creci_corretor))
+    throw new Error('Confira o valor do imóvel, o beneficiário da comissão e o número do CRECI.');
 
   const origem = Array.isArray(raw.compradores) ? raw.compradores : [];
   if (origem.length > 4) throw new Error('O contrato aceita até quatro compradores.');
@@ -90,5 +97,5 @@ export function validaCompraVenda(raw = {}) {
   const entradas = itens.filter(p => p.tipo === 'entrada');
   const entrada = somaParcelasCentavos(entradas) + entradas.reduce((n, p) => n + (p.ajuste_ultima_centavos || 0), 0);
   return {...b, area, data_assinatura: raw.data_assinatura, valor_imovel: preco / 100,
-    corretagem: corretagem / 100, entrada_total: entrada / 100, compradores, itens};
+    corretagem: comissaoPadrao(preco / 100), entrada_total: entrada / 100, compradores, itens};
 }

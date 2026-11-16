@@ -142,7 +142,7 @@ async function lerPropostaVenda(imagem, tipo) {
         { type: foto[1] === 'application/pdf' ? 'document' : 'image', source: { type: 'base64', media_type: foto[1], data: foto[2] } },
         { type: 'text', text: tipo === 'documento'
           ? 'Extraia ' + CAMPOS_PROPONENTE + ', mais tipo: rg|cpf|endereco|outro. Para RG ou CNH com CPF classifique como rg e leia o CPF. Ignore dados de familiares, testemunhas e terceiros. Datas AAAA-MM-DD. Use null para campos ausentes ou ambíguos.'
-          : `A proposta FCA tem áreas DADOS DO COMPRADOR, DADOS DO CÔNJUGE OU SEGUNDO PROPONENTE, CARACTERÍSTICAS DO IMÓVEL e CONDIÇÕES DE PAGAMENTO. Se houver página de proposta, extraia no objeto principal: quadra, lote, rua, area, matricula, cartorio, cidade, valor_imovel, corretor, corretagem, pagamento_corretagem, compradores [{${CAMPOS_PROPONENTE}}], e itens [{tipo: entrada|mensal|anual, qtd, valor (unitário), primeiro_venc, forma: boleto|direto}]. Use a ordem dos proponentes e deixe em branco data de assinatura do contrato. Em PDF inclua paginas [{pagina (1 em diante), tipo: proposta|auditoria|rg|cpf|endereco|estado_civil|outro, proponente: 1|2|3|4 (somente se identificável comparando com a proposta), dados:{${CAMPOS_PROPONENTE}} (somente nas páginas de documento)}]. Classifique páginas de certificação eletrônica, relatório de assinaturas e trilha de auditoria como auditoria, sem extrair dados delas como documentos pessoais. CPF e RG em um documento: classifique como rg. Não associe documento por mera proximidade. Datas AAAA-MM-DD, quantias numéricas e null para ausentes. Omita tipo ou forma de pagamento incertos. A proposta por si só não comprova pagamento.` },
+          : `A proposta FCA tem áreas DADOS DO COMPRADOR, DADOS DO CÔNJUGE OU SEGUNDO PROPONENTE, CARACTERÍSTICAS DO IMÓVEL e CONDIÇÕES DE PAGAMENTO. Se houver página de proposta, extraia no objeto principal: quadra, lote, rua, area, valor_imovel, corretor (somente o nome), creci_corretor (somente o número, se explícito), compradores [{${CAMPOS_PROPONENTE}}], e itens [{tipo: entrada|mensal|anual, qtd, valor (unitário), primeiro_venc, forma: boleto|direto}]. Use a ordem dos proponentes e deixe em branco data de assinatura do contrato. Em PDF inclua paginas [{pagina (1 em diante), tipo: proposta|auditoria|rg|cpf|endereco|estado_civil|outro, proponente: 1|2|3|4 (somente se identificável comparando com a proposta), dados:{${CAMPOS_PROPONENTE}} (somente nas páginas de documento)}]. Classifique páginas de certificação eletrônica, relatório de assinaturas e trilha de auditoria como auditoria, sem extrair dados delas como documentos pessoais. CPF e RG em um documento: classifique como rg. Não associe documento por mera proximidade. Datas AAAA-MM-DD, quantias numéricas e null para ausentes. Omita tipo ou forma de pagamento incertos. A proposta por si só não comprova pagamento.` },
       ] }],
     }),
   }).catch(() => null);
@@ -196,9 +196,9 @@ async function cadastrarCompraVenda(b, ator, rascunho, ids) {
         throw new Error('O destino dos documentos mudou. Envie novamente os anexos.');
     }
     await c.query(`insert into carteira.contratos(numero,quadra,lote,rua,area,valor_imovel,data_assinatura,
-      entrada_total,indice,juros_aa,corretor,corretagem,compradores,itens,fonte,arquivo)
-      values($1,$2,$3,$4,$5,$6,$7,$8,'IGPM',2,$9,$10,$11,$12,'emissão pelo sistema',$13)`,
-    [b.numero,b.quadra,b.lote,b.rua,b.area,b.valor_imovel,b.data_assinatura,b.entrada_total,b.corretor,b.corretagem,
+      entrada_total,indice,juros_aa,corretor,creci_corretor,corretagem,compradores,itens,fonte,arquivo)
+      values($1,$2,$3,$4,$5,$6,$7,$8,'IGPM',2,$9,$10,$11,$12,$13,'emissão pelo sistema',$14)`,
+    [b.numero,b.quadra,b.lote,b.rua,b.area,b.valor_imovel,b.data_assinatura,b.entrada_total,b.corretor,b.creci_corretor,b.corretagem,
       JSON.stringify(b.compradores),JSON.stringify(b.itens),`${b.numero} - Q${b.quadra} L${b.lote}.docx`]);
     for (const p of [...b.compradores].sort((a, z) => a.cpf.localeCompare(z.cpf))) {
       const {fone, email, endereco, qualificacao, ...pessoais} = p;
@@ -1841,6 +1841,7 @@ let schemaOk = false;
 async function garanteEsquema() {
   if (schemaOk) return;
   try {
+    await q(`alter table carteira.contratos add column if not exists creci_corretor text`);
     /* a locação é um sistema separado (Administração de Aluguel): apaga a área que chegou a ser criada aqui, só se estiver vazia */
     await q(`do $d$ declare n bigint := 0; t text; begin
       if exists (select 1 from pg_namespace where nspname='locacao') then

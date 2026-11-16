@@ -14,7 +14,7 @@ function comprador(i) {
 const compra = {
   numero:'9999',quadra:'5',lote:'11b',rua:'Alameda de Testes',area:1200.50,matricula:'999',
   cartorio:'Registro Fictício',cidade:'Goiânia',data_assinatura:'2026-11-16',
-  corretor:'CRECI fictício',corretagem:1200,pagamento_corretagem:'Conforme ajuste entre as partes',
+  corretor:'Corretor fictício',creci_corretor:'12345-F',corretagem:1200,pagamento_corretagem:'Conforme ajuste entre as partes',
   valor_imovel:12900,compradores:[1,2,3,4].map(comprador),
   itens:[
     {tipo:'entrada',qtd:1,valor:9900,primeiro_venc:'2026-11-16',forma:'pix_pago',data_pagamento:'2026-11-14',recebedor:'FCA'},
@@ -28,6 +28,7 @@ test('distingue entrada paga, entrada com boleto e parcelas futuras, preservando
   assert.deepEqual(b.itens.map(p => [p.pago,p.emitir]), [[true,false],[false,true],[false,false]]);
   assert.equal(b.entrada_total,10900);
   assert.equal(b.valor_imovel,12900);
+  assert.equal(b.corretagem,645);
   assert.deepEqual(b.itens.map(p => p.recebedor), ['FCA','Vendedora',undefined]);
   assert.equal(b.lote,'11B');
   assert.throws(() => validaCompraVenda({...compra,valor_imovel:12899.99}), /soma/);
@@ -43,6 +44,7 @@ test('prepara as condições e os quatro compradores para a minuta', () => {
   assert.match(dados.condicoes_entrada,/a favor de FCA/);
   assert.match(dados.condicoes_entrada,/com vencimento em 16\/12\/2026/);
   assert.match(dados.condicoes_saldo,/com primeiro vencimento em 16\/01\/2027/);
+  assert.equal(dados.corretor,'Corretor fictício, CRECI nº 12345-F');
   assert.deepEqual(dados.assinaturas.map(p => p.nome), [1,2,3,4].map(i => 'COMPRADOR FICTÍCIO '+i));
 });
 
@@ -62,8 +64,20 @@ test('sugere 5% do preço da venda e ajusta um centavo na última anual', () => 
   assert.equal(b.itens[0].valor,9900);
   assert.equal(b.itens[1].emitir,false);
   const dados = dadosMinuta(b, v => v.toFixed(2), String);
-  assert.equal(dados.corretor,'Júnior');
+  assert.equal(dados.corretor,'Júnior, CRECI nº 12345-F');
   assert.match(dados.condicoes_saldo,/6 primeiras de 2128\.57 .* e a última de 2128\.58/);
   assert.throws(() => validaCompraVenda({...venda,valor_imovel:149001}), /soma/);
   assert.throws(() => validaCompraVenda({...venda,itens:[{...itens[0],valor:9899.99}],valor_imovel:9900}), /soma/);
+});
+
+test('fixa cidade e comissão, e aplica os padrões de registro e pagamento da comissão', () => {
+  const b = validaCompraVenda({...compra, cidade:'Outra cidade', corretagem:0, matricula:'', cartorio:'', pagamento_corretagem:''});
+  assert.equal(b.cidade,'Goiânia');
+  assert.equal(b.corretagem,645);
+  assert.equal(b.matricula,'Livro de Registro Geral 2 nº 2.996');
+  assert.match(b.cartorio,/1º Registro do Município de Varjão/);
+  assert.equal(b.pagamento_corretagem,'à vista');
+  assert.equal(validaCompraVenda(compra).matricula,'999');
+  assert.equal(validaCompraVenda(compra).cartorio,'Registro Fictício');
+  assert.throws(() => validaCompraVenda({...compra,creci_corretor:''}), /CRECI/);
 });

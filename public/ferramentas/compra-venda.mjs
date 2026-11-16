@@ -1,4 +1,4 @@
-import { ajusteDoGrupo, comissaoPadrao, cpfValido, somaParcelasCentavos, totalRedondo, validaCompraVenda } from './compra-dados.mjs';
+import { ajusteDoGrupo, comissaoPadrao, cpfValido, padroesCompraVenda, somaParcelasCentavos, totalRedondo, validaCompraVenda } from './compra-dados.mjs';
 import { dadosMinuta, gerarMinuta, mimeWord, qualifica } from './compra-minuta.mjs';
 import { enviaAnexo, LIMITE } from './onedrive.mjs';
 
@@ -8,7 +8,8 @@ const imovel = [
   ['numero','Nº do contrato'], ['quadra','Quadra'], ['lote','Lote'], ['area','Área (m²)','number'],
   ['rua','Logradouro do imóvel'], ['matricula','Matrícula do lote'], ['cartorio','Cartório de registro de imóveis'],
   ['valor_imovel','Valor total do negócio (R$)','number'], ['cidade','Cidade de assinatura'], ['data_assinatura','Data de assinatura','date'],
-  ['corretor','Beneficiário da comissão / CRECI'], ['corretagem','Comissão (R$, padrão de 5%)','number'], ['pagamento_corretagem','Condições da corretagem'],
+  ['corretor','Nome do beneficiário da comissão'], ['creci_corretor','Número do CRECI'],
+  ['corretagem','Comissão (5% do preço, em R$)','number'], ['pagamento_corretagem','Como a comissão será paga'],
 ];
 const pessoais = [
   ['nome','Nome completo'], ['cpf','CPF'], ['rg','RG ou CNH'], ['emissor','Órgão emissor / UF'],
@@ -21,7 +22,8 @@ const tipos = [['proposta','Proposta'],['rg_cpf','RG ou CNH com CPF'],['rg','RG 
 const tipoPag = [['entrada','Entrada'],['mensal','Mensais'],['anual','Anuais']];
 const formas = [['','Selecione'],['boleto','Emitir boleto'],['direto','Pagamento direto pendente'],
   ['pix_pago','Pix já pago'],['conta_pago','Já pago em conta'],['construtora_pago','Já pago à construtora']];
-const opcionais = new Set(['nascimento','emissor','naturalidade','email','fatura']);
+const opcionais = new Set(['nascimento','emissor','naturalidade','email','fatura','cartorio','pagamento_corretagem']);
+const somenteLeitura = new Set(['cidade','corretagem']);
 const cpf = v => String(v ?? '').replace(/\D/g,'');
 const normaliza = v => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
 const hoje = () => new Date(Date.now() - 3 * 36e5).toISOString().slice(0,10);
@@ -47,7 +49,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   const [{numero},driveStatus] = await Promise.all([api('contrato-novo'),api('onedrive/status',{silencioso:true})]);
   const campos = itens => itens.map(([key, label, tipo = 'text']) =>
     '<label>' + label + '<input data-campo="' + key + '" type="' + tipo + '"' +
-    (opcionais.has(key) ? '' : ' required') +
+    (somenteLeitura.has(key) ? ' readonly' : opcionais.has(key) ? '' : ' required') +
     (tipo === 'number' ? ' min="0" step="any"' : '') + '></label>').join('');
   const options = (itens, value) => itens.map(([k,v]) =>
     '<option value="' + esc(k) + '"' + (k === value ? ' selected' : '') + '>' + esc(v) + '</option>').join('');
@@ -78,9 +80,8 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   const grupos = () => [...el('#cv-pagamentos').children];
   const preco = el('[data-campo="valor_imovel"]');
   const comissao = el('[data-campo="corretagem"]');
-  let comissaoEditada = false;
-  const sugereComissao = () => {
-    if (!comissaoEditada) comissao.value = preco.valueAsNumber > 0 ? comissaoPadrao(preco.valueAsNumber) : '';
+  const atualizaComissao = () => {
+    comissao.value = preco.valueAsNumber > 0 ? comissaoPadrao(preco.valueAsNumber) : '';
   };
   const msg = (s, erro = false) => {
     el('#cv-status').textContent = s;
@@ -189,12 +190,8 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   const temDadosProposta = r => r && (r.quadra || r.lote || r.valor_imovel || r.compradores?.length || r.itens?.length);
   const aplicarProposta = r => {
     if (!temDadosProposta(r)) return;
-    const {corretagem, ...resto} = r;
-    preencher(el('#cv-imovel'),resto);
-    if (!comissaoEditada && corretagem != null && corretagem !== '' && Number.isFinite(Number(corretagem)) && Number(corretagem) >= 0) {
-      comissao.value = corretagem;
-      comissaoEditada = true;
-    }
+    const {quadra, lote, rua, area, valor_imovel, corretor, creci_corretor} = r;
+    preencher(el('#cv-imovel'),{quadra,lote,rua,area,valor_imovel,corretor,creci_corretor});
     if (Array.isArray(r.compradores)) r.compradores.slice(0,4).forEach((d,i) => {
       if (!d?.nome && !d?.cpf) return;
       const p = localizarPessoa(d, i+1, true) || (!pessoas()[i] && adicionarPessoa());
@@ -213,7 +210,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
         notas.push('Preço sugerido pela soma das parcelas: ' + brl(redondo / 100) + '. Confira com a proposta.');
       }
     }
-    sugereComissao();
+    atualizaComissao();
     soma();
   };
   const tipoLido = (tipo,dados) => tipo === 'rg' && cpfValido(cpf(dados?.cpf)) ? 'rg_cpf' :
@@ -441,8 +438,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     if (podeSair()) { fechaModal(); location.hash = 'c/' + salvo.numero; }
   };
   root.closest('.modal').onclick = null;
-  preco.oninput = () => { sugereComissao(); soma(); };
-  comissao.oninput = () => { comissaoEditada = comissao.value !== ''; };
+  preco.oninput = () => { atualizaComissao(); soma(); };
   el('#cv-proposta').onchange = e => { const files = [...e.target.files]; e.target.value = ''; importar(files,true); };
   el('#cv-docs').onchange = e => { const files = [...e.target.files]; e.target.value = ''; importar(files,false); };
   el('#cv-add-pessoa').onclick = () => { if (!adicionarPessoa()) msg('O limite é de quatro compradores.',true); };
@@ -457,7 +453,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
       arquivos.splice(target.dataset.remover,1); escolhaArquivo();
     }
   });
-  preencher(el('#cv-imovel'),{numero,data_assinatura:hoje()});
+  preencher(el('#cv-imovel'),{...padroesCompraVenda,numero,data_assinatura:hoje()});
   adicionarPessoa();
   adicionarGrupo({qtd:1});
 }
