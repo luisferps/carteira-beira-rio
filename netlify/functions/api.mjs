@@ -407,7 +407,9 @@ function encargos(cob, pago, vo, dt) {
   const dias = vo && dt ? Math.max(0, Math.round((new Date(dt) - new Date(vo)) / 864e5)) : 0;
   let dif = R2(pago - cob), mu = 0, ju = 0, ho = 0, de = 0;
   if (dif < 0) de = -dif;
-  else if (dif > 0 && dias > 0) { mu = Math.min(dif, R2(cob * .02)); const j = R2(cob * (Math.pow(1.01, dias / 30) - 1)); ju = Math.min(R2(dif - mu), j); ho = R2(dif - mu - ju); }
+  else if (dif > 0 && dias > 0) { mu = Math.min(dif, R2(cob * .02)); const j = R2(cob * (Math.pow(1.01, dias / 30) - 1)); ju = Math.min(R2(dif - mu), j); ho = R2(dif - mu - ju);
+    /* sobra de centavos do cálculo de juros do banco (dia a dia) é juros, não custo de cobrança */
+    if (ho > 0 && ho <= Math.max(1, R2(cob * 0.002))) { ju = R2(ju + ho); ho = 0; } }
   return { multa_paga: mu, juros_pago: ju, honorarios_pago: ho, desconto_dado: de };
 }
 async function garanteAuto() {
