@@ -801,7 +801,7 @@ async function excluirContratoVenda(botao){
   if(!confirm('Excluir o contrato '+c.numero+'? Esse número ficará disponível para uma nova emissão.'))return;
   botao.disabled=true;
   try{
-    await api('contrato-excluir/'+c.numero,{method:'DELETE',body:{revisao:c.revisao_venda}});
+    await api('contrato-excluir/'+c.numero+'?revisao='+encodeURIComponent(c.revisao_venda),{method:'DELETE'});
     location.hash='contratos';
   }catch{botao.disabled=false}
 }

@@ -2399,9 +2399,10 @@ export default async (req) => {
     }
     if (p[0] === 'contrato-excluir' && m === 'DELETE') {
       if (!['luis','assistente'].includes(real) || !/^\d{4}$/.test(p[1] || '') || p[2]) return json({erro:'Exclusão indisponível.'},403);
-      if (typeof body.revisao !== 'string' || !/^\d+$/.test(body.revisao)) return json({erro:'Abra a ficha novamente antes de excluir.'},400);
+      const revisao = url.searchParams.get('revisao');
+      if (!/^\d+$/.test(revisao || '')) return json({erro:'Abra a ficha novamente antes de excluir.'},400);
       await garanteBoletos();
-      try { return json(await excluirCompraVenda(p[1],body.revisao,usuario?.email || real)); }
+      try { return json(await excluirCompraVenda(p[1],revisao,usuario?.email || real)); }
       catch (e) { return json({erro:e.message},409); }
     }
 
