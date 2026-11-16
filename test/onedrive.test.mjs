@@ -17,6 +17,7 @@ test('seleciona as pastas existentes e usa uma subpasta por comprador ou negocia
 const json=(body,status=200)=>Response.json(body,{status});
 test('conecta com estado descartável e mantém toda a navegação no acervo configurado',async()=>{
   const configs=new Map();
+  let nomeGravado='0252 - Q01 L10 - Proposta.pdf';
   const q=async(sql,args=[])=>{
     if(sql.startsWith('select'))return configs.has(args[0])?[{valor:configs.get(args[0])}]:[];
     if(sql.startsWith('insert'))configs.set(...args);
@@ -42,7 +43,7 @@ test('conecta com estado descartável e mantém toda a navegação no acervo con
       {id:'outside',name:'Atalho',folder:{},remoteItem:{id:'fora'}},
     ]});
     if(url.pathname.endsWith('/createUploadSession'))return json({uploadUrl:'https://upload.example.net/session'});
-    if(url.pathname.endsWith('/items/doc'))return json({id:'doc',name:'0252 - Q01 L10 - Proposta.pdf',size:4,file:{mimeType:'application/pdf'},parentReference:{id:'folder'},'@microsoft.graph.downloadUrl':'https://download.example.net/arquivo'});
+    if(url.pathname.endsWith('/items/doc'))return json({id:'doc',name:nomeGravado,size:4,file:{mimeType:'application/pdf'},parentReference:{id:'folder'},'@microsoft.graph.downloadUrl':'https://download.example.net/arquivo'});
     return json({id:url.pathname.includes('/me/drive/')?'root':'folder',folder:{},parentReference:{driveId:'drive'}});
   };
   const od=criaOneDrive({q,json,fetcher,env});
@@ -75,6 +76,10 @@ test('conecta com estado descartável e mantém toda a navegação no acervo con
   const destino=destinoArquivo({...contrato,nome:'certificado.pdf',chave:'proposta'}),contexto={contrato:'0252',chave:'proposta'};
   const sessao=await (await route('enviar','POST',{tamanho:4},'assistente','',async()=>({destino,contexto}))).json();
   assert.equal((await od.confirmaArquivo(sessao.ticket,'doc','equipe',contexto)).id,'doc');
+  nomeGravado='0252 - Q01 L10 - Proposta 1.pdf';
+  assert.equal((await od.confirmaArquivo(sessao.ticket,'doc','equipe',contexto)).nome,nomeGravado);
+  nomeGravado='Outros dados.pdf';
+  await assert.rejects(()=>od.confirmaArquivo(sessao.ticket,'doc','equipe',contexto),/não corresponde/);
   await assert.rejects(()=>od.confirmaArquivo(sessao.ticket,'doc','outra',contexto),/outro documento/);
 });
 

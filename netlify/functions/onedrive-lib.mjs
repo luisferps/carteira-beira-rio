@@ -230,7 +230,7 @@ export function criaOneDrive({q,pool,json,fetcher=fetch, env=process.env}) {
     const ext=/\.[^.]+$/.exec(t.destino.nome)?.[0] || '';
     const base=t.destino.nome.slice(0,t.destino.nome.length-ext.length);
     const adicional=item.name.slice(base.length,item.name.length-ext.length);
-    if(item.name!==t.destino.nome && !(item.name.startsWith(base) && item.name.endsWith(ext) && /^ ?\(\d+\)$/.test(adicional)))
+    if(item.name!==t.destino.nome && !(item.name.startsWith(base) && item.name.endsWith(ext) && /^(?: ?\(\d+\)| \d+)$/.test(adicional)))
       throw new DriveError('O arquivo gravado não corresponde ao envio.',409);
     return {drive:d.drive,id:item.id,nome:item.name,tamanho:item.size,mime:item.file.mimeType,destino:t.destino};
   }
