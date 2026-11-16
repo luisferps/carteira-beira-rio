@@ -1,4 +1,4 @@
-import { ajusteDoGrupo, comissaoPadrao, cpfValido, padroesCompraVenda, somaParcelasCentavos, totalRedondo, validaCompraVenda } from './compra-dados.mjs';
+import { ajusteDoGrupo, comissaoPadrao, cpfValido, modoEntradaSugerido, padroesCompraVenda, somaParcelasCentavos, totalRedondo, validaCompraVenda } from './compra-dados.mjs';
 import { dadosMinuta, gerarMinuta, mimeWord, qualifica } from './compra-minuta.mjs';
 import { enviaAnexo, LIMITE } from './onedrive.mjs';
 
@@ -22,6 +22,7 @@ const tipos = [['proposta','Proposta'],['rg_cpf','RG ou CNH com CPF'],['rg','RG 
 const tipoPag = [['entrada','Entrada'],['mensal','Mensais'],['anual','Anuais']];
 const formas = [['','Selecione'],['boleto','Emitir boleto'],['direto','Pagamento direto pendente'],
   ['pix_pago','Pix já pago'],['conta_pago','Já pago em conta'],['construtora_pago','Já pago por conta da FCA']];
+const meiosMinuta = [['','Omitir na minuta'],['boleto','Boleto bancário'],['transferencia','Transferência bancária'],['pix','Pix']];
 const opcionais = new Set(['nascimento','emissor','naturalidade','email','fatura','cartorio','pagamento_corretagem']);
 const somenteLeitura = new Set(['cidade','corretagem']);
 const cpf = v => String(v ?? '').replace(/\D/g,'');
@@ -62,7 +63,10 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     '<div id="cv-arquivos"></div>' +
     '<h4>Imóvel e condições da venda</h4><div class="cv-grade" id="cv-imovel">' + campos(imovel) + '</div>' +
     '<h4>Compradores</h4><div id="cv-pessoas"></div><button type="button" id="cv-add-pessoa">Adicionar comprador</button>' +
-    '<h4>Condições de pagamento</h4><div id="cv-pagamentos"></div><button type="button" id="cv-add-pag">Adicionar grupo de pagamento</button>' +
+    '<h4>Condições de pagamento</h4><label id="cv-entrada-clausula">Como a entrada aparece na cláusula 4.1' +
+    '<select id="cv-entrada-minuta"><option value="assinatura">No ato da assinatura</option>' +
+    '<option value="vencimentos">Parcelas com datas de vencimento</option></select></label>' +
+    '<div id="cv-pagamentos"></div><button type="button" id="cv-add-pag">Adicionar grupo de pagamento</button>' +
     '<div id="cv-total" class="mut" aria-live="polite"></div></fieldset>' +
     '<p id="cv-status" role="status" aria-live="polite"></p>' +
     '<div class="bt"><button type="button" id="cv-word">Baixar prévia em Word</button>' +
@@ -91,6 +95,16 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     el('#cv-status').textContent = s;
     el('#cv-status').className = erro ? 'aviso' : s ? 'info' : '';
   };
+  const atualizaVencimento = grupo => {
+    const data = grupo.querySelector('[data-campo="primeiro_venc"]');
+    const meio = grupo.querySelector('[data-campo="meio_na_minuta"]');
+    const entrada = grupo.querySelector('[data-campo="tipo"]').value === 'entrada';
+    const naAssinatura = entrada && el('#cv-entrada-minuta').value === 'assinatura';
+    data.disabled = naAssinatura;
+    data.parentElement.hidden = naAssinatura;
+    meio.disabled = !entrada || naAssinatura;
+    meio.parentElement.hidden = meio.disabled;
+  };
   const preencher = (container, dados, avisar = false) => {
     for (const n of container.querySelectorAll('[data-campo]')) {
       const v = dados?.[n.dataset.campo];
@@ -108,6 +122,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   };
   const soma = () => {
     const itens = grupos().map(lerValores);
+    el('#cv-entrada-clausula').hidden = !itens.some(p => p.tipo === 'entrada');
     const total = somaParcelasCentavos(itens);
     const alvo = Math.round(preco.valueAsNumber * 100);
     const ajuste = ajusteDoGrupo(itens, alvo, total);
@@ -162,6 +177,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     card.innerHTML = '<div class="cv-grade"><label>Tipo<select data-campo="tipo">' +
       options(tipoPag, dados.tipo || 'entrada') + '</select></label>' +
       campos([['qtd','Quantidade','number'],['valor','Valor por parcela (R$)','number'],['primeiro_venc','Primeiro vencimento','date']]) +
+      '<label>Meio previsto na minuta<select data-campo="meio_na_minuta">' + options(meiosMinuta,dados.meio_na_minuta) + '</select></label>' +
       '<label data-forma>Forma da entrada<select data-campo="forma" required>' + options(formas,dados.forma) + '</select></label>' +
       '<label data-recebedor>Recebedor da entrada (controle interno)<input data-campo="recebedor" placeholder="Ex.: Inerente, FCA ou corretor" maxlength="240" required></label>' +
       '<small data-aviso-boleto hidden>O boleto é emitido pela conta Asaas integrada à Carteira.</small>' +
@@ -171,6 +187,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     preencher(card,dados);
     const atualizar = () => {
       const {tipo,forma} = lerValores(card);
+      atualizaVencimento(card);
       card.querySelector('[data-forma]').hidden = tipo !== 'entrada';
       card.querySelector('[data-recebedor]').hidden = tipo !== 'entrada';
       card.querySelector('[data-aviso-boleto]').hidden = tipo !== 'entrada' || forma !== 'boleto';
@@ -216,6 +233,8 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
     });
     if (Array.isArray(r.itens) && r.itens.length && !grupos().some(g => lerValores(g).valor > 0)) {
       el('#cv-pagamentos').replaceChildren();
+      const data = el('[data-campo="data_assinatura"]').value;
+      el('#cv-entrada-minuta').value = modoEntradaSugerido(r.itens,data);
       r.itens.slice(0,20).filter(p => p && tipoPag.some(([k]) => k === p.tipo)).forEach(p =>
         adicionarGrupo({...p, forma:formas.some(([k]) => k === p.forma && !k.endsWith('_pago')) ? p.forma : ''}));
       const itens = grupos().map(lerValores);
@@ -387,6 +406,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
 
   const dadosFormulario = () => ({
     ...lerValores(el('#cv-imovel')),
+    entrada_na_minuta:el('#cv-entrada-minuta').value,
     compradores:pessoas().map(p => {
       const d = lerValores(p); return {...d,qualificacao:d.qualificacao || qualifica(d)};
     }),
@@ -508,6 +528,7 @@ export async function abreCompraVenda({ api, abreModal, fechaModal, esc, libsDoc
   };
   root.closest('.modal').onclick = null;
   preco.oninput = () => { atualizaComissao(); soma(); };
+  el('#cv-entrada-minuta').onchange = () => grupos().forEach(atualizaVencimento);
   el('#cv-proposta').onchange = e => { const files = [...e.target.files]; e.target.value = ''; importar(files); };
   el('#cv-add-pessoa').onclick = () => { if (!adicionarPessoa()) msg('O limite é de quatro compradores.',true); };
   el('#cv-add-pag').onclick = () => adicionarGrupo();

@@ -40,9 +40,9 @@ test('distingue entrada paga, entrada com boleto e parcelas futuras, preservando
 test('prepara as condições e os quatro compradores para a minuta', () => {
   const dados = dadosMinuta(validaCompraVenda(compra), new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format, z=>''+z);
   assert.equal(dados.numero,'9999');
-  assert.match(dados.condicoes_entrada,/já paga à vista por Pix em 14\/11\/2026/);
-  assert.doesNotMatch(dados.condicoes_entrada,/a favor de FCA/);
-  assert.match(dados.condicoes_entrada,/com vencimento em 16\/12\/2026/);
+  assert.match(dados.entrada,/A\) .* no ato da assinatura deste contrato/);
+  assert.doesNotMatch(dados.entrada,/Pix|já paga|FCA|Vendedora/);
+  assert.match(dados.entrada,/B\) .* com vencimento em 16 de dezembro de 2026/);
   assert.match(dados.condicoes_saldo,/com primeiro vencimento em 16\/01\/2027/);
   assert.equal(dados.corretor,'Corretor fictício, CRECI nº 12345-F');
   assert.deepEqual(dados.assinaturas.map(p => p.nome), [1,2,3,4].map(i => 'COMPRADOR FICTÍCIO '+i));
@@ -51,16 +51,35 @@ test('prepara as condições e os quatro compradores para a minuta', () => {
 test('registra separadamente a entrada recebida e o pagamento por conta da FCA', () => {
   const itens = [
     {...compra.itens[0],recebedor:'Inerente',fatura:'968837904'},
-    {...compra.itens[1],forma:'construtora_pago',recebedor:'Corretor',data_pagamento:'2026-11-16'},
+    {...compra.itens[1],valor:5000,forma:'construtora_pago',recebedor:'Corretor',data_pagamento:'2026-11-16'},
     compra.itens[2],
   ];
-  const b = validaCompraVenda({...compra,itens});
+  const b = validaCompraVenda({...compra,itens,valor_imovel:16900,entrada_na_minuta:'assinatura'});
   assert.deepEqual(b.itens.slice(0,2).map(p=>[p.recebedor,p.fatura,p.emitir]),[
     ['Inerente','968837904',false],['Corretor',null,false],
   ]);
   const dados = dadosMinuta(b, v => v.toFixed(2), String);
-  assert.match(dados.condicoes_entrada,/1000\.00 .*já paga à vista\./);
-  assert.doesNotMatch(dados.condicoes_entrada,/Corretor|construtora|Inerente/);
+  assert.equal(dados.entrada,'14900.00 (14900) a serem pagos no ato da assinatura deste contrato');
+  assert.equal(dados.condicoes_entrada,'');
+  assert.deepEqual(b.itens.slice(0,2).map(p=>[p.primeiro_venc,p.data_pagamento]),[
+    ['2026-11-16','2026-11-14'],['2026-11-16','2026-11-16'],
+  ]);
+});
+
+test('discrimina vencimentos avulsos e grupos mensais conforme a minuta vigente', () => {
+  const itens = [
+    {...compra.itens[1],valor:5000,primeiro_venc:'2027-05-12'},
+    {...compra.itens[1],valor:5000,qtd:2,primeiro_venc:'2027-01-31',meio_na_minuta:'boleto'},
+    {...compra.itens[1],valor:5000,primeiro_venc:'2027-04-05'},
+  ];
+  const b = validaCompraVenda({...compra,itens,valor_imovel:20000,entrada_na_minuta:'vencimentos'});
+  const dados = dadosMinuta(b, v => v.toFixed(2), String);
+  assert.deepEqual(dados.entrada.split('\n'), [
+    '20000.00 (20000) a serem pagos da seguinte forma:',
+    'A) 2 parcelas mensais e consecutivas de 5000.00 (5000) cada, vencendo a primeira em 31 de janeiro de 2027. Meio de pagamento: boleto bancário.',
+    'B) 5000.00 (5000) com vencimento em 5 de abril de 2027.',
+    'C) 5000.00 (5000) com vencimento em 12 de maio de 2027',
+  ]);
 });
 
 test('sugere 5% do preço da venda e ajusta um centavo na última anual', () => {

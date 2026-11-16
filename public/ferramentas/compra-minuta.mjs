@@ -22,20 +22,31 @@ export function dadosMinuta(b, brl, reaisExt) {
       p.qtd + ' parcelas ' + frequencia + (ajuste
         ? ', as ' + (p.qtd - 1) + ' primeiras de ' + moeda(p.valor) + ' e a última de ' + moeda(ultimoValor)
         : ' de ' + moeda(p.valor));
-    const recebedor = p.recebedor ? ', a favor de ' + p.recebedor : '';
-    if (p.pago) {
-      if (p.meio === 'Pagamento à construtora') return descricao + ', já paga à vista.';
-      return descricao + ', já paga à vista por ' + p.meio + ' em ' + dataBR(p.data_pagamento) + '.';
-    }
-    return descricao + ', por ' + p.meio.toLowerCase() + recebedor + ', ' + (p.qtd === 1 ? 'com vencimento em ' : 'com primeiro vencimento em ') + dataBR(p.primeiro_venc) + '.';
+    return descricao + ', por ' + p.meio.toLowerCase() + ', ' + (p.qtd === 1 ? 'com vencimento em ' : 'com primeiro vencimento em ') + dataBR(p.primeiro_venc) + '.';
   };
-  const linhas = (secao, vazio) => b.itens.filter(p => p.secao === secao).map(condicao).join('\n') || vazio;
+  const entradas = b.itens.filter(p => p.secao === 'entrada');
+  let textoEntrada = moeda(b.entrada_total);
+  if (entradas[0]?.entrada_na_minuta === 'vencimentos') {
+    const grupos = entradas.sort((a,z) => a.primeiro_venc.localeCompare(z.primeiro_venc));
+    const detalhamento = grupos.map((p,i) => {
+      const ajuste = p.ajuste_ultima_centavos || 0;
+      const ultima = (Math.round(p.valor * 100) + ajuste) / 100;
+      const valor = p.qtd === 1 ? moeda(ultima) : p.qtd + ' parcelas mensais e consecutivas' +
+        (ajuste ? ', as ' + (p.qtd - 1) + ' primeiras de ' + moeda(p.valor) + ' e a última de ' + moeda(ultima) : ' de ' + moeda(p.valor) + ' cada');
+      const vencimento = p.qtd > 1 ? ', vencendo a primeira em ' + dataLonga(p.primeiro_venc) :
+        p.primeiro_venc === b.data_assinatura ? ' no ato da assinatura deste contrato' : ' com vencimento em ' + dataLonga(p.primeiro_venc);
+      const meio = {boleto:'boleto bancário', transferencia:'transferência bancária', pix:'Pix'}[p.meio_na_minuta];
+      return String.fromCharCode(65+i) + ') ' + valor + vencimento + (meio ? '. Meio de pagamento: ' + meio : '');
+    });
+    textoEntrada += ' a serem pagos da seguinte forma:\n' + detalhamento.join('.\n');
+  } else if (entradas.length) textoEntrada += ' a serem pagos no ato da assinatura deste contrato';
   return {
     numero:b.numero, qualificacao:b.compradores.map(p => p.qualificacao).join('\n'),
     logradouro:b.rua, quadra:b.quadra, lote:b.lote,
     area:new Intl.NumberFormat('pt-BR',{maximumFractionDigits:6}).format(b.area),
-    preco:moeda(b.valor_imovel), entrada:moeda(b.entrada_total),
-    condicoes_entrada:linhas('entrada','Sem entrada.'), condicoes_saldo:linhas('saldo','Sem saldo a parcelar.'),
+    preco:moeda(b.valor_imovel),
+    entrada:textoEntrada, condicoes_entrada:entradas.length ? '' : 'Sem entrada.',
+    condicoes_saldo:b.itens.filter(p => p.secao === 'saldo').map(condicao).join('\n') || 'Sem saldo a parcelar.',
     corretor:b.corretor + ', CRECI nº ' + b.creci_corretor,
     corretagem:moeda(b.corretagem), pagamento_corretagem:b.pagamento_corretagem,
     matricula:b.matricula, cartorio:b.cartorio, cidade:b.cidade,

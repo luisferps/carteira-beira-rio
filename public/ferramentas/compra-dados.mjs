@@ -14,6 +14,9 @@ export const padroesCompraVenda = Object.freeze({
 });
 export const somaParcelasCentavos = itens => itens.reduce((total, p) => total + (Number(p.qtd) || 0) * dinheiro(p.valor), 0);
 export const totalRedondo = centavos => Math.round(centavos / 100) * 100;
+export const modoEntradaSugerido = (itens, assinatura) => itens.some(p =>
+  p?.tipo === 'entrada' && (Number(p.qtd) > 1 || (p.primeiro_venc && p.primeiro_venc !== assinatura))
+) ? 'vencimentos' : 'assinatura';
 export function ajusteDoGrupo(itens, preco, soma) {
   const delta = preco - soma;
   if (Math.abs(delta) !== 1 || preco !== totalRedondo(soma)) return null;
@@ -56,16 +59,24 @@ export function validaCompraVenda(raw = {}) {
 
   const grupos = Array.isArray(raw.itens) ? raw.itens : [];
   if (!grupos.length || grupos.length > 20) throw new Error('Informe os grupos de pagamento.');
+  const entradaNaMinuta = raw.entrada_na_minuta || modoEntradaSugerido(grupos,raw.data_assinatura);
+  if (!['assinatura','vencimentos'].includes(entradaNaMinuta)) throw new Error('Confira a condição da entrada na minuta.');
   let soma = 0;
   const itens = grupos.map(p => {
     const valor = dinheiro(p?.valor), qtd = Number(p?.qtd);
-    if (!['entrada','mensal','anual'].includes(p?.tipo) || !valor || !data(p.primeiro_venc) || !Number.isInteger(qtd) || qtd < 1 || qtd > 360)
+    const naAssinatura = p?.tipo === 'entrada' && entradaNaMinuta === 'assinatura';
+    const vencimento = naAssinatura ? raw.data_assinatura : p?.primeiro_venc;
+    if (!['entrada','mensal','anual'].includes(p?.tipo) || !valor || !data(vencimento) || !Number.isInteger(qtd) || qtd < 1 || qtd > 360)
       throw new Error('Confira tipo, quantidade, vencimento e valor de cada grupo de pagamento.');
+    if (naAssinatura && qtd !== 1) throw new Error('Use um grupo por pagamento no ato da assinatura.');
     const forma = texto(p.forma);
     if (p.tipo === 'entrada' && !['boleto','direto','pix_pago','conta_pago','construtora_pago'].includes(forma))
       throw new Error('Informe a forma de cada entrada.');
     const recebedor = texto(p.recebedor);
     if (p.tipo === 'entrada' && !recebedor) throw new Error('Informe quem recebe cada pagamento da entrada.');
+    const meioNaMinuta = texto(p.meio_na_minuta);
+    if (p.tipo === 'entrada' && !['','boleto','transferencia','pix'].includes(meioNaMinuta))
+      throw new Error('Confira o meio de pagamento informado para a minuta.');
     const pago = p.tipo === 'entrada' && forma.endsWith('_pago');
     const fatura = texto(p.fatura, 30);
     if (pago && (qtd !== 1 || !data(p.data_pagamento) || (fatura && !/^\d+$/.test(fatura))))
@@ -73,11 +84,12 @@ export function validaCompraVenda(raw = {}) {
     soma += qtd * valor;
     return {
       secao: p.tipo === 'entrada' ? 'entrada' : 'saldo', tipo: p.tipo, qtd, valor: valor / 100,
-      primeiro_venc: p.primeiro_venc, periodicidade: p.tipo === 'anual' ? 'anual' : 'mensal',
+      primeiro_venc: vencimento, periodicidade: p.tipo === 'anual' ? 'anual' : 'mensal',
       meio: pago ? ({pix_pago:'Pix',conta_pago:'Transferência bancária',construtora_pago:'Pagamento à construtora'})[forma]
         : forma === 'direto' && p.tipo === 'entrada' ? 'Pagamento direto' : 'Boleto Bancário',
       pago, emitir: p.tipo === 'entrada' && forma === 'boleto',
-      ...(p.tipo === 'entrada' ? {recebedor} : {}),
+      ...(p.tipo === 'entrada' ? {recebedor, entrada_na_minuta:entradaNaMinuta,
+        ...(entradaNaMinuta === 'vencimentos' && meioNaMinuta ? {meio_na_minuta:meioNaMinuta} : {})} : {}),
       data_pagamento: pago ? p.data_pagamento : null, fatura: pago ? fatura || null : null,
     };
   });
