@@ -1635,7 +1635,7 @@ const nnT=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpp
 function devedoresTermo(){const ces=(C.eventos||[]).filter(e=>e.tipo==='cessao'&&e.dados?.subtipo!=='credito'&&e.dados?.novos_titulares&&!/não informado/.test(e.dados.novos_titulares)).sort((a,b)=>String(b.data).localeCompare(String(a.data)))[0];
   return ces?ces.dados.novos_titulares.split(/\s+e\s+/).map(n=>({nome:n.trim().toUpperCase(),cpf:''})):(C.contrato.compradores||[]).map(x=>({nome:x.nome,cpf:x.cpf||''}))}
 function acordoParaTermo(aid){const a=C.acordos.find(x=>x.id==aid);if(!a)return null;const pars=C.titulos.filter(t=>t.acordo_id==a.id).sort((x,y)=>x.numero-y.numero).map(t=>({vencimento:t.vencimento,valor:+t.valor_face}));
-  return {termo:a.termo,data_acordo:String(a.data_acordo).slice(0,10),titulos_origem:(a.titulos_origem||[]).map(Number),principal:+a.principal,multa:+a.multa,juros:+a.juros,honorarios:+a.honorarios,valor_acordado:+a.valor_acordado,parcelas:pars,signatarios:a.signatarios||[],reajuste_anual:a.reajustes_anuais!=null}}
+  return {termo:a.termo,data_acordo:String(a.data_acordo).slice(0,10),titulos_origem:(a.titulos_origem||[]).map(Number),principal:+a.principal,multa:+a.multa,juros:+a.juros,honorarios:+a.honorarios,cobranca_origens:a.cobranca_origens||[],valor_acordado:+a.valor_acordado,parcelas:pars,signatarios:a.signatarios||[],reajuste_anual:a.reajustes_anuais!=null}}
 function pDados(id){return (C.propostas||[]).find(x=>x.id==id)?.dados}
 /* A efetivação anexa a via assinada e emite os boletos com vencimento no primeiro ciclo do acordo. */
 const chaveTA=t=>'termo_assinado_'+String(t||'').replace(/[^\w.-]/g,'_');
