@@ -1221,9 +1221,9 @@ const hojeBR = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10
 const somaDias = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 async function candidatosCobranca(inicioAuto) {
   await garanteBoletos();
-  const lim = somaDias(hojeBR(), -60);
+  const lim = somaDias(hojeBR(), -60); /* só depois de 60 dias: no 60º dia a 2ª via sai sem os 10% e o robô reemitia a cada 2h */
   const r = await q(`select b.*, t.contrato tc, t.grupo, t.numero, t.total, t.vencimento::text tv from carteira.boletos b join carteira.titulos t on t.id=b.titulo_id
-                     where b.tipo in ('parcela','segunda_via','acordo') and b.status = any($1) and t.vencimento <= $2
+                     where b.tipo in ('parcela','segunda_via','acordo') and b.status = any($1) and t.vencimento < $2
                        and (t.grupo <> 'acordo' or not exists (select 1 from carteira.acordos a where a.id=t.acordo_id and coalesce(a.tipo,'')<>'repactuacao' and cardinality(a.titulos_origem)=1
                               and (select count(*) from carteira.titulos t2 where t2.acordo_id=a.id)=1))
                        and (t.grupo = 'acordo' or coalesce(b.descricao,'') !~* 'renegocia|acordo|inclus')
@@ -3124,7 +3124,8 @@ export default async (req) => {
       if (conf === 'luis') {
         for (let i = 0; i < Math.min(atuais.length, b.parcelas.length); i++) {
           const par = b.parcelas[i], t = atuais[i];
-          const bs = await q(`select id_asaas, valor, vencimento::text v from carteira.boletos where titulo_id=$1 and status = any($2)`, [t.id, ATIVOS_B]).catch(() => []);
+          /* boleto de cobrança/2ª via leva multa, juros e cobrança em cima da parcela: nunca é reduzido ao valor da parcela */
+          const bs = await q(`select id_asaas, valor, vencimento::text v from carteira.boletos where titulo_id=$1 and status = any($2) and coalesce(tipo,'') not in ('cobranca','segunda_via')`, [t.id, ATIVOS_B]).catch(() => []);
           const reajuste=valorReajustadoAcordo(par.valor, par.vencimento, b.data_acordo, acordoAtual.reajustes_anuais);
           for (const bo of bs) {
             if (reajuste.anoPendente) { avisos.push(`Parcela ${i + 1}: boleto em aberto, falta a correção anual de ${reajuste.anoPendente}.`); continue; }
