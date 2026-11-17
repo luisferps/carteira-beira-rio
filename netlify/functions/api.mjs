@@ -3892,7 +3892,7 @@ async function rotasPagador(p, m, body, real) {
   }
   if (p[0] === 'manutencao' && p[1] === 'auditoria-dados' && m === 'GET' && real === 'luis') {
     await garanteBoletos();
-    const C = async (nome, sql, prm = []) => { try { const r = await q(sql, prm); return [nome, { n: r.length, amostra: r.slice(0, nome.startsWith('uso') || nome.startsWith('acoes') ? 200 : 15) }]; } catch (e) { return [nome, { erro: e.message }]; } };
+    const C = async (nome, sql, prm = []) => { try { const r = await q(sql, prm); return [nome, { n: r.length, amostra: r.slice(0, nome.startsWith('uso') || nome.startsWith('acoes') ? 400 : 15) }]; } catch (e) { return [nome, { erro: e.message }]; } };
     const enc = `exists(select 1 from carteira.eventos e where e.contrato=k.numero and e.conferente='luis' and e.tipo='encerramento')`;
     const R = await Promise.all([
       C('dois_contratos_ativos_mesmo_lote', `select k.quadra::int q, k.lote::int l, array_agg(k.numero order by k.numero) contratos from carteira.contratos k where not ${enc} and k.quadra ~ '^[0-9]+$' and k.lote ~ '^[0-9]+$' group by 1,2 having count(*)>1`),
@@ -3919,6 +3919,13 @@ async function rotasPagador(p, m, body, real) {
       C('titulo_sem_vencimento', `select id, contrato, rotulo from carteira.titulos where vencimento is null`),
       C('uso_90_dias', `select acao, count(*)::int n, max(em)::date ultimo from carteira.historico where em > now() - interval '90 days' group by acao order by n desc`),
       C('acoes_antigas', `select acao, count(*)::int n, max(em)::date ultimo from carteira.historico group by acao having max(em) < now() - interval '90 days' order by ultimo desc`),
+      C('acordos_com_parcela_aberta', `select a.id, a.contrato, a.data_acordo::text data, a.valor_acordado::float va, a.principal::float pr, a.multa::float mu, a.juros::float ju, a.honorarios::float ho,
+          coalesce(jsonb_array_length(a.cobranca_origens),0) origens, a.salvo_em::date salvo,
+          (select json_agg(json_build_object('n',t.numero,'face',t.valor_face::float,'venc',t.vencimento,'pg',(select json_agg(json_build_object('fat',g.fatura,'v',g.valor_pago::float,'ho',g.honorarios_pago::float,'mu',g.multa_paga::float,'ju',g.juros_pago::float)) from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')) order by t.numero) from carteira.titulos t where t.acordo_id=a.id) parcelas
+        from carteira.acordos a where a.conferente='luis' and coalesce(a.tipo,'acordo')='acordo'
+          and exists (select 1 from carteira.titulos t where t.acordo_id=a.id and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis'))
+          and not exists (select 1 from carteira.eventos e where e.contrato=a.contrato and e.conferente='luis' and e.tipo='encerramento')
+        order by a.contrato, a.data_acordo`),
       C('sessoes_expiradas', `select count(*) n from carteira.sessoes where expira_em < now()`),
       C('tabelas', `select relname tabela, n_live_tup linhas, pg_size_pretty(pg_total_relation_size(relid)) tamanho, seq_scan, idx_scan from pg_stat_user_tables where schemaname='carteira' order by pg_total_relation_size(relid) desc`),
       C('indices', `select tablename, indexname from pg_indexes where schemaname='carteira' order by 1,2`),
