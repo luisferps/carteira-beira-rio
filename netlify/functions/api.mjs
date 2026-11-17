@@ -3892,7 +3892,7 @@ async function rotasPagador(p, m, body, real) {
   }
   if (p[0] === 'manutencao' && p[1] === 'auditoria-dados' && m === 'GET' && real === 'luis') {
     await garanteBoletos();
-    const C = async (nome, sql, prm = []) => { try { const r = await q(sql, prm); return [nome, { n: r.length, amostra: r.slice(0, nome.startsWith('uso') || nome.startsWith('acoes') ? 400 : 15) }]; } catch (e) { return [nome, { erro: e.message }]; } };
+    const C = async (nome, sql, prm = []) => { try { const r = await q(sql, prm); return [nome, { n: r.length, amostra: r.slice(0, nome.startsWith('uso') || nome.startsWith('acoes') || nome.startsWith('acordos') ? 400 : 15) }]; } catch (e) { return [nome, { erro: e.message }]; } };
     const enc = `exists(select 1 from carteira.eventos e where e.contrato=k.numero and e.conferente='luis' and e.tipo='encerramento')`;
     const R = await Promise.all([
       C('dois_contratos_ativos_mesmo_lote', `select k.quadra::int q, k.lote::int l, array_agg(k.numero order by k.numero) contratos from carteira.contratos k where not ${enc} and k.quadra ~ '^[0-9]+$' and k.lote ~ '^[0-9]+$' group by 1,2 having count(*)>1`),
