@@ -1419,7 +1419,7 @@ function modalAcordo(aid,pid){
   <div class="f2"><div><label>Data do acordo</label><input type="date" id="a_data" value="${a?a.data_acordo.slice(0,10):pd?String(pd.data_acordo).slice(0,10):C.hoje}"></div>
   <div><label>Valor acordado</label><input id="a_val" inputmode="decimal" style="font-weight:700"></div>
   <div><label>Forma</label><select id="a_forma"><option value="1">Pagamento único</option><option value="n">Parcelado</option></select></div>
-  <div><label>Quantas parcelas</label><input id="a_qtd" type="number" min="1" value="${pars.length||1}"></div>
+  <div><label>Quantas parcelas</label><input id="a_qtd" type="text" inputmode="numeric" autocomplete="off" style="font-size:16px;font-weight:700" onfocus="this.select()" value="${pars.length||1}"></div>
   <div><label>Juros nas parcelas futuras (% ao mês, Price)</label><input id="a_jf" inputmode="decimal" placeholder="0%" value="${(()=>{const m=String(a?.obs||pd?.obs||'').match(/Juros de financiamento: ([\d.,]+)% a\.m\./);return m?m[1]+'%':''})()}"><small class="mut">A 1ª parcela (entrada) fica sem juros; da 2ª em diante, parcelas iguais pela tabela Price.</small></div></div>
   <div class="mut" style="margin:12px 0 4px;font-weight:600;color:var(--tx)">Como o valor foi formado <span class="mut" id="a_ate" style="font-weight:400"></span></div>
   <div class="f2">${campo('a_pr','Principal (com correção)')}${campo('a_mu','Multa (2%)')}${campo('a_ju','Juros (1% ao mês, ao dia)')}${campo('a_ho',a?'Cobrança registrada':'Cobrança deste acordo')}</div>
@@ -1494,7 +1494,7 @@ function modalAcordo(aid,pid){
   $('#a_val').oninput=()=>{peloValor();mostraB();refazPars()};
   for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])$('#'+id).oninput=e=>{B[k]=num(e.target.value);$('#a_val').value=brl(r2(B.pr+B.mu+B.ju+B.ho));mostraB(id);refazPars()};
   $('#a_jf').oninput=()=>{if(!aplicaPrice())refazPars();else desPars()};
-  $('#a_qtd').oninput=()=>{$('#a_forma').value=(+$('#a_qtd').value>1)?'n':'1';refazPars()};$('#a_forma').onchange=()=>{if($('#a_forma').value==='1')$('#a_qtd').value=1;refazPars()};
+  $('#a_qtd').oninput=e=>{const el=e.target,d=el.value.replace(/[^0-9]/g,'').slice(0,3);if(el.value!==d)el.value=d;if(!d)return;$('#a_forma').value=(+d>1)?'n':'1';refazPars()};$('#a_qtd').onblur=e=>{if(!e.target.value){e.target.value='1';$('#a_forma').value='1';refazPars()}};$('#a_forma').onchange=()=>{if($('#a_forma').value==='1')$('#a_qtd').value=1;refazPars()};
   let LIVRE=EU==='luis';const trava=()=>{for(const id of ['a_val','a_pr','a_mu','a_ju','a_ho'])$('#'+id).readOnly=!LIVRE;$('#a_de').readOnly=true;
     const bt=$('#a_edit');if(bt)bt.style.display=LIVRE?'none':'';const av=$('#a_livre');if(av)av.style.display=LIVRE?'':'none'};
   window._travaAcordo=trava;
