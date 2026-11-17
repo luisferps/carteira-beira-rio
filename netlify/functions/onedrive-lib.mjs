@@ -33,6 +33,8 @@ export function destinoArquivo({ chave, nome, numero, quadra, lote, comprador })
   if (chave === 'contrato_minuta') return {pastas:['Contratos','Redigidos','Word'], nome:base + ext};
   if (chave === 'contrato_minuta_pdf') return {pastas:['Contratos','Redigidos'], nome:base + ' - Retificado.pdf'};
   if (chave === 'contrato_assinado') return {pastas:['Contratos','Assinados'], nome:base + ext};
+  if (chave === 'contrato_validacao_assinatura')
+    return {pastas:['Contratos','Assinados'], nome:base + ' - Validação da assinatura' + ext};
   const termo = /^termo_(assinado|pdf|word)_([\w.-]+)$/.exec(chave);
   if (termo) return {pastas:['Contratos','Negociações',[termo[2],imovel,folderName(comprador)].filter(Boolean).join(' - ')],
     nome:termo[2] + (termo[1]==='assinado'?' - Assinado':' - Termo') + ext};

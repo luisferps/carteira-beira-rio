@@ -1072,6 +1072,7 @@ function desenhaContrato(){if(location.hash.startsWith('#cob/'))return;setTimeou
     <b>${C.assinado?'Assinatura concluída':'Aguardando contrato assinado'}</b>
     ${C.assinado?` <span class="mut">Anexado em ${dbr(C.assinado.enviado_em)}</span> <button onclick="abreDoc(${C.assinado.id})">Ver contrato assinado</button>`:
       ` <button onclick="enviaDoc('contrato_assinado')">Anexar contrato assinado</button>`}
+    ${['luis','assistente'].includes(EU)&&!COMO?` <button onclick="modalDocs()">Validação da assinatura eletrônica</button>`:''}
     ${C.minuta?` <button onclick="abreDoc(${C.minuta.id})">Ver minuta atual</button>`:''}
     ${EU==='luis'&&c.numero==='0252'&&!C.assinado?
       ` <button id="retificar-0252" onclick="document.getElementById('retificar-pdf-0252').click()">${C.minuta?.chave==='contrato_minuta_pdf'?'Atualizar PDF do 0252':'Registrar retificação do 0252'}</button>
@@ -2347,8 +2348,9 @@ let DOCS=null;
 async function modalDocs(){DOCS=await api('documentos?contrato='+C.contrato.numero);desenhaDocs()}
 function desenhaDocs(){const D=DOCS,n=C.contrato.numero;const ck=k=>D.check.find(x=>x.chave===k),ar=k=>D.arquivos.filter(x=>x.chave===k||(/_cpf$/.test(k)&&x.chave===k.replace(/_cpf$/,'_rg')&&x.verificacao?.inclui_cpf));
   const linha=(k,l)=>{const c=ck(k),A=ar(k),okk=c?.status==='ok'||A.length,disp=c?.status==='dispensado';
-    return `<tr><td>${okk?'✅':disp?'➖':'⬜'} ${esc(l)}</td><td>${A.map(a=>`<a href="#" onclick="abreDoc(${a.id});return false">${esc(a.nome||'arquivo')}</a> <span class="mut">${a.chave===k?dbr(a.enviado_em):'CPF no RG ou na CNH'}</span>${a.chave===k?` <button style="padding:1px 6px" onclick="apagaDoc(${a.id})">×</button>`:''}`).join('<br>')||'<span class="mut">—</span>'}</td>
-     <td style="white-space:nowrap"><button onclick="enviaDoc('${k}')">Anexar</button><select style="width:auto;padding:4px" onchange="marcaDoc('${k}',this.value)"><option value="" ${!c?'selected':''}>${A.length?'Tem arquivo':'Falta'}</option><option value="ok" ${c?.status==='ok'?'selected':''}>Tem (físico / em outra pasta)</option><option value="dispensado" ${disp?'selected':''}>Não precisa</option></select></td></tr>`};
+    const validacao=k==='contrato_validacao_assinatura';
+    return `<tr><td>${okk?'✅':disp?'➖':'⬜'} ${esc(l)}${validacao?' <span class="mut">(opcional)</span>':''}</td><td>${A.map(a=>`<a href="#" onclick="abreDoc(${a.id});return false">${esc(a.nome||'arquivo')}</a> <span class="mut">${a.chave===k?dbr(a.enviado_em):'CPF no RG ou na CNH'}</span>${a.chave===k?` <button style="padding:1px 6px" onclick="apagaDoc(${a.id})">×</button>`:''}`).join('<br>')||'<span class="mut">—</span>'}</td>
+     <td style="white-space:nowrap"><button onclick="enviaDoc('${k}')">${validacao?'Anexar validação':'Anexar'}</button>${validacao?'':`<select style="width:auto;padding:4px" onchange="marcaDoc('${k}',this.value)"><option value="" ${!c?'selected':''}>${A.length?'Tem arquivo':'Falta'}</option><option value="ok" ${c?.status==='ok'?'selected':''}>Tem (físico / em outra pasta)</option><option value="dispensado" ${disp?'selected':''}>Não precisa</option></select>`}</td></tr>`};
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Documentos — contrato ${n}</h3><button onclick="fechaModal()">Fechar</button></div>
   ${ck('obs_planilha')?`<div class="aviso">Nota da planilha de documentos: ${esc(ck('obs_planilha').obs)}</div>`:''}
   <table><tr><th colspan="3">Do contrato</th></tr>${D.itens_contrato.map(([k,l])=>linha(k,l)).join('')}

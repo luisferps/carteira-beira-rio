@@ -1,6 +1,7 @@
 /* Documentos do contrato e dos compradores: checklist (tem / falta) e arquivos anexados. */
 import { destinoArquivo } from './onedrive-lib.mjs';
 export const ITENS_CONTRATO = [['contrato_assinado', 'Contrato assinado'], ['firma', 'Firma reconhecida em cartório'], ['testemunhas', 'Testemunhas assinaram'], ['proposta', 'Proposta']];
+const VALIDACAO_ASSINATURA = ['contrato_validacao_assinatura', 'Validação da assinatura eletrônica'];
 export const ITENS_PESSOA = [['rg', 'RG ou CNH'], ['cpf', 'CPF'], ['endereco', 'Comprovante de endereço'], ['estado_civil', 'Certidão de estado civil']];
 const itensPessoa = fonte => fonte === 'emissão pelo sistema' ? ITENS_PESSOA.filter(([k]) => k !== 'estado_civil') : ITENS_PESSOA;
 export const chaveRascunhoCompra = id => typeof id === 'string' && /^[\da-f-]{36}$/i.test(id) ? 'compra-rascunho:' + id : null;
@@ -63,6 +64,7 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
         if (/^(compra-rascunho|venda-excluida):/.test(n || '')) return json({ erro:'Contrato não encontrado' }, 404);
         const arquivos = await q(`select id, chave, nome, mime, tamanho, por, enviado_em, verificacao from carteira.documentos where contrato=$1 order by enviado_em`, [n]);
         const itens_contrato = [...ITENS_CONTRATO];
+        itens_contrato.splice(1, 0, VALIDACAO_ASSINATURA);
         if (arquivos.some(a => a.chave === 'contrato_minuta')) itens_contrato.push(['contrato_minuta','Minuta emitida em Word']);
         if (arquivos.some(a => a.chave === 'contrato_minuta_pdf')) itens_contrato.push(['contrato_minuta_pdf','Contrato retificado em PDF']);
         if (arquivos.some(a => a.chave === 'outro')) itens_contrato.push(['outro','Outros anexos']);

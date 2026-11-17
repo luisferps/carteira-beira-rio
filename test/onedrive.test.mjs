@@ -11,6 +11,9 @@ test('seleciona as pastas existentes e usa uma subpasta por comprador ou negocia
     ['contrato_minuta',['Contratos','Redigidos','Word']],['contrato_assinado',['Contratos','Assinados']],
     ['termo_assinado_0252-001',['Contratos','Negociações','0252-001 - Q01 L10 - Compradora Exemplo']],
   ])assert.deepEqual(destinoArquivo({...contrato,nome:'certificado.pdf',chave}).pastas,pastas);
+  assert.deepEqual(destinoArquivo({...contrato,nome:'relatorio.pdf',chave:'contrato_validacao_assinatura'}),{
+    pastas:['Contratos','Assinados'],nome:'0252 - Q01 L10 - Validação da assinatura.pdf',
+  });
   assert.throws(()=>destinoArquivo({...contrato,nome:'teste.pdf',chave:'../../fora'}),/Classifique/);
 });
 
@@ -85,15 +88,26 @@ test('conecta com estado descartável e mantém toda a navegação no acervo con
 
 test('armazena a referência do OneDrive sem bytes no banco',async()=>{
   let insert;
-  const ref={drive:'drive',id:'file',tamanho:123,nome:'Proposta.pdf',mime:'application/pdf'};
-  const q=async(sql,args)=>{if(sql.startsWith('insert into carteira.documentos')){insert=args;return [{id:9}];}return [];};
+  const ref={drive:'drive',id:'file',tamanho:123,nome:'Validação da assinatura.pdf',mime:'application/pdf'};
+  const q=async(sql,args)=>{
+    if(sql.startsWith('insert into carteira.documentos')){insert=args;return [{id:9}];}
+    if(sql.includes('from carteira.contratos'))return [{numero:'0252',compradores:[]}];
+    if(sql.includes('select id, chave, nome'))return [{id:8,chave:'contrato_assinado'},...(insert?[{id:9,chave:insert[1]}]:[])];
+    return [];
+  };
   const documentos=criaDocumentos({q,json,log:async()=>{},onedrive:{temConexao:async()=>true,confirmaArquivo:async()=>ref}});
-  const meta={contrato:'0252',chave:'proposta',nome:'original.pdf',mime:'application/pdf'};
-  const url=new URL('https://local.invalid');
+  const meta={contrato:'0252',chave:'contrato_validacao_assinatura',nome:'original.pdf',mime:'application/pdf'};
+  const url=new URL('https://local.invalid?contrato=0252');
+  const antes=await (await documentos(['documentos'],'GET',null,'assistente',url)).json();
+  assert.equal(antes.itens_contrato[1][0],meta.chave);
+  const pendencias=await (await documentos(['documentos','pendencias'],'GET',null,'assistente',url)).json();
+  assert.ok(!pendencias[0].falta.some(label=>label.includes('Validação')));
   const resposta=await documentos(['documento'],'POST',{...meta,onedrive:{ticket:'recibo',id:'file'}},'assistente',url,'secretaria@test.invalid');
   assert.equal((await resposta.json()).id,9);
   assert.equal(insert[5],'');
   assert.equal(insert[7].onedrive.id,'file');
+  assert.deepEqual((await (await documentos(['documentos'],'GET',null,'assistente',url)).json()).arquivos.map(a=>a.chave),
+    ['contrato_assinado',meta.chave]);
   assert.equal((await documentos(['documento'],'POST',{...meta,b64:'ZmlsZQ=='},'assistente',url)).status,409);
 });
 
