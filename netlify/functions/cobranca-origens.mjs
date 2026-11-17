@@ -34,12 +34,13 @@ export function reclassificaCobranca(dados, parcelas) {
     const custo = Math.max(0, centavos(parcela.honorarios));
     const composicao = centavos(parcela.principal) + centavos(parcela.multa) + centavos(parcela.juros) + custo;
     const custoConfirmado = Math.max(0, Math.min(custo, custo + acordado - composicao));
-    const custoParcela = parcela.custo_acordo_rateado == null
+    const custoOriginal = parcela.custo_acordo_rateado == null
       ? Math.round(centavos(parcela.valor_face) * custoConfirmado / acordado)
       : centavos(parcela.custo_acordo_rateado);
     const face = centavos(parcela.valor_face);
-    if (face <= 0 || custoParcela <= 0) continue;
-    const proporcao = Math.min(1, custoParcela / face);
+    if (face <= 0 || custoOriginal <= 0) continue;
+    const proporcao = Math.min(1, custoOriginal / face);
+    const custoParcela = Math.round(centavos(parcela.valor_atualizado ?? parcela.valor_face) * proporcao);
     const multa = Math.round(centavos(parcela.multa_atraso) * proporcao);
     const juros = Math.round(centavos(parcela.juros_atraso) * proporcao);
     multaHerdada += multa;

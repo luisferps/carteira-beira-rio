@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { origensCobranca, reclassificaCobranca } from '../netlify/functions/cobranca-origens.mjs';
+import { aniversarioAcordo, valorReajustadoAcordo } from '../netlify/functions/reajuste-acordo.mjs';
 
 test('nova cobrança incide sobre a parcela inteira e preserva apenas a parte antiga em aberto', () => {
   const anterior = {
@@ -55,4 +56,25 @@ test('recupera apenas custo explícito de acordo antigo e mantém o valor acorda
   assert.equal(resultado.valor_acordado, dados.valor_acordado);
   const semComposicao = reclassificaCobranca(dados, [{ ...anterior, honorarios: 0, valor_face: 7000 }]);
   assert.deepEqual(semComposicao, { ...dados, cobranca_origens: [] });
+});
+
+test('só libera a emissão dos ciclos que já receberam correção no acordo de 36 meses', () => {
+  const inicio = '2026-11-17';
+  const parcelas = Array.from({length:36}, (_,i) => new Date(Date.UTC(2026,10+i,17)).toISOString().slice(0,10));
+  const valores = reajustes => parcelas.map(venc => valorReajustadoAcordo(1000,venc,inicio,reajustes));
+  assert.equal(valores({}).filter(p=>!p.anoPendente).length,12);
+  assert.equal(valores({2027:4}).filter(p=>!p.anoPendente).length,24);
+  assert.deepEqual(valores({2027:4,2028:2})[24],{valor:1060.8});
+  assert.deepEqual(valores({2028:2})[24],{valor:1000,anoPendente:2027});
+  assert.deepEqual(valores(null)[24],{valor:1000});
+  assert.equal(aniversarioAcordo('2024-02-29',2025),'2025-02-28');
+});
+
+test('transfere a fatia corrigida da cobrança herdada ao renegociar uma parcela reajustada', () => {
+  const anterior = {id:1, data_acordo:'2026-11-17', principal:900, honorarios:100,
+    valor_acordado:1000, valor_face:1000, valor_atualizado:1100};
+  const novo = reclassificaCobranca({principal:1100,honorarios:110,valor_acordado:1210},[anterior]);
+  assert.equal(novo.cobranca_origens[0].centavos,11000);
+  assert.equal(novo.honorarios,220);
+  assert.equal(novo.principal+novo.honorarios,1210);
 });

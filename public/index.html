@@ -539,7 +539,7 @@ let CA=[];
 function telaCorrecao(){const d=new Date(),ano=d.getMonth()>=9?d.getFullYear()+1:d.getFullYear();
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
   <div class="card"><h3 style="margin-top:0">Correção anual</h3>
-  <div class="info">Roda em dezembro para a parcela de janeiro já sair com o valor novo. Só corrige contrato que completou 1 ano até a parcela de janeiro. Leva IGP-M acumulado; quem teve atraso no ano anterior (parcela paga atrasada, não paga ou renegociada) leva mais 2%. Pagamento no fim de semana compensado no dia útil seguinte não conta como atraso. Se em algum ano a correção foi esquecida ou aplicada a mais, o acerto entra junto nesta correção (coluna "Acerto"). Quando o contrato tem diluição de dívida somada nas parcelas, o acréscimo da diluição é corrigido junto, no mesmo percentual.</div>
+  <div class="info">Roda em dezembro para a parcela de janeiro já sair com o valor novo. A correção do contrato segue a regra de janeiro. Nos novos acordos, ela vale para as parcelas a partir de cada aniversário do acordo. Leva IGP-M acumulado; quem teve atraso no ano anterior (parcela paga atrasada, não paga ou renegociada) leva mais 2%. Pagamento no fim de semana compensado no dia útil seguinte não conta como atraso. Se em algum ano a correção foi esquecida ou aplicada a mais, o acerto entra junto nesta correção (coluna "Acerto"). Quando o contrato tem diluição de dívida somada nas parcelas, o acréscimo da diluição é corrigido junto, no mesmo percentual.</div>
   <div class="bt" style="align-items:flex-end;margin-top:8px"><div><label>Ano da correção</label><input id="ca_ano" type="number" value="${ano}" style="width:120px"></div>
   <div><label>IGP-M acumulado (%)</label><input id="ca_ig" placeholder="ex.: 4,15" style="width:140px"></div><div><label>Acertar correções desde</label><select id="ca_de" style="width:150px"><option value="2025" selected>2025</option><option value="2026">2026</option><option value="2024">2024</option><option value="${ano}">não acertar</option></select></div><button class="pri" onclick="previaCA()">Ver prévia</button></div><div id="ca_res"></div></div>`}
 async function previaCA(){const ig=String($('#ca_ig').value||'').replace(',','.').replace('%','');if(ig===''||isNaN(+ig))return alert('Informe o IGP-M acumulado.');
@@ -547,7 +547,7 @@ async function previaCA(){const ig=String($('#ca_ig').value||'').replace(',','.'
   const ok=CA.filter(x=>x.situacao==='corrigir');
   $('#ca_res').innerHTML=`<div class="bt" style="align-items:center;margin:10px 0"><b style="flex:1">${ok.length} correção(ões) a aplicar · ${ok.filter(x=>x.juros_pct).length} com +2% por atraso · ${ok.filter(x=>x.acerto).length} com acerto de anos anteriores · ${CA.filter(x=>x.situacao!=='corrigir').length} fora</b><button class="pri" onclick="aplicaCA()">Aplicar selecionadas</button></div>
   <table><tr><th></th><th>Contrato</th><th>Titular</th><th>Parcela</th><th>A partir de</th><th>Valor atual</th><th>Acerto de anos anteriores</th><th>%</th><th>Valor novo</th><th>Atraso no ano</th><th>Situação</th></tr>
-  ${CA.map((x,i)=>`<tr${x.situacao!=='corrigir'?' style="opacity:.55"':''}><td>${x.situacao==='corrigir'?`<input type="checkbox" class="cachk" value="${i}" checked style="width:auto">`:''}</td><td><a href="#c/${x.contrato}">${x.contrato}</a></td><td>${esc(nome(x.titular||''))}</td><td>${x.grupo==='anual'?'Anual':'Mensal'} ${x.a_partir}/${x.total}</td><td>${dbr(x.data)}</td><td>${brl(x.atual)}</td><td title="${esc((x.historico||[]).join(' · '))}">${x.especial?'<span class="mut">conferir à mão (diluição/repactuação)</span>':x.acerto?`<b style="color:${x.acerto>0?'#b45309':'#0369a1'}">${x.acerto>0?'+':''}${brl(x.acerto)}</b><div class="mut" style="font-size:11px">certo hoje: ${brl(x.esperado)}</div>`:'<span class="mut">—</span>'}</td><td>${(x.igpm_pct+x.juros_pct).toFixed(2).replace('.',',')}%</td><td><b>${brl(x.novo_valor)}</b></td><td class="mut" style="font-size:12px">${esc(x.atraso.join(', '))}</td><td>${esc(x.situacao)}</td></tr>`).join('')}</table>`}
+  ${CA.map((x,i)=>`<tr${x.situacao!=='corrigir'?' style="opacity:.55"':''}><td>${x.situacao==='corrigir'?`<input type="checkbox" class="cachk" value="${i}" checked style="width:auto">`:''}</td><td><a href="#c/${x.contrato}">${x.contrato}</a></td><td>${esc(nome(x.titular||''))}</td><td>${x.grupo==='acordo'?'Acordo '+esc(x.termo||('#'+x.acordo_id))+' ·':x.grupo==='anual'?'Anual':'Mensal'} ${x.a_partir}/${x.total}</td><td>${dbr(x.data)}</td><td>${brl(x.atual)}</td><td title="${esc((x.historico||[]).join(' · '))}">${x.especial?'<span class="mut">conferir à mão (diluição/repactuação)</span>':x.acerto?`<b style="color:${x.acerto>0?'#b45309':'#0369a1'}">${x.acerto>0?'+':''}${brl(x.acerto)}</b><div class="mut" style="font-size:11px">certo hoje: ${brl(x.esperado)}</div>`:'<span class="mut">—</span>'}</td><td>${(x.igpm_pct+x.juros_pct).toFixed(2).replace('.',',')}%</td><td><b>${brl(x.novo_valor)}</b></td><td class="mut" style="font-size:12px">${esc(x.atraso.join(', '))}</td><td>${esc(x.situacao)}</td></tr>`).join('')}</table>`}
 async function aplicaCA(){const its=[...document.querySelectorAll('.cachk:checked')].map(c=>CA[+c.value]);if(!its.length)return;if(!confirm(`Aplicar ${its.length} correção(ões)? Os boletos a partir de janeiro sairão com o valor novo.`))return;
   const r=await api('correcao-anual/aplicar',{method:'POST',body:{ano:+$('#ca_ano').value,itens:its}});alert(`${r.filter(x=>x.id).length} aplicada(s).${r.some(x=>x.erro)?' Algumas já tinham correção.':''}`);previaCA()}
 
@@ -559,7 +559,7 @@ async function telaBoletos(){
   const d=new Date();d.setMonth(d.getMonth()+1);const mes=d.toISOString().slice(0,7);
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
   <div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Gerar boletos</h3><button onclick="syncBoletos()" id="bsync">Atualizar boletos do Asaas</button></div>
-  <div class="info" style="margin-top:8px">Escolha o mês, veja a prévia e gere. Cada parcela recebe um boleto só; parcela paga, em acordo, cancelada ou que já tem boleto não entra. O valor já vem com a correção lançada no contrato e o vencimento já segue as alterações de data.</div>
+  <div class="info" style="margin-top:8px">Escolha o mês, veja a prévia e gere. Cada parcela recebe um boleto só; parcela paga, em acordo, cancelada ou que já tem boleto não entra. O valor já vem com a correção lançada e o vencimento segue as alterações de data. Parcelas de acordo com reajuste anual pendente ficam fora da emissão.</div>
   <div class="bt" style="align-items:flex-end;margin-top:8px"><div><label>Mês do vencimento</label><input type="month" id="bmes" value="${mes}" style="width:180px"></div><button class="pri" onclick="previaBol()">Ver prévia</button></div>
   <div id="bprev"></div></div>
   <div class="card" id="bcob">Carregando cobrança…</div>
@@ -623,7 +623,7 @@ function cardBoletos(){if(!(EU==='luis'||EU==='assistente')||COMO)return'';const
   const pagos=new Set(C.pagamentos.map(p=>String(p.titulo_id)));const ativos=new Set(B.filter(b=>['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS'].includes(b.status)).map(b=>String(b.titulo_id)));
   const abertas=C.titulos.filter(t=>!pagos.has(String(t.id))&&!ativos.has(String(t.id))&&String(t.vencimento)>=C.hoje&&!acordoDe(t)).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento))).slice(0,24);
   return `<div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Boletos</h3>
-   ${abertas.length?`<select id="nb_t" style="width:auto">${abertas.map(t=>`<option value="${t.id}">${esc(t.rotulo)} — ${dbr(t.vencimento)}</option>`).join('')}</select><button class="pri" onclick="geraUm()">Gerar boleto</button>`:''}</div>
+   ${abertas.length?`<select id="nb_t" style="width:auto">${abertas.map(t=>`<option value="${t.id}" ${t.ano_reajuste_pendente?'disabled':''}>${esc(t.rotulo)} — ${dbr(t.vencimento)}${t.ano_reajuste_pendente?' · aguarda correção de '+t.ano_reajuste_pendente:''}</option>`).join('')}</select>${abertas.some(t=>!t.ano_reajuste_pendente)?'<button class="pri" onclick="geraUm()">Gerar boleto</button>':''}`:''}</div>
    ${B.length?`<table style="margin-top:8px"><tr><th>Parcela</th><th>Tipo</th><th>Fatura</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th></th></tr>${B.map(b=>{const at=['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS'].includes(b.status);
      return `<tr><td>${esc(rot(b.titulo_id))}</td><td>${TPB[b.tipo]||b.tipo}${b.origem==='asaas'?' <span class="mut">(feito no Asaas)</span>':''}</td><td>${esc(b.fatura||'')}</td><td>${dbr(b.vencimento)}</td><td>${brl(+b.valor)}</td><td>${STB[b.status]||b.status}${b.motivo?`<div class="mut" style="font-size:11px">${esc(b.motivo)}</div>`:''}</td>
      <td style="white-space:nowrap">${b.link?`<a href="${b.link}" target="_blank">ver</a> `:''}${at?`<button style="font-size:12px;padding:2px 8px" onclick="editaBol('${b.id_asaas}',${b.valor},'${b.vencimento}')">Editar</button> <button class="per" style="font-size:12px;padding:2px 8px" onclick="excluiBol('${b.id_asaas}')">Excluir</button>`:''}</td></tr>`}).join('')}</table>`:'<div class="mut" style="margin-top:6px">Nenhum boleto registrado no sistema para este contrato.</div>'}</div>`}
@@ -871,6 +871,7 @@ function baseContratual(t,v0){const ass=String(C.contrato?.data_assinatura||'').
     if(+c.a_partir===1||/dilu/i.test(c.obs||'')||(lim&&dt&&dt<lim))v=+c.novo_valor}return Math.round((v+acrDil(t))*100)/100}
 function valorAno(t){const v0=valorAno0(t);const a=acrDil(t);return a?Math.round((v0+a)*100)/100:v0}
 function valorAno0(t){
+  if(t.grupo==='acordo')return Number(t.valor_reajustado??t.valor_face??0);
   if(t.grupo!=='mensal'&&t.grupo!=='anual')return Number(t.valor_face||0);
   if(t.grupo==='anual'){const pgA=C.pagamentos.find(p=>p.titulo_id==t.id&&+p.valor_cobranca>0);if(pgA&&t.vencimento<=C.hoje)return +pgA.valor_cobranca;}
   if(t.grupo==='anual'){/* histórico: vale o que já foi cobrado (correção de anual registrada); daqui pra frente, herda as correções de janeiro posteriores */
@@ -1421,7 +1422,8 @@ function modalAcordo(aid,pid){
   <div><label>Quantas parcelas</label><input id="a_qtd" type="number" min="1" value="${pars.length||1}"></div>
   <div><label>Juros nas parcelas futuras (% ao mês, Price)</label><input id="a_jf" inputmode="decimal" placeholder="0%" value="${(()=>{const m=String(a?.obs||pd?.obs||'').match(/Juros de financiamento: ([\d.,]+)% a\.m\./);return m?m[1]+'%':''})()}"><small class="mut">A 1ª parcela (entrada) fica sem juros; da 2ª em diante, parcelas iguais pela tabela Price.</small></div></div>
   <div class="mut" style="margin:12px 0 4px;font-weight:600;color:var(--tx)">Como o valor foi formado <span class="mut" id="a_ate" style="font-weight:400"></span></div>
-  <div class="f2">${campo('a_pr','Principal (com correção)')}${campo('a_mu','Multa (2%)')}${campo('a_ju','Juros (1% ao mês, ao dia)')}${campo('a_ho','Custo de cobrança')}</div>
+  <div class="f2">${campo('a_pr','Principal (com correção)')}${campo('a_mu','Multa (2%)')}${campo('a_ju','Juros (1% ao mês, ao dia)')}${campo('a_ho',a?'Cobrança registrada':'Cobrança deste acordo')}</div>
+  <div class="f2" style="margin-top:8px"><div class="dado"><span>Cobrança de acordos anteriores</span><b id="a_herdada"></b></div><div class="dado"><span>Cobrança total para a Inerente (rateio interno)</span><b id="a_cobtotal"></b></div></div>
   <div class="f2" style="margin-top:8px"><input id="a_de" type="hidden"><div class="dado"><span>Valor calculado pelo sistema</span><b id="a_calc"></b></div><div class="dado"><span>Soma (principal + multa + juros + cobrança)</span><b id="a_som2"></b></div></div>
   <details style="margin-top:6px"><summary class="mut">Ver a conta parcela por parcela</summary><div id="a_det" class="mut" style="font-size:12px"></div></details>
   <div id="a_av"></div>
@@ -1433,11 +1435,32 @@ function modalAcordo(aid,pid){
   <div class="f2" style="margin-top:8px"><div><label>Termo de renegociação nº</label><input id="a_termo" placeholder="${proxTermo()}" value="${esc(a?.termo||pd?.termo||'')}"><small class="mut">Formato: contrato-sequência (ex.: ${proxTermo()}). Deixe vazio se não houver termo.</small></div><div><label>Observação</label><input id="a_obs" value="${esc(a?.obs||pd?.obs||'')}"></div></div>
   ${aid&&A0T(aid)?`<div style="margin-top:10px">${tagTermo(A0T(aid))}</div>`:''}<div class="bt" style="margin-top:12px"><button type="button" id="a_visualizar">Visualizar parcelas</button><button onclick="${aid&&A0T(aid)?`termoComo(acordoParaTermo(${aid}),'word')`:'emiteTermo()'}">Termo em Word</button><button onclick="${aid&&A0T(aid)?`termoComo(acordoParaTermo(${aid}),'pdf')`:"emiteTermo(null,'pdf')"}">Termo em PDF</button>${aid&&A0T(aid)?`<button onclick="editaTermo(acordoParaTermo(${aid}))">Editar termo</button>`:''}${pd?`<button class="pri" onclick="salvaPropostaEd(${pid})">Salvar alterações da proposta</button>`:aid?'':'<button class="pri" onclick="salvaProposta()">Salvar proposta</button>'}${pd?'':`<button ${aid?'class="pri"':''} onclick="salvaAcordo(${aid||'null'})">${aid?'Salvar acordo':'Salvar já efetivado'}</button>`}</div>`);
   let P=pars.map(p=>({...p,vfixo:true}));const num=s=>numBR(s)||0;let B;
+  let herdada=a?r2((a.cobranca_origens||[]).reduce((s,x)=>s+Number(x.centavos||0),0)/100):0;
+  let chaveRateio='',pendente=false,erroRateio=false;
+  const exibeRateio=()=>{
+    const el=$('#a_herdada');if(!el)return;
+    const somaParcelas=r2(P.reduce((s,p)=>s+Number(p.valor||0),0));
+    const diferenca=r2(somaParcelas-r2(B.pr+B.mu+B.ju+B.ho));
+    const financiamento=diferenca>0.01?diferenca:0;
+    el.textContent=pendente?'Calculando…':erroRateio?'Indisponível':brl(herdada);
+    $('#a_cobtotal').textContent=pendente||erroRateio?'—':brl(r2(B.ho+(a?0:herdada)+financiamento*.10));
+  };
+  const consultaRateio=()=>{
+    if(a||!orig.some(t=>t.grupo==='acordo'))return exibeRateio();
+    const dados={contrato:C.contrato.numero,data_acordo:$('#a_data').value,titulos_origem:ids,principal:B.pr,multa:B.mu,juros:B.ju,honorarios:0};
+    const chave=JSON.stringify(dados);
+    if(chave===chaveRateio)return exibeRateio();
+    const campo=$('#a_herdada');chaveRateio=chave;pendente=true;erroRateio=false;exibeRateio();
+    api('acordo/previa-cobranca',{method:'POST',body:dados,silencioso:true}).then(r=>{
+      if(chave===chaveRateio&&$('#a_herdada')===campo){herdada=r.herdada;pendente=false;exibeRateio()}
+    }).catch(()=>{if(chave===chaveRateio&&$('#a_herdada')===campo){chaveRateio='';pendente=false;erroRateio=true;exibeRateio()}});
+  };
   $('#a_visualizar').onclick=()=>visualizaParcelasAcordo(P);
   const calc=()=>calcAcordo(ids,$('#a_data').value,true);
   const mostraB=(skip)=>{for(const [k,id] of [['pr','a_pr'],['mu','a_mu'],['ju','a_ju'],['ho','a_ho'],['de','a_de']])if(id!==skip)$('#'+id).value=brl(B[k]);
     const c=calc();$('#a_calc').textContent=brl(c.total);B.de=0;if(skip!=='a_de')$('#a_de').value=brl(B.de);$('#a_som2').textContent=brl(r2(B.pr+B.mu+B.ju+B.ho));
     $('#a_ate').textContent=`— multa e juros calculados até ${dbr($('#a_data').value)}, a data do acordo`;
+    consultaRateio();
     $('#a_det').innerHTML=orig.map(t=>{const k={...atrasoDe(t,$('#a_data').value)};if(k.dias>0&&!k.isenta&&!(k.ho>0.004)){k.ho=custoCobrancaAtual(k);k.tot+=k.ho}return `${esc(t.rotulo)}: ${brl(k.v)} + correção ${brl(k.co)} · venceu ${dbr(t.vencimento)} · ${k.dias} dia(s) de atraso · multa ${brl(k.mu)} · juros ${brl(k.ju)} · cobrança ${brl(k.ho)} · total ${brl(k.tot)}`}).join('<br>');
     $('#a_av').innerHTML=num($('#a_val').value)<B.pr-0.009?`<div class="aviso">O valor acordado é menor que o principal. Ele quita as parcelas mesmo assim (vai todo para o principal).</div>`:''};
   const deCalc=()=>{const c=calc();B={pr:c.principal,mu:c.multa,ju:c.juros,ho:c.honorarios,de:0};$('#a_val').value=brl(c.total)};
@@ -1454,8 +1477,12 @@ function modalAcordo(aid,pid){
         document.querySelectorAll('#a_pars input[data-k=valor]').forEach(x=>{if(x!==e.target)x.value=brl(P[x.dataset.i].valor)})}
       else{$('#a_val').value=brl(r2(P.reduce((a,p)=>a+Number(p.valor||0),0)));peloValor();mostraB()}}soma()};soma()};
   const soma=()=>{const s=r2(P.reduce((a,p)=>a+Number(p.valor||0),0)),v=num($('#a_val').value);
-    if(jf()>0&&P.length>1){$('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> — valor acordado ${brl(v)} + juros de financiamento ${brl(r2(s-v))} (${pf(jf()*100)} ao mês sobre ${brl(r2(v-Number(P[0].valor||0)))}, em ${P.length-1} parcelas)`;return}
-    $('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> ${Math.abs(s-v)>0.009?'<span style="color:var(--at)">— diferente do valor acordado</span>':''}`};
+    exibeRateio();
+    const limite=$('#a_data').value?addMesDia($('#a_data').value,12):'9999-12-31';
+    const reajustam=(!a||a.reajustes_anuais!=null)&&P.filter(p=>p.vencimento>=limite).length;
+    const aviso=reajustam?`<br>${reajustam} parcela(s) a partir de ${dbr(limite)} entram na correção anual antes da emissão.`:'';
+    if(jf()>0&&P.length>1){$('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> — valor acordado ${brl(v)} + juros de financiamento ${brl(r2(s-v))} (${pf(jf()*100)} ao mês sobre ${brl(r2(v-Number(P[0].valor||0)))}, em ${P.length-1} parcelas)${aviso}`;return}
+    $('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> ${Math.abs(s-v)>0.009?'<span style="color:var(--at)">— diferente do valor acordado</span>':''}${aviso}`};
   if(a){B={pr:Number(a.principal||0),mu:Number(a.multa||0),ju:Number(a.juros||0),ho:Number(a.honorarios||0),de:Number(a.desconto_encargos||0)};$('#a_val').value=brl(a.valor_acordado)}
   else if(pd){B={pr:Number(pd.principal||0),mu:Number(pd.multa||0),ju:Number(pd.juros||0),ho:Number(pd.honorarios||0),de:Number(pd.desconto_encargos||0)};$('#a_val').value=brl(pd.valor_acordado)}else deCalc();
   $('#a_forma').value=(pars.length>1)?'n':'1';
@@ -1608,15 +1635,16 @@ const nnT=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpp
 function devedoresTermo(){const ces=(C.eventos||[]).filter(e=>e.tipo==='cessao'&&e.dados?.subtipo!=='credito'&&e.dados?.novos_titulares&&!/não informado/.test(e.dados.novos_titulares)).sort((a,b)=>String(b.data).localeCompare(String(a.data)))[0];
   return ces?ces.dados.novos_titulares.split(/\s+e\s+/).map(n=>({nome:n.trim().toUpperCase(),cpf:''})):(C.contrato.compradores||[]).map(x=>({nome:x.nome,cpf:x.cpf||''}))}
 function acordoParaTermo(aid){const a=C.acordos.find(x=>x.id==aid);if(!a)return null;const pars=C.titulos.filter(t=>t.acordo_id==a.id).sort((x,y)=>x.numero-y.numero).map(t=>({vencimento:t.vencimento,valor:+t.valor_face}));
-  return {termo:a.termo,data_acordo:String(a.data_acordo).slice(0,10),titulos_origem:(a.titulos_origem||[]).map(Number),principal:+a.principal,multa:+a.multa,juros:+a.juros,honorarios:+a.honorarios,valor_acordado:+a.valor_acordado,parcelas:pars,signatarios:a.signatarios||[]}}
+  return {termo:a.termo,data_acordo:String(a.data_acordo).slice(0,10),titulos_origem:(a.titulos_origem||[]).map(Number),principal:+a.principal,multa:+a.multa,juros:+a.juros,honorarios:+a.honorarios,valor_acordado:+a.valor_acordado,parcelas:pars,signatarios:a.signatarios||[],reajuste_anual:a.reajustes_anuais!=null}}
 function pDados(id){return (C.propostas||[]).find(x=>x.id==id)?.dados}
-/* efetivar = o termo voltou assinado: anexa o termo assinado, a 1ª parcela vence no dia em que o termo voltou (se a data do termo já passou), as demais ficam como no termo, e todos os boletos são gerados de uma vez */
+/* A efetivação anexa a via assinada e emite os boletos com vencimento no primeiro ciclo do acordo. */
 const chaveTA=t=>'termo_assinado_'+String(t||'').replace(/[^\w.-]/g,'_');
 async function efetivaProposta(id){const d=pDados(id);if(!d)return;
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Efetivar acordo ${esc(d.termo||'')} — termo assinado</h3><button onclick="fechaModal()">Fechar</button></div>
   <div class="f2"><div><label for="ef_arq">Termo assinado (PDF, foto ou Word)</label><input type="file" id="ef_arq" accept=".pdf,image/*,.doc,.docx"></div>
   <div><label for="ef_data">Data em que o termo voltou assinado</label><input type="date" id="ef_data" value="${C.hoje}" max="${C.hoje}" onchange="efPrevia(${id})"></div></div>
   <div id="ef_prev" style="margin-top:10px"></div>
+  <div class="mut">Parcelas com vencimento a partir de 12 meses seguem para a emissão mensal após a correção anual.</div>
   <div class="info">Sem o arquivo, o acordo é efetivado e fica a pendência "falta o termo assinado" — dá para anexar depois pelo botão <b>Anexar assinado</b> no acordo.</div>
   <div id="ef_erro" role="status"></div><button class="pri" id="ef_ok" onclick="efetivaPropostaOk(${id})">Efetivar acordo e gerar os boletos</button>`);efPrevia(id)}
 function efParcelas(d,dt){const ps=(d.parcelas||[]).map(x=>({...x}));if(ps[0]&&dt&&String(ps[0].vencimento).slice(0,10)<dt)ps[0].vencimento=dt;return ps}
@@ -1639,9 +1667,12 @@ async function efetivaPropostaOk(id){const d0=pDados(id);if(!d0)return;const f=$
     await recarrega();fechaModal();let msg='Acordo '+(d.termo||'')+' efetivado.'+(vf?'\n\n'+textoVerif(vf):'');
     if((EU==='luis'||EU==='assistente')&&!COMO){const r=await api('boletos/ligar-acordo',{method:'POST',body:{acordo_id:+na.id}});await recarrega();
       const ligados=new Set((C.boletos||[]).filter(b=>b.titulo_id&&['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS','RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(b.status)).map(b=>String(b.titulo_id)));
-      let fila=C.titulos.filter(t=>t.acordo_id==na.id&&!ligados.has(String(t.id))).map(t=>+t.id),er=[],n=0;
+      const limite=addMesDia(d.data_acordo,12);
+      const livres=C.titulos.filter(t=>t.acordo_id==na.id&&!ligados.has(String(t.id)));
+      let fila=livres.filter(t=>t.vencimento<limite).map(t=>+t.id),er=[],n=0;
+      const aguardam=livres.length-fila.length;
       while(fila.length){const rr=await api('boletos/emitir',{method:'POST',body:{titulos:fila.splice(0,4)}});for(const x of rr){if(x.adiado)fila.push(x.titulo_id);else if(x.erro)er.push(x.erro);else n++}}
-      await recarrega();msg+=`\n${n} boleto(s) gerado(s) no Asaas${r.ligados?`, ${r.ligados} que já existia(m) ligado(s)`:''}.`+(er.length?'\nAvisos: '+er.join('; '):'')}
+      await recarrega();msg+=`\n${n} boleto(s) gerado(s) no Asaas${r.ligados?`, ${r.ligados} que já existia(m) ligado(s)`:''}.`+(aguardam?`\n${aguardam} parcela(s) seguem para a emissão mensal após o reajuste.`:'')+(er.length?'\nAvisos: '+er.join('; '):'')}
     if(d.termo){const A=C.acordos.find(a=>a.termo===d.termo);const dt2=A?acordoParaTermo(A.id):d;if(f&&(od.conectado||await gravaAssinadoNaPasta(dt2,f,hP)))msg+='\nTermo assinado gravado na pasta Negociações.';alert(msg);await termoNaPasta(dt2,hP)}else alert(msg)}
   catch(e){btn.disabled=false;btn.textContent='Efetivar acordo e gerar os boletos';$('#ef_erro').textContent=e.message||'Não foi possível efetivar.'}}
 /* termo assinado: botão em cada acordo com termo */

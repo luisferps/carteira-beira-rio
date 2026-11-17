@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 import { criaAcerto } from './acerto-lib.mjs';
 import { reclassificaCobranca } from './cobranca-origens.mjs';
+import { aniversarioAcordo, valorReajustadoAcordo } from './reajuste-acordo.mjs';
 import { primeiraMensalNoPrazo, validaCompraVenda } from '../../public/ferramentas/compra-dados.mjs';
 import { custoRateadoNaBaixa, rateioConferido, rateiosConferidos } from './rateio-acordos-lib.mjs';
 import { criaDevolucoes } from './devolucoes-lib.mjs';
@@ -452,6 +453,14 @@ async function carregar(n, conf) {
                               where conferente=$1 and titulo_id = any($2) order by salvo_em`, [conf, ids]);
   const situacoes = await q('select * from carteira.conferencia_titulo where conferente=$1 and titulo_id = any($2)', [conf, ids]);
   const acordos = await q('select * from carteira.acordos where contrato=$1 and conferente=$2 order by data_acordo, id', [n, conf]);
+  for (const t of titulos.filter(t => t.grupo === 'acordo')) {
+    const a = acordos.find(a => a.id == t.acordo_id);
+    if (a?.reajustes_anuais != null) {
+      const reajuste = valorReajustadoAcordo(t.valor_face, dstr(t.vencimento), dstr(a.data_acordo), a.reajustes_anuais);
+      t.valor_reajustado = reajuste.valor;
+      t.ano_reajuste_pendente = reajuste.anoPendente;
+    }
+  }
   const correcoes = await q('select * from carteira.correcoes where contrato=$1 and conferente=$2 order by grupo, a_partir', [n, conf]);
   const eventos = await q('select * from carteira.eventos where contrato=$1 and conferente=$2 order by data, id', [n, conf]);
   const [fechamento] = await q('select * from carteira.fechamentos where contrato=$1 and conferente=$2', [n, conf]);
@@ -597,7 +606,7 @@ function acharContrato(g, X) {
   return { erro: pc.length > 1 ? `Cliente tem mais de um contrato (${pc.join(', ')}) e o boleto não diz qual` : 'Não consegui identificar o contrato pelo boleto' };
 }
 function valorAno(t, D) {
-  if (t.grupo === 'acordo') return +t.valor_face;
+  if (t.grupo === 'acordo') return +(t.valor_reajustado ?? t.valor_face);
   const cs = D.correcoes.filter(x => x.grupo === t.grupo && +x.a_partir <= t.numero).sort((a, b) => b.a_partir - a.a_partir);
   return cs.length ? +cs[0].novo_valor : +t.valor_face;
 }
@@ -666,6 +675,21 @@ function escolherTitulo(g, D) {
   }
   return { erro: 'Não achei a parcela certa pela descrição nem pelo vencimento' };
 }
+async function composicaoCobrancaAcordo(b, conf) {
+  if (b.tipo === 'repactuacao') return reclassificaCobranca(b, []);
+  const parcelas = await q(`select a.*, t.valor_face, t.custo_acordo_rateado, t.vencimento::text vencimento,
+       a.data_acordo::text inicio, t.grupo, t.numero,
+       (cardinality(a.titulos_origem)=1 and a.qtd_parcelas=1) ac_um
+    from carteira.titulos t join carteira.acordos a on a.id=t.acordo_id
+    where t.id=any($1::bigint[]) and t.contrato=$2 and a.conferente=$3
+      and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente=$3)`,
+    [(b.titulos_origem || []).map(Number), b.contrato, conf]);
+  return reclassificaCobranca(b, parcelas.map(t => {
+    const face = valorReajustadoAcordo(t.valor_face, t.vencimento, t.inicio, t.reajustes_anuais).valor;
+    const { multa, juros } = compoAtraso(face, t.vencimento, b.data_acordo, false, null, entradaAcordo(t));
+    return { ...t, multa_atraso: multa, juros_atraso: juros, valor_atualizado: face };
+  }));
+}
 async function criaAcordo(b, conf) {
       /* "acordo" de 1 parcela só, sem pagamento (2ª via vencida antiga) não bloqueia: é desfeito e a parcela entra no acordo novo */
       const sv = await q(`select a.id from carteira.acordos a where a.contrato=$1 and a.conferente=$2 and a.titulos_origem && $3::bigint[] and array_length(a.titulos_origem,1)=1 and a.qtd_parcelas=1
@@ -681,25 +705,12 @@ async function criaAcordo(b, conf) {
       if (ja.length) return ({ erro: 'Já existe negociação para: ' + ja.map(x => x.rotulo + ' (acordo de ' + x.d.split('-').reverse().join('/') + ')').join(', ') + '. Não é possível negociar a mesma parcela duas vezes.' });
       for (const id of b.titulos_origem || []) { const [tt] = await q('select * from carteira.titulos where id=$1', [id]); const b0 = await bloqueioEncerrado(tt, conf); if (b0) return { erro: b0 }; }
       await garanteEsquema();
-      const parcelasOrigem = b.tipo === 'repactuacao' ? [] : await q(
-        `select a.*, t.valor_face, t.custo_acordo_rateado, t.vencimento::text vencimento,
-                t.grupo, t.numero,
-                (cardinality(a.titulos_origem)=1 and a.qtd_parcelas=1) ac_um
-         from carteira.titulos t
-         join carteira.acordos a on a.id=t.acordo_id
-         where t.id=any($1::bigint[]) and t.contrato=$2 and a.conferente=$3
-           and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente=$3)`,
-        [(b.titulos_origem || []).map(Number), b.contrato, conf]);
-      const origensComEncargos = parcelasOrigem.map(t => {
-        const { multa, juros } = compoAtraso(+t.valor_face, t.vencimento, b.data_acordo, false, null, entradaAcordo(t));
-        return { ...t, multa_atraso: multa, juros_atraso: juros };
-      });
-      b = reclassificaCobranca(b, origensComEncargos);
+      b = await composicaoCobrancaAcordo(b, conf);
       const [a] = await q(`insert into carteira.acordos(contrato, conferente, data_acordo, titulos_origem, principal, multa, juros, honorarios,
-                           valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo, termo, pagador, cobranca_origens)
-                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) returning id`,
+                           valor_calculado, valor_acordado, desconto_encargos, qtd_parcelas, obs, tipo, termo, pagador, cobranca_origens, reajustes_anuais)
+                           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) returning id`,
         [b.contrato, conf, b.data_acordo, b.titulos_origem, b.principal, b.multa, b.juros, b.honorarios, b.valor_calculado,
-          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), b.tipo === 'repactuacao' ? 'repactuacao' : 'acordo', limpa(b.termo), b.pagador?.cpf ? b.pagador : null, JSON.stringify(b.cobranca_origens)]);
+          b.valor_acordado, b.desconto_encargos, b.parcelas.length, limpa(b.obs), b.tipo === 'repactuacao' ? 'repactuacao' : 'acordo', limpa(b.termo), b.pagador?.cpf ? b.pagador : null, JSON.stringify(b.cobranca_origens), b.tipo === 'repactuacao' ? null : '{}']);
       if (Array.isArray(b.signatarios) && b.signatarios.length) await q(`update carteira.acordos set signatarios=$2 where id=$1`, [a.id, JSON.stringify(b.signatarios)]);
       let i = 0;
       for (const par of b.parcelas) {
@@ -734,8 +745,9 @@ async function efetivaPropostaPaga(pid, g) {
   await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','pendencia',null,$2,(now() at time zone 'America/Sao_Paulo')::date,'{}',$3)`,
     [pr.contrato, t0?.id || null, `Falta o termo de acordo ${d.termo || ''} assinado (acordo efetivado automaticamente pelo pagamento da 1ª parcela).`]);
   await anotaCobranca(pr.contrato, 'acordo', `Proposta ${d.termo || ''} efetivada: o cliente pagou a 1ª parcela (R$ ${(+g.value).toFixed(2).replace('.', ',')}).`, 'acordo');
-  /* acordo efetivado: já gera os boletos das demais parcelas */
-  const outras = await q('select id from carteira.titulos where acordo_id=$1 and numero>1 order by numero', [r.a.id]);
+  /* O primeiro ciclo pode ser emitido de uma vez; as demais entram na emissão mensal. */
+  const limite = aniversarioAcordo(d.data_acordo, +String(d.data_acordo).slice(0, 4) + 1);
+  const outras = await q('select id from carteira.titulos where acordo_id=$1 and numero>1 and vencimento<$2 order by numero', [r.a.id, limite]);
   const gerados = [], erros = [];
   for (const t of outras) { try { const e = await emitirBoleto(t.id, 'luis'); if (e.ok) gerados.push(e.id_asaas); else if (e.erro) erros.push(e.erro); } catch (e) { erros.push(e.message); } }
   if (outras.length) await anotaCobranca(pr.contrato, 'sistema', `Boletos das demais parcelas do acordo gerados no Asaas: ${gerados.length} de ${outras.length}${erros.length ? ' (avisos: ' + erros.join('; ') + ')' : ''}.`);
@@ -1011,6 +1023,7 @@ async function clienteDoContrato(n, opc = {}) {
 const SQL_ABERTAS = `
   with corr as (select distinct on (contrato, grupo, a_partir) contrato, grupo, a_partir, novo_valor from carteira.correcoes where conferente='luis' order by contrato, grupo, a_partir, id desc)
   select t.id, t.contrato, t.grupo, t.numero, t.total, t.rotulo, t.vencimento::text vencimento, t.valor_face, c.quadra, c.lote,
+    a.id acordo_id, a.termo termo_acordo, a.data_acordo::text inicio_acordo, to_jsonb(a)->'reajustes_anuais' reajustes_anuais,
     coalesce((select novo_valor from corr where corr.contrato=t.contrato and corr.grupo=t.grupo and corr.a_partir<=t.numero order by corr.a_partir desc limit 1), t.valor_face)
       + coalesce((select sum((i->>'valor')::numeric) from carteira.eventos e, jsonb_array_elements(case when jsonb_typeof(e.dados->'itens')='array' then e.dados->'itens' else '[]'::jsonb end) i
                   where e.contrato=t.contrato and e.conferente='luis' and e.tipo='repactuacao' and e.dados->>'subtipo'='diluicao' and (i->>'titulo_id')=t.id::text), 0) valor,
@@ -1019,7 +1032,7 @@ const SQL_ABERTAS = `
     (select b.id_asaas from carteira.boletos b where b.titulo_id=t.id and b.status = any($2) limit 1) boleto,
     (t.grupo='acordo' and exists (select 1 from carteira.acordos a where a.id=t.acordo_id and coalesce(a.tipo,'')<>'repactuacao' and cardinality(a.titulos_origem)=1
        and (select count(*) from carteira.titulos t2 where t2.acordo_id=a.id)=1)) ac_um
-  from carteira.titulos t join carteira.contratos c on c.numero=t.contrato
+  from carteira.titulos t join carteira.contratos c on c.numero=t.contrato left join carteira.acordos a on a.id=t.acordo_id
   where (t.conferente is null or t.conferente='luis')
     and exists (select 1 from carteira.fechamentos f where f.contrato=t.contrato and f.conferente='luis')
     and not exists (select 1 from carteira.pagamentos g where g.titulo_id=t.id and g.conferente='luis')
@@ -1058,6 +1071,12 @@ async function ajustaValores(rows) {
     ctx[n] = { ts, ks, fm, sem, dil, fa };
   }
   for (const r of rows) {
+    if (r.grupo === 'acordo' && r.reajustes_anuais != null) {
+      const reajuste = valorReajustadoAcordo(r.valor_face, r.vencimento, r.inicio_acordo, r.reajustes_anuais);
+      r.valor = reajuste.valor;
+      r.ano_reajuste_pendente = reajuste.anoPendente;
+      continue;
+    }
     const X = ctx[r.contrato]; if (!X) continue;
     r._fa = X.fa;
     let v = +r.valor_face || 0;
@@ -1097,7 +1116,7 @@ async function previaBoletos(mes) {
     U[k] = { valor: m.valor, venc: L[0].tv };
   }
   const CR = await q(`select contrato, grupo, a_partir, data::text data from carteira.correcoes where conferente='luis'`);
-  return r.map(t => {
+  return r.filter(t => !t.ano_reajuste_pendente).map(t => {
     const u = U[t.contrato + '|' + t.grupo], v = R2(+t.valor);
     const corrDepois = u && CR.some(k => k.contrato === t.contrato && k.grupo === t.grupo && +k.a_partir <= +t.numero && k.data && k.data > u.venc && k.data <= t.vencimento);
     const dif = u && +u.valor && !corrDepois && Math.abs(+u.valor - v) > 0.05 && !(t.vencimento.slice(5, 7) === '01' && u.venc.slice(0, 4) < t.vencimento.slice(0, 4));
@@ -1129,6 +1148,7 @@ async function emitirBoletoSemTrava(tituloId, conf, clienteConfirmado) {
   await garanteBoletos();
   const [t] = await abertas(` and t.id=$1`, [tituloId, ATIVOS_B]);
   if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto (paga, em acordo, cancelada ou contrato sem conferência fechada)' };
+  if (t.ano_reajuste_pendente) return { titulo_id: tituloId, erro: `Aplique a correção anual de ${t.ano_reajuste_pendente} deste acordo antes de emitir o boleto.` };
   if (t.boleto) return { titulo_id: tituloId, erro: 'Essa parcela já tem boleto ativo', id_asaas: t.boleto };
   let venc = t.vencimento;
   if (venc < hojeBR()) { if (t.grupo === 'acordo') venc = hojeBR(); else return { titulo_id: tituloId, erro: 'O vencimento dessa parcela já passou — está em atraso' }; }
@@ -1230,6 +1250,7 @@ async function segundaViaSemTrava(tituloId, data, conf, opts) {
   if (data < hoje) return { titulo_id: tituloId, erro: 'A data de vencimento não pode ser no passado' };
   const [t] = await abertas(` and t.id=$1`, [tituloId, ATIVOS_B]);
   if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto (paga, em acordo, em proposta ou cancelada)' };
+  if (t.ano_reajuste_pendente) return { titulo_id: tituloId, erro: `Aplique a correção anual de ${t.ano_reajuste_pendente} deste acordo antes de emitir o boleto.` };
   if (t.vencimento >= hoje && !opts.previa) return { titulo_id: tituloId, erro: 'Essa parcela ainda não venceu — use "Gerar boleto"' };
   const ehAcordo = t.grupo === 'acordo';
   const c = compoAtraso(R2(+t.valor), t.vencimento, data, !ehAcordo && t.grupo !== 'entrada', t._fa, entradaAcordo(t));
@@ -1263,6 +1284,7 @@ async function passarParaCobranca(b, conf) {
 async function cobrancaSemBoleto(tituloId, conf) {
   const [t] = await abertas(` and t.id=$1`, [tituloId, ATIVOS_B]);
   if (!t) return { titulo_id: tituloId, erro: 'Parcela não está em aberto' };
+  if (t.ano_reajuste_pendente) return { titulo_id: tituloId, erro: `Aplique a correção anual de ${t.ano_reajuste_pendente} deste acordo antes de emitir o boleto.` };
   if (t.boleto) return { titulo_id: tituloId, erro: 'Parcela já tem boleto ativo' };
   if (t.ac_um) return { titulo_id: tituloId, erro: 'Reemissão de uma parcela só (2ª via) não leva os 10% de cobrança de novo' };
   return segundaVia(tituloId, hojeBR(), conf, { motivo: 'Cobrança dos 60 dias (parcela estava sem boleto)' });
@@ -1290,7 +1312,10 @@ function destrinchaAcordo(a, s, titulo) {
   /* regra do Luis: sobre os juros de financiamento a Inerente também leva 10% de custo de cobrança */
   const hoT = ho + (T > S + 0.01 ? (T - S) * 0.10 : 0);
   const m2 = R2(mu * f), j2 = R2(ju * f);
-  const h2 = rateado == null ? R2(hoT * f) : Math.min(Math.max(0, R2(face - m2 - j2)), custoRateadoNaBaixa(rateado, titulo.valor_face, recebido));
+  const base = Number(titulo?.valor_face || 0);
+  const corrigido = Number(titulo?.valor_reajustado ?? base);
+  const custoCorrigido = base > 0 ? R2(Number(rateado) * corrigido / base) : Number(rateado);
+  const h2 = rateado == null ? R2(hoT * f) : Math.min(Math.max(0, R2(face - m2 - j2)), custoRateadoNaBaixa(custoCorrigido, corrigido, recebido));
   const p2 = R2(face - m2 - j2 - h2);
   return { ...s, valor_cobranca: p2, multa_paga: R2((+s.multa_paga || 0) + m2), juros_pago: R2((+s.juros_pago || 0) + j2), honorarios_pago: R2((+s.honorarios_pago || 0) + h2) };
 }
@@ -1413,6 +1438,7 @@ function diasUteisEntre(d1, d2) {
 }
 async function previaCorrecao(ano, igpm, desde) {
   ano = +ano; igpm = +igpm; desde = +desde || 2025;
+  if (!Number.isInteger(ano) || ano < 2000 || ano > 2099 || !Number.isFinite(igpm)) return [];
   const cs = await q(`select c.numero, c.quadra, c.lote, c.data_assinatura::text assin,
       coalesce((select nullif(string_agg(x->>'nome', ' e ' order by o), '') from jsonb_array_elements(case when jsonb_typeof(c.compradores)='array' then c.compradores else '[]'::jsonb end) with ordinality as j(x,o)), c.nome_planilha) titular
     from carteira.contratos c
@@ -1423,6 +1449,10 @@ async function previaCorrecao(ano, igpm, desde) {
   const P = await q(`select g.titulo_id, g.confirmada_em::text conf, g.vencimento_boleto::text vb, g.multa_paga, g.juros_pago, g.honorarios_pago, g.forma from carteira.pagamentos g where g.conferente='luis'`);
   const A = await q(`select contrato, titulos_origem, data_acordo::text d from carteira.acordos where conferente='luis'`);
   const K = await q(`select contrato, grupo, a_partir, novo_valor, data::text data, obs from carteira.correcoes where conferente='luis' order by a_partir`);
+  const RA = await q(SQL_ABERTAS + ` and a.reajustes_anuais is not null and t.vencimento >= make_date($1,1,1) order by a.id,t.vencimento,t.numero`, [ano, ATIVOS_B]);
+  const historicoAcordos = await q(`select t.id,t.contrato,t.numero,t.vencimento::text vencimento from carteira.titulos t
+    join carteira.acordos a on a.id=t.acordo_id where a.reajustes_anuais is not null and a.conferente='luis'
+    and t.vencimento >= make_date($1-1,1,1) and t.vencimento < make_date($1,1,1)`, [ano]);
   const DIL = new Set((await q(`select distinct contrato from carteira.eventos where conferente='luis' and tipo='repactuacao'`)).map(x => x.contrato));
   const pag = {}; for (const p of P) (pag[p.titulo_id] = pag[p.titulo_id] || []).push(p);
   const emAc = new Set(A.flatMap(a => (a.titulos_origem || []).map(String)));
@@ -1469,12 +1499,47 @@ async function previaCorrecao(ano, igpm, desde) {
         atraso: motivos.slice(0, 6), elegivel, ja_corrigido: !!ja,
         situacao: ja ? 'já corrigido' : !elegivel ? (acerto ? 'menos de 1 ano (com acerto)' : 'menos de 1 ano de contrato') : 'corrigir' });
     }
+    const vistos = new Set();
+    const motivosAcordo = [...motivos];
+    for (const t of historicoAcordos.filter(t=>t.contrato===c.numero&&t.vencimento<=hoje)) {
+      const ps=pag[t.id]||[];
+      if (emAc.has(String(t.id))) motivosAcordo.push(`Parcela ${t.numero} de acordo renegociada`);
+      else if (!ps.length) motivosAcordo.push(`Parcela ${t.numero} de acordo não paga`);
+      else if (ps.some(p=>p.conf&&diasUteisEntre(p.vb||t.vencimento,p.conf)>3))
+        motivosAcordo.push(`Parcela ${t.numero} de acordo paga com atraso`);
+    }
+    for (const t of RA.filter(t => t.contrato === c.numero)) {
+      const data = aniversarioAcordo(t.inicio_acordo, ano);
+      if (vistos.has(t.acordo_id) || ano <= +t.inicio_acordo.slice(0, 4) || t.vencimento < data) continue;
+      vistos.add(t.acordo_id);
+      const { [ano]: lancado, ...anteriores } = t.reajustes_anuais;
+      const base = valorReajustadoAcordo(t.valor_face, data, t.inicio_acordo, { ...anteriores, [ano]: 0 });
+      const juros = motivosAcordo.length ? 2 : 0, pct = Math.max(0, igpm) + juros;
+      out.push({ contrato:c.numero, titular:c.titular, grupo:'acordo', acordo_id:t.acordo_id, termo:t.termo_acordo,
+        a_partir:t.numero, total:t.total, data, atual:base.valor, novo_valor:R2(base.valor*(1+pct/100)),
+        igpm_pct:Math.max(0, igpm), juros_pct:juros, atraso:motivosAcordo.slice(0,6),
+        situacao:lancado != null ? 'já corrigido' : base.anoPendente ? `falta a correção de ${base.anoPendente}` : 'corrigir' });
+    }
   }
   return out;
 }
 async function aplicarCorrecao(itens, conf, ano) {
   const out = [];
   for (const it of itens) {
+    if (it.grupo === 'acordo') {
+      const pct = Number(it.igpm_pct) + Number(it.juros_pct);
+      const y = Number(ano);
+      if (!Number.isInteger(y) || y < 2000 || y > 2099 || !Number.isFinite(pct) || pct < 0) {
+        out.push({ ...it, erro:'Correção inválida' }); continue;
+      }
+      const [r] = await q(`update carteira.acordos a set reajustes_anuais=a.reajustes_anuais || jsonb_build_object($3::text,$4::numeric)
+        where a.id=$1 and a.contrato=$2 and a.conferente='luis' and a.reajustes_anuais is not null
+          and not (a.reajustes_anuais ? $3::text) and extract(year from a.data_acordo)<$3::text::int
+          and not exists (select 1 from generate_series(extract(year from a.data_acordo)::int+1,$3::text::int-1) y
+                          where not (a.reajustes_anuais ? y::text)) returning id`, [it.acordo_id,it.contrato,y,pct]);
+      out.push({ ...it, ...(r ? {id:r.id} : {erro:'Correção já lançada ou há ano anterior pendente'}) });
+      continue;
+    }
     const [ja] = await q(`select id from carteira.correcoes where contrato=$1 and conferente='luis' and grupo=$2 and a_partir>=$3`, [it.contrato, it.grupo, it.a_partir]);
     if (ja) { out.push({ ...it, erro: 'já tinha correção' }); continue; }
     const [r] = await q(`insert into carteira.correcoes(contrato, conferente, grupo, a_partir, data, igpm_pct, juros_pct, novo_valor, obs) values ($1,'luis',$2,$3,$4,$5,$6,$7,$8) returning id`,
@@ -2050,6 +2115,7 @@ async function garanteEsquema() {
     await q(`alter table carteira.acordos add column if not exists signatarios jsonb`);
     await q(`alter table carteira.acordos add column if not exists nota_interna text`);
     await q(`alter table carteira.acordos add column if not exists cobranca_origens jsonb`);
+    await q(`alter table carteira.acordos add column if not exists reajustes_anuais jsonb`);
     await q(`alter table carteira.titulos add column if not exists custo_acordo_rateado numeric(12,2)`);
     await q(`alter table carteira.pagamentos add column if not exists nota_interna text`);
     await q(`create table if not exists carteira.propostas(id serial primary key, contrato text not null, conferente text not null, dados jsonb not null, criado_em timestamptz default now())`);
@@ -2963,6 +3029,8 @@ export default async (req) => {
       if (!cliente) return json({ erro: 'Não achei o cliente deste contrato no Asaas' }, 400);
       const [ct] = await q('select numero, quadra, lote from carteira.contratos where numero=$1', [pr.contrato]);
       const venc = ps[0].vencimento < hojeBR() ? (body.vencimento || hojeBR()) : (body.vencimento || ps[0].vencimento);
+      if (valorReajustadoAcordo(ps[0].valor, venc, d.data_acordo, {}).anoPendente)
+        return json({ erro:'A entrada precisa vencer antes do primeiro reajuste anual.' },409);
       const os = await q('select grupo, numero, total from carteira.titulos where id = any($1) order by grupo, numero', [(d.titulos_origem || []).map(Number)]);
       const partes = ['entrada', 'mensal', 'anual', 'acordo'].map(gr => { const xs = os.filter(o => o.grupo === gr); return xs.length ? `${gr} ${xs.map(o => o.numero).join(', ')}/${xs[0].total}` : null; }).filter(Boolean);
       const linha = `Renegociação 01 de ${String(ps.length).padStart(2, '0')}${partes.length ? ' (' + partes.join(' e ') + ')' : ''}`;
@@ -3014,13 +3082,25 @@ export default async (req) => {
       return json({ ok: true, boletos_cancelados: cancelados });
     }
 
-    if (p[0] === 'acordo' && m === 'POST') {
+    if (p[0] === 'acordo' && p[1] === 'previa-cobranca' && m === 'POST') {
+      const {contrato,data_acordo,titulos_origem,principal,multa,juros,honorarios} = body;
+      if (!/^\d{4}$/.test(contrato) || !/^\d{4}-\d{2}-\d{2}$/.test(data_acordo) ||
+          !Array.isArray(titulos_origem) || !titulos_origem.length || !titulos_origem.every(id=>Number.isSafeInteger(id)&&id>0) ||
+          ![principal,multa,juros,honorarios].every(Number.isFinite)) return json({erro:'Dados da simulação incompletos.'},400);
+      const c = await composicaoCobrancaAcordo({contrato,data_acordo,titulos_origem,principal,multa,juros,honorarios}, conf);
+      return json({herdada:R2(c.honorarios-honorarios)});
+    }
+    if (p[0] === 'acordo' && !p[1] && m === 'POST') {
       const r = await criaAcordo(body, conf);
       return r.erro ? json({ erro: r.erro }, 409) : json(r.a);
     }
 
     if (p[0] === 'acordo' && p[1] && m === 'PUT') {
       const b = body;
+      const [acordoAtual] = await q('select data_acordo::text inicio, reajustes_anuais from carteira.acordos where id=$1 and conferente=$2', [p[1],conf]);
+      if (!acordoAtual) return json({erro:'Acordo não encontrado.'},404);
+      if (Object.keys(acordoAtual.reajustes_anuais || {}).length && b.data_acordo !== acordoAtual.inicio)
+        return json({erro:'A data do acordo já é a referência de um reajuste lançado.'},409);
       const ja = await q(`select a.data_acordo::text d, t.rotulo from carteira.acordos a join carteira.titulos t on t.id = any(a.titulos_origem)
                           where a.contrato=$1 and a.conferente=$2 and t.id = any($3) and a.id<>$4`, [b.contrato, conf, (b.titulos_origem || []).map(Number), p[1]]);
       if (ja.length) return json({ erro: 'Já existe outra negociação para: ' + ja.map(x => x.rotulo).join(', ') + '.' }, 409);
@@ -3045,9 +3125,11 @@ export default async (req) => {
         for (let i = 0; i < Math.min(atuais.length, b.parcelas.length); i++) {
           const par = b.parcelas[i], t = atuais[i];
           const bs = await q(`select id_asaas, valor, vencimento::text v from carteira.boletos where titulo_id=$1 and status = any($2)`, [t.id, ATIVOS_B]).catch(() => []);
+          const reajuste=valorReajustadoAcordo(par.valor, par.vencimento, b.data_acordo, acordoAtual.reajustes_anuais);
           for (const bo of bs) {
-            if (bo.v === par.vencimento && Math.abs(+bo.valor - +par.valor) < 0.01) continue;
-            try { await editarBoleto(bo.id_asaas, { valor: par.valor, vencimento: par.vencimento < hojeBR() ? undefined : par.vencimento }, conf); }
+            if (reajuste.anoPendente) { avisos.push(`Parcela ${i + 1}: boleto em aberto, falta a correção anual de ${reajuste.anoPendente}.`); continue; }
+            if (bo.v === par.vencimento && Math.abs(+bo.valor - reajuste.valor) < 0.01) continue;
+            try { await editarBoleto(bo.id_asaas, { valor: reajuste.valor, vencimento: par.vencimento < hojeBR() ? undefined : par.vencimento }, conf); }
             catch (e) { avisos.push(`Parcela ${i + 1}: não consegui alterar o boleto no Asaas (${e.message})`); }
           }
         }
