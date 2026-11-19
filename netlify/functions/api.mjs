@@ -3078,7 +3078,7 @@ export default async (req) => {
       }
       await q('delete from carteira.propostas where id=$1 and conferente=$2', [p[1], conf]);
       await log(conf, 'proposta_apagada', { id: p[1], termo: pr.dados?.termo, boletos_cancelados: cancelados });
-      if (pr.dados?.termo) await anotaCobranca(pr.contrato, 'acordo', `Proposta ${pr.dados.termo} desfeita${cancelados.length ? ' (boleto cancelado no Asaas)' : ''}.`, 'acordo').catch(() => {});
+      if (pr.dados?.termo) await anotaCobranca(pr.contrato, 'acordo', `Proposta ${pr.dados.termo} desfeita${cancelados.length ? ' (boleto cancelado no Asaas)' : ''}.`, null).catch(() => {});
       return json({ ok: true, boletos_cancelados: cancelados });
     }
 
