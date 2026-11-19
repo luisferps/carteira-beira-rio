@@ -1637,19 +1637,20 @@ async function rotasPublicas(p, req, url) {
     await garanteUsuarios();
     const b = await req.json().catch(() => ({}));
     if (String(b.senha || '').length < 8) return json({ erro: 'A senha precisa ter pelo menos 8 caracteres.' }, 400);
-    const r = b.token ? await q(`update carteira.usuarios set senha_hash=$2, status='ativo', token_email=null, aprovado_em=coalesce(aprovado_em, now()) where token_email=$1 and status='definir_senha' returning nome, email`, [String(b.token), hashSenha(String(b.senha))]) : [];
+    const r = b.token ? await q(`update carteira.usuarios set senha_hash=$2, status='ativo', token_email=null, aprovado_em=coalesce(aprovado_em, now()) where token_email=$1 and status='definir_senha' returning nome, email, cpf`, [String(b.token), hashSenha(String(b.senha))]) : [];
     if (!r.length) return json({ erro: 'Link inválido ou já usado. Peça um novo ao administrador.' }, 400);
     await log(r[0].email, 'senha_definida', {});
-    return json({ ok: true, email: r[0].email, nome: r[0].nome });
+    return json({ ok: true, email: r[0].email, nome: r[0].nome, cpf: r[0].cpf || null });
   }
   if (p[0] === 'login' && req.method === 'POST') {
     await garanteUsuarios();
     const b = await req.json().catch(() => ({}));
-    const email = String(b.email || '').trim().toLowerCase();
+    const email = String(b.email || '').trim().toLowerCase(), cpfL = email.includes('@') ? '' : email.replace(/\D/g, '');
     const ip = ipDe(req);
     if (await bloqueadoLogin(ip)) return json({ erro: MSG_BLOQ }, 429);
-    const [u] = await q('select * from carteira.usuarios where email=$1', [email]);
-    if (!u || !confereSenha(String(b.senha || ''), u.senha_hash)) { await falhaLogin(ip, 'email'); return json({ erro: 'E-mail ou senha incorretos.' }, 401); }
+    /* entra com o CPF (só números ou com pontos) ou com o e-mail */
+    const [u] = cpfL.length === 11 ? await q('select * from carteira.usuarios where cpf=$1', [cpfL]) : await q('select * from carteira.usuarios where email=$1', [email]);
+    if (!u || !confereSenha(String(b.senha || ''), u.senha_hash)) { await falhaLogin(ip, 'email'); return json({ erro: 'CPF/e-mail ou senha incorretos.' }, 401); }
     if (u.status === 'aguardando_email') return json({ erro: 'Confirme seu e-mail pelo link que enviamos.' }, 403);
     if (u.status === 'aguardando_aprovacao') return json({ erro: 'Seu cadastro está aguardando a liberação do administrador.' }, 403);
     if (u.status === 'definir_senha') return json({ erro: 'Crie sua senha pelo link que o administrador enviou.' }, 403);
@@ -1696,6 +1697,16 @@ async function rotasUsuarios(p, m, body, real) {
   if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
   await garanteUsuarios();
   if (p[0] === 'usuarios' && m === 'GET') return json(await q(`select id, nome, email, cpf, telefone, perfil, status, modulos, criado_em, aprovado_em, ultimo_acesso from carteira.usuarios order by criado_em desc`));
+  if (p[0] === 'usuario' && p[1] && p[2] === 'dados' && m === 'PUT') {
+    const cpfN = String(body.cpf || '').replace(/\D/g, '');
+    if (cpfN && cpfN.length !== 11) return json({ erro: 'CPF precisa ter 11 números.' }, 400);
+    if (cpfN) { const [ja] = await q('select id from carteira.usuarios where cpf=$1 and id<>$2', [cpfN, p[1]]); if (ja) return json({ erro: 'Esse CPF já é de outro usuário.' }, 409); }
+    const email = String(body.email || '').trim().toLowerCase();
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ erro: 'E-mail inválido.' }, 400);
+    await q(`update carteira.usuarios set nome=coalesce(nullif($2,''), nome), cpf=coalesce(nullif($3,''), cpf), telefone=coalesce(nullif($4,''), telefone), email=coalesce(nullif($5,''), email) where id=$1`, [p[1], String(body.nome || '').trim(), cpfN, String(body.telefone || '').trim(), email]);
+    await log('luis', 'usuario_dados', { id: p[1] });
+    return json({ ok: true });
+  }
   if (p[0] === 'usuario' && p[1] && p[2] === 'modulos' && m === 'PUT') {
     const mods = (Array.isArray(body.modulos) ? body.modulos : []).filter(x => MODULOS.includes(x));
     await q(`update carteira.usuarios set modulos=$2 where id=$1`, [p[1], mods.length ? mods : null]);
@@ -1703,10 +1714,13 @@ async function rotasUsuarios(p, m, body, real) {
     return json({ ok: true });
   }
   if (p[0] === 'usuarios' && m === 'POST') {
-    const nome = String(body.nome || '').trim(), email = String(body.email || '').trim().toLowerCase();
-    if (nome.length < 3 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ erro: 'Informe nome e e-mail válidos.' }, 400);
-    const [ja] = await q('select id from carteira.usuarios where email=$1', [email]);
-    if (ja) return json({ erro: 'Esse e-mail já tem cadastro.' }, 409);
+    const nome = String(body.nome || '').trim(), cpfN = String(body.cpf || '').replace(/\D/g, '');
+    let email = String(body.email || '').trim().toLowerCase();
+    if (!email && cpfN.length === 11) email = cpfN + '@cpf.local';
+    if (nome.length < 3 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ erro: 'Informe o nome e o CPF (ou e-mail).' }, 400);
+    if (cpfN && cpfN.length !== 11) return json({ erro: 'CPF precisa ter 11 números.' }, 400);
+    const [ja] = await q('select id from carteira.usuarios where email=$1 or ($2::text <> \'\' and cpf=$2)', [email, cpfN]);
+    if (ja) return json({ erro: 'Esse CPF ou e-mail já tem cadastro.' }, 409);
     const tok = crypto.randomBytes(24).toString('hex');
     const mods = (Array.isArray(body.modulos) ? body.modulos : []).filter(x => MODULOS.includes(x));
     await q(`insert into carteira.usuarios(nome, email, cpf, telefone, senha_hash, perfil, status, token_email, aprovado_por, modulos) values ($1,$2,$3,$4,$5,'assistente','definir_senha',$6,'luis',$7)`,
@@ -2315,6 +2329,12 @@ export default async (req) => {
           [b.contrato, conf, t0 ? t0.id : null, JSON.stringify({ grupo: b.grupo, meses, dias, qtd: r.length, antes: ant ? ant.toISOString().slice(0, 10) : null, depois: t0 ? new Date(t0.vencimento).toISOString().slice(0, 10) : null }), b.obs || null]);
       }
       return json({ ok: true, qtd: r.length });
+    }
+    if (p[0] === 'asaas-transferencias' && m === 'GET' && real === 'luis') {
+      /* quem recebeu Pix/TED da conta: nome, CPF/CNPJ e chave (para identificar favorecido) */
+      const de = url.searchParams.get('de') || hojeBR(), ate = url.searchParams.get('ate') || de;
+      const r = await asaasReq('GET', `/transfers?dateCreated[ge]=${de}&dateCreated[le]=${ate}&limit=100`);
+      return json((r.data || []).map(x => ({ id: x.id, data: x.dateCreated, valor: x.value, nome: x.bankAccount?.ownerName || '', cpf_cnpj: x.bankAccount?.cpfCnpj || '', chave: x.pixAddressKey || '', tipo_chave: x.pixAddressKeyType || '' })));
     }
     if (p[0] === 'asaas-sync' && m === 'POST') {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
