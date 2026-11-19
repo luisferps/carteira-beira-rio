@@ -1944,7 +1944,7 @@ const tabAc=(head,rows)=>`<div class="card" style="overflow-x:auto"><table data-
 function desenhaAc(){const A=AC,E=A.E,S=A.S;
   const ord=['andre','luis','lucikelly','imposto','devolucao','saneago','equatorial','telefone','outro_inerente','indenizacao','conta_fca','taxas','revisar'];
   const [rr,rv]=resultadoAc();
-  const tabs=[['resumo','Resumo'],['classificar',`Não identificados${A.pendentes?' ('+A.pendentes+')':''}`],['entrada','Entradas'],['mensal','Mensais'],['anual','Intermediárias'],['cobranca','Cobrança'],['contrato','Contratos'],['saidas','Saídas'],['conf','Conferências'],['ajustes','Ajustes e texto']];
+  const tabs=[['resumo','Resumo'],['classificar',`Não identificados${A.pendentes?' ('+A.pendentes+')':''}`],['entrada','Entradas'],['mensal','Mensais'],['anual','Intermediárias'],['cobranca','Cobrança'],['contrato','Contratos'],['saidas','Saídas'],['dia','Dia a dia'],['conf','Conferências'],['ajustes','Ajustes e texto']];
   app.innerHTML=`<div class="bt" style="margin-bottom:10px;align-items:center"><button onclick="location.hash=''">← Início</button>
    <select style="width:auto" onchange="location.hash='acerto/'+this.value">${opcoesMesAc(A.mes)}</select>
    ${A.fechado?`<span class="tag ok">Fechado em ${dbr(A.fechado_em)}</span><button onclick="reabreAc()">Reabrir</button>`:`<button onclick="carregaAc('${A.mes}',true)">Atualizar do Asaas</button><button class="pri" onclick="fechaAc()">Fechar o mês</button>`}
@@ -1984,6 +1984,17 @@ function desenhaAc(){const A=AC,E=A.E,S=A.S;
     const cS={andre:AZUL,luis:ROXO,lucikelly:ROXO,imposto:ROXO,telefone:ROXO,equatorial:ROXO,saneago:ROXO,outro_inerente:ROXO,devolucao:'#0d9488',indenizacao:CINZA,conta_fca:CINZA,revisar:VERM};
     el.innerHTML=`<div class="card"><h3 style="margin:0">Saídas — ${A.saidas.length} lançamento(s) · ${brl(A.totS)}</h3><div class="mut">Roxo: sai do montante da Inerente · Azul: André · Verde-água: devoluções · Cinza: outras da FCA</div></div>
      ${tabAc(['Data','Beneficiário','Valor','Categoria',''],[...A.saidas.filter(x=>x.cat!=='taxas').map(x=>`<tr><td>${dbr(x.data)}</td><td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${cS[x.cat]||CINZA};margin-right:6px"></span>${esc(x.beneficiario||x.descricao)}</td><td class="r">${n2b(-x.valor)}</td><td>${selSaiAc(x)}</td><td>${x.duvida?'<span class="tag al">confira</span>':''}</td></tr>`),`<tr><td></td><td>Custos da Conta — taxas do Asaas (${A.saidas.filter(x=>x.cat==='taxas').length} lançamentos)</td><td class="r">${n2b(Math.abs(S.taxas.total))}</td><td colspan="2"></td></tr>`,`<tr class="tt"><td colspan="2">Total (${A.saidas.length})</td><td class="r">${n2b(A.totS)}</td><td colspan="2"></td></tr>`])}`;
+  }else if(ACTAB==='dia'){
+    /* dia a dia: o que entrou e o que saiu em cada data, separado por grupo, e o saldo acumulado do mês */
+    const dias={};const g=(d)=>dias[d]||(dias[d]={E:{},S:{},te:0,ts:0,hon:0});
+    for(const x of A.entradas){const o=g(String(x.data).slice(0,10)),c=x.cat||'revisar';o.E[c]=r2((o.E[c]||0)+Number(x.valor||0));o.te=r2(o.te+Number(x.valor||0))}
+    for(const x of A.saidas){const o=g(String(x.data).slice(0,10)),c=x.cat||'revisar';o.S[c]=r2((o.S[c]||0)-Number(x.valor||0));o.ts=r2(o.ts-Number(x.valor||0))}
+    const ordE=['entrada','mensal','anual','cobranca','contrato','revisar'];let acum=0;
+    const linhas=Object.keys(dias).sort().map(d=>{const o=dias[d];acum=r2(acum+o.te-o.ts);
+      const sub=(m,ord,lab,cor)=>ord.filter(k=>m[k]).map(k=>`<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;color:${cor}"><span>${esc(lab[k]?.rotulo||k)}</span><span>${brl(m[k])}</span></div>`).join('');
+      return `<tr style="vertical-align:top"><td><b>${dbr(d)}</b></td><td class="r"><b>${brl(o.te)}</b>${sub(o.E,ordE,E,'var(--mut)')}</td><td class="r"><b>${brl(o.ts)}</b>${sub(o.S,ord,S,'var(--mut)')}</td><td class="r" style="color:${o.te-o.ts<0?'var(--er,#b91c1c)':'inherit'}">${brl(r2(o.te-o.ts))}</td><td class="r"><b>${brl(acum)}</b></td></tr>`});
+    el.innerHTML=`<div class="card"><h3 style="margin:0">Dia a dia — ${Object.keys(dias).length} dia(s) com movimento</h3><div class="mut">Por data em que o dinheiro caiu ou saiu da conta. Embaixo de cada valor, o que foi por grupo. Saldo acumulado = o que entrou menos o que saiu desde o dia 1º do mês.</div></div>
+     ${tabAc(['Data','Entrou','Saiu','Saldo do dia','Saldo acumulado'],[...linhas,`<tr><td><b>Total do mês</b></td><td class="r"><b>${brl(A.totE)}</b></td><td class="r"><b>${brl(A.totS)}</b></td><td class="r"><b>${brl(r2(A.totE-A.totS))}</b></td><td></td></tr>`])}`;
   }else if(ACTAB==='conf'){
     el.innerHTML=tabAc(['','Conferência','Resultado'],A.conferencias.map(c=>`<tr><td>${c.ok?'✅':'⚠️'}</td><td><b>${esc(c.t)}</b></td><td>${esc(c.d)}</td></tr>`));
   }else if(ACTAB==='ajustes'){
