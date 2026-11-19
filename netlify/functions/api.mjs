@@ -1936,7 +1936,9 @@ async function rotasCobranca(p, m, body, url, real) {
     const [novo] = await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, resultado, texto, data_promessa, valor_promessa, por, em) values ($1,$2,$3,$4,$5,$6,$7,$8,coalesce($9::timestamptz, now())) returning id`,
       [c.id, c.contrato, b.tipo || 'nota', b.resultado || null, b.texto || null, b.data_promessa || null, b.valor_promessa || null, quem, emData]);
     if (b.etapa === 'sem_retorno' && !podeSemRetorno(c.etapa)) return json({ erro: 'Sem retorno só depois do contato 3.' }, 400);
-    const novaEtapa = b.etapa || (b.data_promessa ? 'promessa' : (['whatsapp', 'ligacao', 'email', 'visita'].includes(b.tipo) && b.resultado !== 'Número errado' ? PROX_CONTATO[c.etapa] || null : null));
+    /* outra mensagem no mesmo dia (outro número da mesma família, o 1º não tinha WhatsApp) é o mesmo contato: não anda a etapa */
+    const [mesmoDia] = b.tipo === 'whatsapp' ? await q(`select 1 from carteira.cobranca_registros where caso_id=$1 and id<>$2 and tipo='whatsapp' and resultado='Mensagem enviada' and (em at time zone 'America/Sao_Paulo')::date = coalesce($3::date, (now() at time zone 'America/Sao_Paulo')::date) limit 1`, [c.id, novo.id, emData ? b.data : null]) : [];
+    const novaEtapa = b.etapa || (b.data_promessa ? 'promessa' : (['whatsapp', 'ligacao', 'email', 'visita'].includes(b.tipo) && b.resultado !== 'Número errado' && !mesmoDia ? PROX_CONTATO[c.etapa] || null : null));
     if (novaEtapa && novaEtapa !== c.etapa) await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,$4)`, [c.id, c.contrato, `${c.etapa} → ${novaEtapa}`, quem]);
     await q(`update carteira.cobranca_casos set etapa=coalesce($2, etapa), proximo_contato=coalesce($3::date, proximo_contato), atualizado_em=now() where id=$1`, [c.id, novaEtapa, b.proximo_contato || b.data_promessa || null]);
     return json({ ok: true, id: novo.id });
