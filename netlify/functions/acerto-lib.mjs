@@ -201,6 +201,8 @@ export function criaAcerto({ q, asaas, json, log, dev }) {
         else if (regras[n]) { cat = regras[n]; como = 'nome já classificado antes'; }
         else if (dev && dev.contratoDoFavorecido(DL, ben)) { cat = 'devolucao'; como = 'devolução do contrato ' + dev.contratoDoFavorecido(DL, ben).contrato; }
         else { const r = REGRAS_FIXAS.find(([re]) => re.test(n)); cat = r ? r[1] : 'revisar'; como = r ? 'regra fixa' : DUVIDA.test(n) ? 'imposto da folha (Inerente) ou conta a pedido do André (FCA)?' : 'nome novo'; }
+        /* a conta de telefone é paga à Camilla; Pix grande para ela não é telefone — fica para você classificar */
+        if (cat === 'telefone' && Math.abs(Number(e.valor)) > 300) { cat = 'revisar'; como = 'valor alto para conta de telefone — conferir o que é'; }
         const auto = cat;
         if (cls[e.id]) { cat = cls[e.id]; como = 'classificado por você'; }
         sai.push({ id: e.id, data: e.data, descricao: e.descricao, beneficiario: ben, valor: R2(v), cat, auto, como, duvida: DUVIDA.test(n), tipo: e.tipo });
