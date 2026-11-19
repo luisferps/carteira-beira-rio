@@ -1570,7 +1570,11 @@ async function garanteUsuarios() {
            senha_hash text not null, perfil text not null default 'assistente', status text not null default 'aguardando_aprovacao',
            token_email text, criado_em timestamptz default now(), aprovado_em timestamptz, aprovado_por text, ultimo_acesso timestamptz)`);
   await q(`create table if not exists carteira.sessoes(token text primary key, usuario_id int not null, criado_em timestamptz default now(), expira_em timestamptz not null)`);
+  if (!garanteUsuarios.mod) { await q(`alter table carteira.usuarios add column if not exists modulos text[]`); garanteUsuarios.mod = true; }
 }
+/* módulos que o administrador libera por usuário (vazio = tudo o que o assistente já tinha) */
+const MODULOS = ['contratos', 'documentos', 'mapa', 'clientes', 'cobranca', 'boletos', 'cessoes', 'devolucoes', 'quitacao'];
+const moduloDaRota = p => ({ cessoes: 'cessoes', devolucoes: 'devolucoes', cobranca: 'cobranca', documentos: 'documentos', documento: 'documentos' })[p[0]] || (p[0] === 'relatorios' && p[1] === 'quitacao' ? 'quitacao' : null);
 const hashSenha = s => { const sal = crypto.randomBytes(16).toString('hex'); return sal + ':' + crypto.scryptSync(s, sal, 64).toString('hex'); };
 const confereSenha = (s, h) => { const [sal, x] = String(h).split(':'); if (!sal || !x) return false; const y = crypto.scryptSync(s, sal, 64).toString('hex'); return crypto.timingSafeEqual(Buffer.from(x, 'hex'), Buffer.from(y, 'hex')); };
 async function enviaEmail(para, assunto, html) {
@@ -1691,15 +1695,22 @@ async function rotasUsuarios(p, m, body, real) {
   if (p[0] !== 'usuarios' && p[0] !== 'usuario') return null;
   if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
   await garanteUsuarios();
-  if (p[0] === 'usuarios' && m === 'GET') return json(await q(`select id, nome, email, cpf, telefone, perfil, status, criado_em, aprovado_em, ultimo_acesso from carteira.usuarios order by criado_em desc`));
+  if (p[0] === 'usuarios' && m === 'GET') return json(await q(`select id, nome, email, cpf, telefone, perfil, status, modulos, criado_em, aprovado_em, ultimo_acesso from carteira.usuarios order by criado_em desc`));
+  if (p[0] === 'usuario' && p[1] && p[2] === 'modulos' && m === 'PUT') {
+    const mods = (Array.isArray(body.modulos) ? body.modulos : []).filter(x => MODULOS.includes(x));
+    await q(`update carteira.usuarios set modulos=$2 where id=$1`, [p[1], mods.length ? mods : null]);
+    await log('luis', 'usuario_modulos', { id: p[1], modulos: mods });
+    return json({ ok: true });
+  }
   if (p[0] === 'usuarios' && m === 'POST') {
     const nome = String(body.nome || '').trim(), email = String(body.email || '').trim().toLowerCase();
     if (nome.length < 3 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ erro: 'Informe nome e e-mail válidos.' }, 400);
     const [ja] = await q('select id from carteira.usuarios where email=$1', [email]);
     if (ja) return json({ erro: 'Esse e-mail já tem cadastro.' }, 409);
     const tok = crypto.randomBytes(24).toString('hex');
-    await q(`insert into carteira.usuarios(nome, email, cpf, telefone, senha_hash, perfil, status, token_email, aprovado_por) values ($1,$2,$3,$4,$5,'assistente','definir_senha',$6,'luis')`,
-      [nome, email, String(body.cpf || '').replace(/\D/g, '') || null, String(body.telefone || '').trim() || null, hashSenha(crypto.randomBytes(16).toString('hex')), tok]);
+    const mods = (Array.isArray(body.modulos) ? body.modulos : []).filter(x => MODULOS.includes(x));
+    await q(`insert into carteira.usuarios(nome, email, cpf, telefone, senha_hash, perfil, status, token_email, aprovado_por, modulos) values ($1,$2,$3,$4,$5,'assistente','definir_senha',$6,'luis',$7)`,
+      [nome, email, String(body.cpf || '').replace(/\D/g, '') || null, String(body.telefone || '').trim() || null, hashSenha(crypto.randomBytes(16).toString('hex')), tok, mods.length ? mods : null]);
     await log('luis', 'usuario_criado', { nome, email });
     return json({ ok: true, token: tok });
   }
@@ -2241,9 +2252,15 @@ export default async (req) => {
   const m = req.method;
   const body = m === 'GET' || m === 'DELETE' ? {} : await req.json().catch(() => ({}));
   const real = conf;
+  const MODS = usuario && Array.isArray(usuario.modulos) && usuario.modulos.length ? usuario.modulos : null;
+  let realMod = real;
   if (conf === 'assistente') {
     conf = 'luis';
-    if (!(await permitidoAssistente(p, m, body))) return json({ erro: 'Seu perfil (assistente administrativo) não permite essa ação.' }, 403);
+    const md = moduloDaRota(p);
+    if (MODS && md && !MODS.includes(md)) return json({ erro: 'Esse módulo não está liberado para você.' }, 403);
+    /* cessões, devoluções e quitação liberadas por módulo: a pessoa trabalha nelas como o administrador */
+    if (MODS && ['cessoes', 'devolucoes', 'quitacao'].includes(md)) realMod = 'luis';
+    else if (!(await permitidoAssistente(p, m, body))) return json({ erro: 'Seu perfil (assistente administrativo) não permite essa ação.' }, 403);
   }
   if (real === 'luis' && req.headers.get('x-como') === 'final') conf = 'final';
   ATOR = usuario ? usuario.email : real;
@@ -2273,14 +2290,14 @@ export default async (req) => {
       where b.titulo_id is null and b.status=any($1) and b.tipo='acordo' order by b.contrato,b.vencimento`, [ATIVOS_B]);
     return json({ abertas, acordos, titulos, pagos, semVinculo });
   }
-  { const rd = await DEV.rotas(p, m, body, real); if (rd) return rd; }
-  { const rc2 = await rotasCessoes(p, m, body, real); if (rc2) return rc2; }
+  { const rd = await DEV.rotas(p, m, body, realMod); if (rd) return rd; }
+  { const rc2 = await rotasCessoes(p, m, body, realMod); if (rc2) return rc2; }
   { const rp = await rotasPainel(p, m, body, real); if (rp) return rp; }
   if (p[0]==='onedrive') return onedrive.rota(p,m,body,real,url,usuario?.email||real,preparaAnexo,req);
   { const rdc = await rotasDocumentos(p, m, body, real, url, usuario?.email || real); if (rdc) return rdc; }
 
   try {
-    if (p[0] === 'eu') return json({ conferente: real, nome: usuario?.nome || null });
+    if (p[0] === 'eu') return json({ conferente: real, nome: usuario?.nome || null, modulos: MODS });
 
     if (p[0] === 'ajusta-vencimentos' && m === 'POST') {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
