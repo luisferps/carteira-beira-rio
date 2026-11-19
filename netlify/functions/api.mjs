@@ -1637,6 +1637,16 @@ async function rotasPublicas(p, req, url) {
     await garanteUsuarios();
     const b = await req.json().catch(() => ({}));
     if (String(b.senha || '').length < 8) return json({ erro: 'A senha precisa ter pelo menos 8 caracteres.' }, 400);
+    /* o CPF é o login: quem ainda não tem CPF cadastrado informa aqui; quem tem precisa confirmar o mesmo */
+    if (b.token) {
+      const [u0] = await q(`select id, cpf from carteira.usuarios where token_email=$1 and status='definir_senha'`, [String(b.token)]);
+      const cpfN = String(b.cpf || '').replace(/\D/g, '');
+      if (u0) {
+        if (cpfN.length !== 11) return json({ erro: 'Informe o seu CPF (11 números). Ele é o seu login.' }, 400);
+        if (u0.cpf && u0.cpf !== cpfN) return json({ erro: 'Esse CPF não confere com o cadastro. Fale com o administrador.' }, 400);
+        if (!u0.cpf) { const [ja] = await q('select id from carteira.usuarios where cpf=$1 and id<>$2', [cpfN, u0.id]); if (ja) return json({ erro: 'Esse CPF já tem cadastro.' }, 409); await q('update carteira.usuarios set cpf=$2 where id=$1', [u0.id, cpfN]); }
+      }
+    }
     const r = b.token ? await q(`update carteira.usuarios set senha_hash=$2, status='ativo', token_email=null, aprovado_em=coalesce(aprovado_em, now()) where token_email=$1 and status='definir_senha' returning nome, email, cpf`, [String(b.token), hashSenha(String(b.senha))]) : [];
     if (!r.length) return json({ erro: 'Link inválido ou já usado. Peça um novo ao administrador.' }, 400);
     await log(r[0].email, 'senha_definida', {});
@@ -2329,12 +2339,6 @@ export default async (req) => {
           [b.contrato, conf, t0 ? t0.id : null, JSON.stringify({ grupo: b.grupo, meses, dias, qtd: r.length, antes: ant ? ant.toISOString().slice(0, 10) : null, depois: t0 ? new Date(t0.vencimento).toISOString().slice(0, 10) : null }), b.obs || null]);
       }
       return json({ ok: true, qtd: r.length });
-    }
-    if (p[0] === 'asaas-transferencias' && m === 'GET' && real === 'luis') {
-      /* quem recebeu Pix/TED da conta: nome, CPF/CNPJ e chave (para identificar favorecido) */
-      const de = url.searchParams.get('de') || hojeBR(), ate = url.searchParams.get('ate') || de;
-      const r = await asaasReq('GET', `/transfers?dateCreated[ge]=${de}&dateCreated[le]=${ate}&limit=100`);
-      return json((r.data || []).map(x => ({ id: x.id, data: x.dateCreated, valor: x.value, nome: x.bankAccount?.ownerName || '', cpf_cnpj: x.bankAccount?.cpfCnpj || '', chave: x.pixAddressKey || '', tipo_chave: x.pixAddressKeyType || '' })));
     }
     if (p[0] === 'asaas-sync' && m === 'POST') {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);

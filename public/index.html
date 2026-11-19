@@ -133,9 +133,9 @@ function telaLogin(msg){
 function telaSenha(tok,msg){
   app.innerHTML=`<div class="card" style="max-width:420px;margin:50px auto"><h3>Criar sua senha</h3>${msg?`<div class="aviso">${msg}</div>`:''}
   <div class="info">Crie a sua senha de acesso ao sistema. Ninguém mais vê essa senha.</div>
-  <label>Senha (mínimo 8 caracteres)</label><input id="ns1" type="password"><br><br><label>Repita a senha</label><input id="ns2" type="password"><br><br><button class="pri" id="nsok">Salvar senha</button></div>`;
+  <label>Seu CPF (é o seu login)</label><input id="ns0" inputmode="numeric" autocomplete="username"><br><br><label>Senha (mínimo 8 caracteres)</label><input id="ns1" type="password" autocomplete="new-password"><br><br><label>Repita a senha</label><input id="ns2" type="password"><br><br><button class="pri" id="nsok">Salvar senha</button></div>`;
   $('#nsok').onclick=async()=>{if($('#ns1').value!==$('#ns2').value)return telaSenha(tok,'As senhas não conferem.');
-    const r=await fetch('/api/definir-senha',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:tok,senha:$('#ns1').value})});const d=await r.json().catch(()=>({}));
+    const r=await fetch('/api/definir-senha',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:tok,cpf:$('#ns0').value,senha:$('#ns1').value})});const d=await r.json().catch(()=>({}));
     if(!r.ok)return telaSenha(tok,d.erro||'Erro.');location.hash='';telaLogin('Senha criada. Entre com '+(d.cpf?'o seu CPF':'o e-mail '+esc(d.email))+' e a senha que você acabou de criar.')}}
 function telaCadastro(msg){
   app.innerHTML=`<div class="card" style="max-width:440px;margin:40px auto"><h3>Criar meu acesso</h3>${msg?`<div class="aviso">${msg}</div>`:''}
