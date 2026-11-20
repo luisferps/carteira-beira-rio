@@ -1513,9 +1513,8 @@ function modalAcordo(aid,pid){
       else{$('#a_val').value=brl(r2(P.reduce((a,p)=>a+Number(p.valor||0),0)));peloValor();mostraB()}}soma()};soma()};
   const soma=()=>{const s=r2(P.reduce((a,p)=>a+Number(p.valor||0),0)),v=num($('#a_val').value);
     exibeRateio();
-    const limite=$('#a_data').value?addMesDia($('#a_data').value,12):'9999-12-31';
-    const reajustam=(!a||a.reajustes_anuais!=null)&&P.filter(p=>p.vencimento>=limite).length;
-    const aviso=reajustam?`<br>${reajustam} parcela(s) a partir de ${dbr(limite)} entram na correção anual antes da emissão.`:'';
+    /* o acordo só lista as parcelas; a correção anual é lançada depois, no dia, pelo botão de corrigir */
+    const aviso='';
     if(jf()>0&&P.length>1){$('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> — valor acordado ${brl(v)} + juros de financiamento ${brl(r2(s-v))} (${pf(jf()*100)} ao mês sobre ${brl(r2(v-Number(P[0].valor||0)))}, em ${P.length-1} parcelas)${aviso}`;return}
     $('#a_soma').innerHTML=`Soma das parcelas: <b>${brl(s)}</b> ${Math.abs(s-v)>0.009?'<span style="color:var(--at)">— diferente do valor acordado</span>':''}${aviso}`};
   if(a){B={pr:Number(a.principal||0),mu:Number(a.multa||0),ju:Number(a.juros||0),ho:Number(a.honorarios||0),de:Number(a.desconto_encargos||0)};$('#a_val').value=brl(a.valor_acordado)}
