@@ -1721,7 +1721,7 @@ async function rotasUsuarios(p, m, body, real) {
   if (p[0] !== 'usuarios' && p[0] !== 'usuario') return null;
   if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
   await garanteUsuarios();
-  if (p[0] === 'usuarios' && m === 'GET') return json(await q(`select id, nome, email, cpf, telefone, perfil, status, modulos, criado_em, aprovado_em, ultimo_acesso from carteira.usuarios order by criado_em desc`));
+  if (p[0] === 'usuarios' && m === 'GET') return json(await q(`select id, nome, email, cpf, telefone, perfil, status, modulos, trocar_senha, criado_em, aprovado_em, ultimo_acesso from carteira.usuarios order by criado_em desc`));
   if (p[0] === 'usuario' && p[1] && p[2] === 'dados' && m === 'PUT') {
     const cpfN = String(body.cpf || '').replace(/\D/g, '');
     if (cpfN && cpfN.length !== 11) return json({ erro: 'CPF precisa ter 11 números.' }, 400);
@@ -1730,6 +1730,13 @@ async function rotasUsuarios(p, m, body, real) {
     if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ erro: 'E-mail inválido.' }, 400);
     await q(`update carteira.usuarios set nome=coalesce(nullif($2,''), nome), cpf=coalesce(nullif($3,''), cpf), telefone=coalesce(nullif($4,''), telefone), email=coalesce(nullif($5,''), email) where id=$1`, [p[1], String(body.nome || '').trim(), cpfN, String(body.telefone || '').trim(), email]);
     await log('luis', 'usuario_dados', { id: p[1] });
+    return json({ ok: true });
+  }
+  if (p[0] === 'usuario' && p[1] && p[2] === 'exigir-troca' && m === 'POST') {
+    /* no próximo acesso a pessoa é obrigada a criar a senha dela (a atual vira provisória) */
+    await q(`update carteira.usuarios set trocar_senha=true where id=$1`, [p[1]]);
+    await q(`delete from carteira.sessoes where usuario_id=$1`, [p[1]]);
+    await log('luis', 'exigir_troca_senha', { id: p[1] });
     return json({ ok: true });
   }
   if (p[0] === 'usuario' && p[1] && p[2] === 'senha-provisoria' && m === 'POST') {
