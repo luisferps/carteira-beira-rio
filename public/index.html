@@ -115,7 +115,7 @@ async function api(path,opt={}){
   const r=await fetch('/api/'+path,{method:opt.method||'GET',headers:{'x-pin':PIN,'x-como':COMO,'content-type':'application/json'},body:opt.body?JSON.stringify(opt.body):undefined});
   const d=(await r.json().catch(()=>({erro:'Resposta inválida'})))??(r.ok?{}:{erro:'Resposta vazia do servidor'});
   if(r.status===401){PIN='';try{localStorage.removeItem('cbr_pin')}catch(e){}telaLogin(d.erro||'Senha inválida');throw new Error('401')}
-  if(!r.ok||d.erro){if(!opt.silencioso)alert(d.erro||'Erro');throw new Error(d.erro||'Erro')}
+  if(!r.ok||d.erro){if(!opt.silencioso&&!(r.status===403&&/módulo não está liberado/.test(d.erro||'')))alert(d.erro||'Erro');throw new Error(d.erro||'Erro')}
   return d;
 }
 function telaLogin(msg){
@@ -868,7 +868,7 @@ async function retificarEntrada0252(arquivo){
 }
 async function telaLista(){
   app.innerHTML='<div class="card">Carregando…</div>';setTimeout(()=>{avisoPagadores();avisoTermos();avisoProcuradores()},1500);
-  const pat=(EU==='luis'||EU==='assistente')?api('cobranca/ativos').catch(()=>[]):Promise.resolve([]);
+  const pat=pode('cobranca')?api('cobranca/ativos',{silencioso:true}).catch(()=>[]):Promise.resolve([]);
   LISTA=await api('contratos');COBAT=Object.fromEntries((await pat).map(x=>[x.contrato,x]));LSELS.clear();LSEL=false;if(LSEL_GO){LSEL_GO=false;LSEL=true;FILTRO.clear();FILTRO.add('grave')}
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div><div class="card"><div class="bt" style="align-items:center"><h3 style="margin:0;flex:1">Contratos (${LISTA.length})</h3><span id="lcont" class="mut"></span>${['luis','assistente'].includes(EU)?'<button class="pri" onclick="novoContratoVenda()">Novo contrato</button>':''}</div><div id="pgorg"></div><div id="tmorg"></div><div id="prorg"></div><br>
   <input id="bus" placeholder="Buscar por número, quadra, lote ou nome (com ou sem acento)">
