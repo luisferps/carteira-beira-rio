@@ -44,9 +44,23 @@ async function pinSecretariaDesligado() {
   PSOFF = { v: r?.valor === '1', em: Date.now() };
   return PSOFF.v;
 }
+/* senha do administrador trocada pela tela (guardada só como hash); sem ela, vale a da Netlify */
+let PLH = null; const PLOK = new Map();
+async function carregaPinLuis() {
+  if (PLH && Date.now() - PLH.em < 60000) return;
+  await q(`create table if not exists carteira.config_geral(chave text primary key, valor text, em timestamptz default now())`);
+  const [r] = await q(`select valor from carteira.config_geral where chave='pin_luis_hash'`);
+  if (!PLH || PLH.v !== (r?.valor || null)) PLOK.clear();
+  PLH = { v: r?.valor || null, em: Date.now() };
+}
+function pinDoLuis(pin) {
+  if (!PLH?.v) return pin === PL;
+  if (PLOK.has(pin)) return PLOK.get(pin);
+  const ok = !pin.startsWith('tok:') && confereSenha(pin, PLH.v); if (PLOK.size > 50) PLOK.clear(); PLOK.set(pin, ok); return ok;
+}
 function quem(req) {
   const pin = (req.headers.get('x-pin') || '').trim();
-  if (pin && pin === PL) return 'luis';
+  if (pin && pinDoLuis(pin)) return 'luis';
   if (pin && pin === PS) return 'secretaria';
   return null;
 }
@@ -1570,7 +1584,7 @@ async function garanteUsuarios() {
            senha_hash text not null, perfil text not null default 'assistente', status text not null default 'aguardando_aprovacao',
            token_email text, criado_em timestamptz default now(), aprovado_em timestamptz, aprovado_por text, ultimo_acesso timestamptz)`);
   await q(`create table if not exists carteira.sessoes(token text primary key, usuario_id int not null, criado_em timestamptz default now(), expira_em timestamptz not null)`);
-  if (!garanteUsuarios.mod) { await q(`alter table carteira.usuarios add column if not exists modulos text[]`); garanteUsuarios.mod = true; }
+  if (!garanteUsuarios.mod) { await q(`alter table carteira.usuarios add column if not exists modulos text[]`); await q(`alter table carteira.usuarios add column if not exists trocar_senha boolean default false`); garanteUsuarios.mod = true; }
 }
 /* módulos que o administrador libera por usuário (vazio = tudo o que o assistente já tinha) */
 const MODULOS = ['contratos', 'documentos', 'mapa', 'clientes', 'cobranca', 'boletos', 'cessoes', 'devolucoes', 'quitacao'];
@@ -1668,13 +1682,14 @@ async function rotasPublicas(p, req, url) {
     const tok = crypto.randomBytes(32).toString('hex');
     await q(`insert into carteira.sessoes(token, usuario_id, expira_em) values ($1,$2, now() + interval '30 days')`, [tok, u.id]);
     await log(u.email, 'login', { usuario: u.id });
-    return json({ token: tok, nome: u.nome, perfil: u.perfil });
+    return json({ token: tok, nome: u.nome, perfil: u.perfil, trocar_senha: !!u.trocar_senha });
   }
   return null;
 }
 /* o que o assistente administrativo pode fazer */
 async function permitidoAssistente(p, m, body) {
   const a = p[0], s = p[1];
+  if (a === 'minha-senha') return m === 'POST' && !s;
   if (a === 'onedrive') return !p[2] && ((m==='GET'&&['status','listar','abrir'].includes(s)) || (m==='POST'&&s==='enviar'));
   if (a === 'contrato-excluir') return m === 'DELETE' && !p[2] && /^\d{4}$/.test(s || '');
   if (a === 'contrato-novo') return !p[2] && (
@@ -1715,6 +1730,14 @@ async function rotasUsuarios(p, m, body, real) {
     if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ erro: 'E-mail inválido.' }, 400);
     await q(`update carteira.usuarios set nome=coalesce(nullif($2,''), nome), cpf=coalesce(nullif($3,''), cpf), telefone=coalesce(nullif($4,''), telefone), email=coalesce(nullif($5,''), email) where id=$1`, [p[1], String(body.nome || '').trim(), cpfN, String(body.telefone || '').trim(), email]);
     await log('luis', 'usuario_dados', { id: p[1] });
+    return json({ ok: true });
+  }
+  if (p[0] === 'usuario' && p[1] && p[2] === 'senha-provisoria' && m === 'POST') {
+    const s = String(body.senha || '');
+    if (s.length < 6) return json({ erro: 'A senha provisória precisa ter pelo menos 6 caracteres.' }, 400);
+    await q(`update carteira.usuarios set senha_hash=$2, status='ativo', token_email=null, trocar_senha=true, aprovado_em=coalesce(aprovado_em, now()) where id=$1`, [p[1], hashSenha(s)]);
+    await q(`delete from carteira.sessoes where usuario_id=$1`, [p[1]]);
+    await log('luis', 'senha_provisoria', { id: p[1] });
     return json({ ok: true });
   }
   if (p[0] === 'usuario' && p[1] && p[2] === 'modulos' && m === 'PUT') {
@@ -2265,6 +2288,7 @@ export default async (req) => {
   const pinTentado = (req.headers.get('x-pin') || '').trim();
   const ehPin = pinTentado && !pinTentado.startsWith('tok:');
   if (ehPin && await bloqueadoLogin(ipDe(req))) return json({ erro: MSG_BLOQ }, 401);
+  await carregaPinLuis();
   let conf = quem(req), usuario = null;
   if (conf === 'secretaria' && await pinSecretariaDesligado()) conf = null;
   if (!conf) { usuario = await usuarioDaSessao(req); if (usuario) conf = usuario.perfil === 'gestor' ? 'luis' : 'assistente'; }
@@ -2321,7 +2345,23 @@ export default async (req) => {
   { const rdc = await rotasDocumentos(p, m, body, real, url, usuario?.email || real); if (rdc) return rdc; }
 
   try {
-    if (p[0] === 'eu') return json({ conferente: real, nome: usuario?.nome || null, modulos: MODS });
+    if (p[0] === 'eu') return json({ conferente: real, nome: usuario?.nome || null, modulos: MODS, trocar_senha: !!usuario?.trocar_senha });
+    /* trocar a própria senha: o administrador (senha principal) ou o usuário logado */
+    if (p[0] === 'minha-senha' && m === 'POST') {
+      const nova = String(body.nova || '');
+      if (nova.trim().length < 6) return json({ erro: 'A senha precisa ter pelo menos 6 caracteres.' }, 400);
+      if (usuario) {
+        await q(`update carteira.usuarios set senha_hash=$2, trocar_senha=false where id=$1`, [usuario.id, hashSenha(nova)]);
+        await log(usuario.email, 'senha_trocada', { usuario: usuario.id });
+        return json({ ok: true });
+      }
+      if (real !== 'luis') return json({ erro: 'Só o administrador troca a senha principal.' }, 403);
+      await garanteUsuarios();
+      await q(`insert into carteira.config_geral(chave, valor, em) values ('pin_luis_hash', $1, now()) on conflict (chave) do update set valor=excluded.valor, em=now()`, [hashSenha(nova.trim())]);
+      PLH = null; PLOK.clear();
+      await log('luis', 'senha_principal_trocada', {});
+      return json({ ok: true });
+    }
 
     if (p[0] === 'ajusta-vencimentos' && m === 'POST') {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);

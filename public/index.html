@@ -96,7 +96,7 @@ details{border:1px solid var(--ln);border-radius:10px;padding:10px 12px;margin-t
 </style>
 </head>
 <body>
-<header><img src="logo.png" alt=""><b>Carteira Beira Rio</b><span class="sp"></span><span id="quem"></span><button id="sair" class="hid">Sair</button></header>
+<header><img src="logo.png" alt=""><b>Carteira Beira Rio</b><span class="sp"></span><span id="quem"></span><button id="senhaBt" class="hid" onclick="location.hash='minha-senha'" title="Trocar minha senha">Minha senha</button><button id="sair" class="hid">Sair</button></header>
 <main id="app"></main>
 <div id="modal"></div>
 <script>
@@ -119,7 +119,7 @@ async function api(path,opt={}){
   return d;
 }
 function telaLogin(msg){
-  $('#quem').textContent='';$('#sair').classList.add('hid');document.body.classList.remove('assist');
+  $('#quem').textContent='';$('#sair').classList.add('hid');$('#senhaBt')?.classList.add('hid');document.body.classList.remove('assist');
   app.innerHTML=`<div class="card" style="max-width:400px;margin:60px auto"><h3>Entrar</h3>${msg?`<div class="aviso">${msg}</div>`:''}
   <label>CPF</label><input id="em" autocomplete="username" placeholder="seu CPF (o administrador pode deixar em branco)"><br><br>
   <label>Senha</label><input id="pin" type="password" autocomplete="current-password"><br><br><button class="pri" id="ent">Entrar</button>
@@ -151,10 +151,10 @@ async function iniciar(){
   if(location.hash==='#cadastro')return telaCadastro();
   if(location.hash.startsWith('#senha/'))return telaSenha(location.hash.slice(7));
   if(!PIN)return telaLogin();
-  try{const d=await api('eu');EU=d.conferente;NOMEU=d.nome||'';MODS=EU==='assistente'&&Array.isArray(d.modulos)&&d.modulos.length?d.modulos:null}catch(e){return}
+  try{const d=await api('eu');EU=d.conferente;NOMEU=d.nome||'';MODS=EU==='assistente'&&Array.isArray(d.modulos)&&d.modulos.length?d.modulos:null;if(d.trocar_senha)return telaTrocaSenha(true)}catch(e){return}
   document.body.classList.toggle('assist',EU==='assistente');
   $('#quem').innerHTML=EU==='assistente'?`<button onclick="location.hash=''">Início</button> <span style="font-size:13px">${esc(NOMEU)} · assistente administrativo</span>`:'<button onclick="location.hash=\'\'">Início</button>';
-  $('#sair').classList.remove('hid');$('#sair').onclick=()=>{PIN='';try{localStorage.removeItem('cbr_pin')}catch(e){};telaLogin()};
+  $('#sair').classList.remove('hid');$('#senhaBt').classList.remove('hid');$('#sair').onclick=()=>{PIN='';try{localStorage.removeItem('cbr_pin')}catch(e){};telaLogin()};
   route();if(EU==='luis')montaIA();
 }
 window.onhashchange=()=>{route();if(EU==='luis')setTimeout(()=>{contaIA();if($('#iapanel'))desenhaIA()},1500)};
@@ -197,6 +197,7 @@ const MOD_NOMES=[['contratos','Contratos'],['documentos','Documentos'],['mapa','
 function pode(k){if(EU==='luis')return true;if(EU!=='assistente')return ['contratos','mapa','clientes'].includes(k);if(!MODS)return ['contratos','documentos','mapa','clientes','cobranca','boletos'].includes(k);return MODS.includes(k)}
 function modDaHash(h){if(h.startsWith('c/')||h==='contratos'||h==='onedrive')return 'contratos';if(h.startsWith('cl/')||h==='clientes')return pode('clientes')?'clientes':'contratos';if(h.startsWith('cob/')||h==='cobranca')return 'cobranca';return ['documentos','mapa','boletos','cessoes','devolucoes','quitacao'].includes(h)?h:null}
 function route(){const h=location.hash.slice(1);COMO='';
+  if(h==='minha-senha')return telaTrocaSenha(false);
   if(EU==='assistente'&&MODS){const md=modDaHash(h);if(h&&(!md||!pode(md))){if(location.hash)history.replaceState(null,'',location.pathname+location.search);return telaModulos()}}document.body.classList.toggle('largo',h==='cobranca');
   if(h.startsWith('f/')&&EU==='luis'){COMO='final';abrirContrato(h.slice(2))}
   else if(h==='rateio-acordos'&&EU==='luis')telaRateioAcordos();
@@ -536,7 +537,7 @@ async function telaUsuarios(){const L=await api('usuarios');const PSx=await api(
   <div class="bt" style="align-items:flex-end;margin-bottom:10px"><div><label>Nome</label><input id="nu_n" style="width:220px"></div><div><label>CPF (é o login)</label><input id="nu_c" style="width:140px"></div><div><label>E-mail (opcional)</label><input id="nu_e" type="email" style="width:220px"></div><div><label>Telefone</label><input id="nu_t" style="width:140px"></div><button class="pri" onclick="novoUsuario()">Cadastrar usuário</button></div><div style="margin:-4px 0 10px"><label>Módulos liberados (nenhum marcado = o padrão do assistente)</label><div>${chkMods('nu_m',[])}</div></div><div id="nu_link"></div>
   <div class="info">Você cadastra a pessoa e o sistema gera um link para ela criar a própria senha (mande pelo WhatsApp). Ela também pode se cadastrar sozinha em "Criar meu acesso" na tela de entrada, e aí aparece aqui para você liberar. O <b>assistente administrativo</b> pode cadastrar contratos novos de compra e venda, registrar a entrada no momento da emissão, fazer acordos e propostas e emitir boletos, segundas vias e relatórios. A edição de pagamentos existentes e as alterações de correção, encerramento, cessão e conferência ficam com o administrador.</div>
   <table style="margin-top:8px"><tr><th>Nome</th><th>E-mail</th><th>CPF</th><th>Telefone</th><th>Situação</th><th>Último acesso</th><th></th></tr>
-  ${L.map(u=>`<tr><td><b>${esc(u.nome)}</b><div class="mut" style="font-size:12px">${u.perfil==='assistente'?'Assistente administrativo':esc(u.perfil)}</div><div style="font-size:12px"><a href="#" onclick="dadosU(${u.id});return false">editar CPF / telefone</a></div>${u.perfil==='assistente'?`<div style="font-size:12px;margin-top:4px">${(u.modulos||[]).length?'Módulos: '+MOD_NOMES.filter(([k])=>u.modulos.includes(k)).map(x=>x[1]).join(', '):'Módulos: padrão do assistente'} <a href="#" onclick="modsU(${u.id});return false">mudar</a></div>`:''}</td><td>${esc(u.email)}</td><td>${esc(u.cpf||'')}</td><td>${esc(u.telefone||'')}</td><td>${STU[u.status]||u.status}</td><td>${u.ultimo_acesso?new Date(u.ultimo_acesso).toLocaleString('pt-BR'):'—'}</td>
+  ${L.map(u=>`<tr><td><b>${esc(u.nome)}</b><div class="mut" style="font-size:12px">${u.perfil==='assistente'?'Assistente administrativo':esc(u.perfil)}</div><div style="font-size:12px"><a href="#" onclick="dadosU(${u.id});return false">editar CPF / telefone</a> · <a href="#" onclick="senhaProvU(${u.id},'${esc(u.nome).replace(/'/g,'')}');return false">senha provisória</a></div>${u.perfil==='assistente'?`<div style="font-size:12px;margin-top:4px">${(u.modulos||[]).length?'Módulos: '+MOD_NOMES.filter(([k])=>u.modulos.includes(k)).map(x=>x[1]).join(', '):'Módulos: padrão do assistente'} <a href="#" onclick="modsU(${u.id});return false">mudar</a></div>`:''}</td><td>${esc(u.email)}</td><td>${esc(u.cpf||'')}</td><td>${esc(u.telefone||'')}</td><td>${STU[u.status]||u.status}</td><td>${u.ultimo_acesso?new Date(u.ultimo_acesso).toLocaleString('pt-BR'):'—'}</td>
    <td style="white-space:nowrap">${u.status==='definir_senha'?`<button onclick="linkU(${u.id})">Novo link de senha</button> `:''}${u.status!=='ativo'&&u.status!=='definir_senha'?`<button class="pri" onclick="acaoU(${u.id},'aprovar')">Liberar</button> `:''}${u.status==='ativo'?`<button onclick="linkU(${u.id})">Trocar senha (link)</button> `:''}${u.status==='ativo'?`<button onclick="acaoU(${u.id},'bloquear')">Bloquear</button> `:''}<button class="per" onclick="acaoU(${u.id},'excluir')">Excluir</button></td></tr>`).join('')||'<tr><td colspan="7" class="mut">Ninguém cadastrado ainda.</td></tr>'}</table></div>`}
 function mostraLink(tok,nome){const l=location.origin+'/#senha/'+tok;$('#nu_link').innerHTML=`<div class="info" style="margin-bottom:10px"><b>Link para ${esc(nome||'a pessoa')} criar a senha:</b><br><input value="${l}" readonly onclick="this.select()" style="margin:6px 0"><button onclick="navigator.clipboard.writeText('${l}');this.textContent='Copiado'">Copiar link</button> <a class="btn" target="_blank" href="https://wa.me/?text=${encodeURIComponent('Seu acesso à Carteira Beira Rio: crie sua senha neste link: '+l)}">Enviar pelo WhatsApp</a><div class="mut" style="font-size:12px">O link só funciona uma vez.</div></div>`}
 function chkMods(id,sel){return MOD_NOMES.map(([k,l])=>`<label style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-weight:normal"><input type="checkbox" class="${id}" value="${k}" ${sel.includes(k)?'checked':''} style="width:auto"> ${l}</label>`).join('')}
@@ -544,6 +545,16 @@ const marcados=id=>[...document.querySelectorAll('.'+id)].filter(x=>x.checked).m
 async function modsU(id){const L=await api('usuarios');const u=L.find(x=>x.id==id);abreModal(`<h3 style="margin-top:0">Módulos de ${esc(u.nome)}</h3><div>${chkMods('mu_m',u.modulos||[])}</div><div class="mut" style="font-size:12px;margin-top:6px">Nenhum marcado = o padrão do assistente (contratos, documentos, mapa, clientes, cobrança e boletos).</div><div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaModsU(${id})">Salvar</button><button onclick="fechaModal()">Cancelar</button></div>`)}
 async function dadosU(id){const L=await api('usuarios');const u=L.find(x=>x.id==id);abreModal(`<h3 style="margin-top:0">${esc(u.nome)}</h3><div class="f2"><div><label>Nome</label><input id="du_n" value="${esc(u.nome)}"></div><div><label>CPF (login)</label><input id="du_c" value="${esc(u.cpf||'')}"></div><div><label>Telefone</label><input id="du_t" value="${esc(u.telefone||'')}"></div><div><label>E-mail</label><input id="du_e" value="${/\.local$/.test(u.email)?'':esc(u.email)}"></div></div><div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaDadosU(${id})">Salvar</button><button onclick="fechaModal()">Cancelar</button></div>`)}
 async function salvaDadosU(id){await api('usuario/'+id+'/dados',{method:'PUT',body:{nome:$('#du_n').value,cpf:$('#du_c').value,telefone:$('#du_t').value,email:$('#du_e').value}});fechaModal();telaUsuarios()}
+function telaTrocaSenha(obrig){$('#sair').classList.remove('hid');
+  app.innerHTML=`<div class="card" style="max-width:420px;margin:50px auto"><h3>Trocar minha senha</h3>${obrig?'<div class="aviso">Você entrou com uma senha provisória. Crie agora a sua senha para continuar.</div>':''}
+  <label>Nova senha (mínimo 6 caracteres)</label><input id="ts1" type="password" autocomplete="new-password"><br><br><label>Repita a nova senha</label><input id="ts2" type="password" autocomplete="new-password"><br><br>
+  <div class="bt"><button class="pri" id="tsok">Salvar nova senha</button>${obrig?'':'<button onclick="location.hash=\'\';route()">Cancelar</button>'}</div><div id="tsmsg"></div></div>`;
+  $('#tsok').onclick=async()=>{const a=$('#ts1').value,b=$('#ts2').value;if(a!==b){$('#tsmsg').innerHTML='<div class="aviso">As senhas não conferem.</div>';return}
+    await api('minha-senha',{method:'POST',body:{nova:a}});
+    if(!PIN.startsWith('tok:')){PIN=a.trim();try{localStorage.setItem('cbr_pin',PIN)}catch(e){}}
+    alert('Senha trocada.');location.hash='';iniciar()}}
+async function senhaProvU(id,nome){abreModal(`<h3 style="margin-top:0">Senha provisória de ${esc(nome)}</h3><div class="mut" style="font-size:12px">A pessoa entra com o CPF e essa senha e o sistema pede, na hora, para ela criar a senha dela.</div><label>Senha provisória (mínimo 6 caracteres)</label><input id="sp_s" autocomplete="off"><div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaSenhaProvU(${id})">Salvar</button><button onclick="fechaModal()">Cancelar</button></div>`)}
+async function salvaSenhaProvU(id){await api('usuario/'+id+'/senha-provisoria',{method:'POST',body:{senha:$('#sp_s').value}});fechaModal();alert('Senha provisória salva. Ela já pode entrar com o CPF e essa senha.');telaUsuarios()}
 async function salvaModsU(id){await api('usuario/'+id+'/modulos',{method:'PUT',body:{modulos:marcados('mu_m')}});fechaModal();telaUsuarios()}
 async function novoUsuario(){const r=await api('usuarios',{method:'POST',body:{nome:$('#nu_n').value,email:$('#nu_e').value,cpf:$('#nu_c').value,telefone:$('#nu_t').value,modulos:marcados('nu_m')}});const n=$('#nu_n').value;await telaUsuarios();mostraLink(r.token,n)}
 async function linkU(id){if(!confirm('Gerar um novo link de senha? A senha atual deixa de valer até a pessoa criar a nova.'))return;const r=await api('usuario/'+id+'/novo-link',{method:'POST',body:{}});await telaUsuarios();mostraLink(r.token)}
