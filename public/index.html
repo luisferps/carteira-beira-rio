@@ -1156,9 +1156,9 @@ function desenhaContrato(){if(location.hash.startsWith('#cob/'))return;setTimeou
      return `<details open><summary>Eventos — cessão, diluição, encerramento, crédito, vencimento e titular do boleto (${EVS.length+DIL.length+CESP.length})</summary>${corpo}</details>`})()}</div>`;  botaoCob();
 }
 async function botaoCob(){if(!(EU==='luis'||EU==='assistente')||COMO||document.documentElement.classList.contains('embed'))return;const n=C.contrato.numero,ac=document.querySelector('.acoes');if(!ac)return;
-  const atr=C.titulos.some(t=>estado(t)==='em_atraso');const c=await api('cobranca/contrato/'+n).catch(()=>null);if(!document.querySelector('.acoes')||C.contrato.numero!==n)return;
+  const atr=C.titulos.some(t=>estado(t)==='em_atraso');const c=pode('cobranca')?await api('cobranca/contrato/'+n,{silencioso:true}).catch(()=>null):null;if(!document.querySelector('.acoes')||C.contrato.numero!==n)return;
   const b=document.createElement('button');if(c){b.textContent='Em cobrança — ver o caso';b.style.cssText='background:#fee2e2;color:#991b1b;border-color:#fca5a5';b.onclick=()=>location.hash='cob/'+c.id}
-  else if(atr){b.textContent='Enviar para cobrança';b.onclick=()=>enviaCob(n)}else return;ac.prepend(b)}
+  else if(atr&&pode('cobranca')){b.textContent='Enviar para cobrança';b.onclick=()=>enviaCob(n)}else return;ac.prepend(b)}
 
 function verAcordo(id){const a=C.acordos.find(x=>x.id==id),T=C.titulos;const orig=(a.titulos_origem||[]).map(i=>T.find(t=>t.id==i)?.rotulo||'?').join(', ');
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">${nomeAc(a)} — de ${dbr(a.data_acordo)} — ${brl(a.valor_acordado)}${a.termo?' — Termo nº '+esc(a.termo):''}</h3><button onclick="fechaModal()">Fechar</button></div>
