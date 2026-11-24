@@ -734,7 +734,8 @@ async function criaAcordo(b, conf) {
           [b.contrato, i, b.parcelas.length, `${b.tipo === 'repactuacao' ? 'Repactuação' : 'Acordo'} ${b.data_acordo.split('-').reverse().join('/')} — ${i}/${b.parcelas.length}`, par.vencimento, par.valor, conf, a.id]);
       }
       await log(conf, 'acordo_novo', { id: a.id, ...b });
-      await anotaCobranca(b.contrato, 'acordo', `Acordo feito em ${String(b.data_acordo).split('-').reverse().join('/')}: R$ ${(+b.valor_acordado).toFixed(2).replace('.', ',')} em ${(b.parcelas || []).length} parcela(s)`, 'acordo');
+      /* acordo antigo lançado agora (histórico) não é acordo novo: só anota, não muda a etapa do caso */
+      await anotaCobranca(b.contrato, 'acordo', `Acordo feito em ${String(b.data_acordo).split('-').reverse().join('/')}: R$ ${(+b.valor_acordado).toFixed(2).replace('.', ',')} em ${(b.parcelas || []).length} parcela(s)`, 'acordo', String(b.data_acordo).slice(0, 10));
       if (conf === 'luis') {
         const ab = await q(`select id_asaas from carteira.boletos where titulo_id = any($1) and status = any($2)`, [(b.titulos_origem || []).map(Number), ATIVOS_B]).catch(() => []);
         a.boletos_excluidos = [];
@@ -2124,11 +2125,12 @@ async function rotasCobranca(p, m, body, url, real) {
   return json({ erro: 'Rota de cobrança não encontrada' }, 404);
 }
 /* registros automáticos: pagamento recebido e acordo feito em contrato que está na campanha */
-async function anotaCobranca(contrato, tipo, texto, etapa) {
+async function anotaCobranca(contrato, tipo, texto, etapa, dataDoAcordo) {
   try {
     await garanteCobranca();
-    const [c] = await q(`select id, etapa from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [contrato]);
+    const [c] = await q(`select id, etapa, (criado_em at time zone 'America/Sao_Paulo')::date::text criado from carteira.cobranca_casos where contrato=$1 and encerrado_em is null`, [contrato]);
     if (!c) return;
+    if (dataDoAcordo && dataDoAcordo < c.criado) { etapa = null; texto = 'Lançado no histórico (não muda a etapa): ' + texto; }
     await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,$3,$4,'sistema')`, [c.id, contrato, tipo, texto]);
     if (etapa && etapa !== c.etapa) {
       await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,'sistema')`, [c.id, contrato, `${c.etapa} → ${etapa}`]);
