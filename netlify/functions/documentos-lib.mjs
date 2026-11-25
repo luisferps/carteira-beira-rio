@@ -188,7 +188,7 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
         if (etapa === 'compradores') {
           const { drive, itens } = await onedrive.listarFilhos(['Compradores']);
           const pastas = itens.filter(i => i.pasta).sort((a, b) => a.nome.localeCompare(b.nome));
-          const de = Math.max(0, +body.de || 0), ate = Math.min(pastas.length, de + 25);
+          const de = Math.max(0, +body.de || 0), ate = Math.min(pastas.length, de + Math.min(25, Math.max(1, +body.lote || 8)));
           const pessoa = {}; for (const c of cts) (Array.isArray(c.compradores) ? c.compradores : []).forEach((k, i) => { const s = sem(k.nome); if (s) (pessoa[s] = pessoa[s] || []).push({ n: c.numero, i }); });
           const tipo = nome => { const s = sem(nome);
             if (/\b(RG|CNH|IDENTIDADE|HABILITACAO|DOCUMENTO PESSOAL|DOC PESSOAL)\b/.test(s)) return 'rg';
