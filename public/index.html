@@ -1719,7 +1719,7 @@ async function efetivaPropostaOk(id,forcar){const d0=pDados(id);if(!d0)return;co
         $('#ef_erro').innerHTML=`<div class="aviso" style="margin-top:8px;border-left:4px solid #dc2626"><b>O termo assinado não passou na conferência.</b><div style="white-space:pre-line;margin-top:4px">${esc(EF_VF?textoVerif(EF_VF):'Não consegui ler a assinatura do arquivo.')}</div>
           <div class="bt" style="margin-top:8px"><button class="pri" onclick="fechaModal();alert('A proposta continua aberta. Nenhum acordo nem boleto foi gerado.')">Voltar para a proposta (não gera nada)</button><button onclick="efetivaPropostaOk(${id},true)">Efetivar mesmo assim</button></div></div>`;return}}
     const d={...d0,parcelas:efParcelas(d0,dt),termo_assinado_em:dt};
-    const na=await api('acordo',{method:'POST',body:{...d,tipo:'acordo'}});await api('proposta/'+id,{method:'DELETE'});
+    const na=await api('acordo',{method:'POST',body:{...d,contrato:d.contrato||C.contrato.numero,tipo:'acordo'}});await api('proposta/'+id,{method:'DELETE'});
     let vf=EF_VF;if(f&&!vf){const rd=await salvaAnexo({contrato:C.contrato.numero,chave:chaveTA(d.termo)},f,od);vf=rd?.verificacao||null}EF_VF=null;
     if(!f){const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{responsavel:'Luis',status:'aberta'},obs:`Falta o termo de acordo ${d.termo||''} assinado.`}})}
     await recarrega();fechaModal();let msg='Acordo '+(d.termo||'')+' efetivado.'+(vf?'\n\n'+textoVerif(vf):'');

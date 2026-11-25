@@ -3258,7 +3258,7 @@ export default async (req) => {
       let propostaId = null;
       if (volta) {
         const ts = await q(`select vencimento::text vencimento, valor_face valor from carteira.titulos where acordo_id=$1 and conferente='luis' order by numero`, [a.id]);
-        const dados = { data_acordo: String(a.data_acordo).slice(0, 10), titulos_origem: (a.titulos_origem || []).map(Number), principal: a.principal, multa: a.multa, juros: a.juros, honorarios: a.honorarios,
+        const dados = { contrato: a.contrato, data_acordo: String(a.data_acordo).slice(0, 10), titulos_origem: (a.titulos_origem || []).map(Number), principal: a.principal, multa: a.multa, juros: a.juros, honorarios: a.honorarios,
           valor_calculado: a.valor_calculado, valor_acordado: a.valor_acordado, desconto_encargos: a.desconto_encargos, obs: a.obs, termo: a.termo, pagador: a.pagador || null,
           cobranca_origens: a.cobranca_origens || null, signatarios: a.signatarios || null, parcelas: ts.map(x => ({ vencimento: x.vencimento, valor: +x.valor })) };
         await q('delete from carteira.titulos where acordo_id=$1 and conferente=$2', [a.id, 'luis']);
