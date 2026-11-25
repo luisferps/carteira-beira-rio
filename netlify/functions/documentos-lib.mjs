@@ -197,7 +197,16 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
             if (/(CERTIDAO|CASAMENTO|NASCIMENTO|ESTADO CIVIL|DIVORCIO|AVERBACAO|UNIAO ESTAVEL)/.test(s)) return 'estado_civil';
             return 'outro'; };
           for (const f of pastas.slice(de, ate)) {
-            const quem = pessoa[sem(f.nome)] || [];
+            let quem = pessoa[sem(f.nome)] || [];
+            /* nome da pasta escrito um pouco diferente do cadastro (letra trocada, acento, nome do meio): aceita se for o único parecido */
+            if (!quem.length) {
+              const alvo = sem(f.nome), pa = alvo.split(' ');
+              const lev = (x, y) => { const d = Array.from({ length: x.length + 1 }, (_, i) => [i]); for (let j = 1; j <= y.length; j++) d[0][j] = j;
+                for (let i = 1; i <= x.length; i++) for (let j = 1; j <= y.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1)); return d[x.length][y.length]; };
+              const cand = Object.keys(pessoa).filter(k => { const pk = k.split(' ');
+                return lev(k, alvo) <= 2 || (pk.length >= 2 && pa.length >= 2 && pk[0] === pa[0] && pk.at(-1) === pa.at(-1) && (pk.length <= pa.length ? pk : pa).every(w => (pk.length <= pa.length ? pa : pk).includes(w))); });
+              if (cand.length === 1) quem = pessoa[cand[0]];
+            }
             if (!quem.length) { ignorados.push('pasta sem comprador no sistema: ' + f.nome); continue; }
             const { itens: arqs } = await onedrive.listarFilhos(['Compradores', f.nome]);
             for (const x of arqs.filter(i => !i.pasta)) {
