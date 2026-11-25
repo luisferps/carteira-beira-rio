@@ -291,5 +291,14 @@ export function criaOneDrive({q,pool,json,fetcher=fetch, env=process.env}) {
       return json({erro:'Rota inválida.'},404);
     } catch(e) { return json({erro:e.status?e.message:'Falha ao acessar o OneDrive. Tente novamente.'},e.status||502); }
   }
-  return {rota,temConexao,confirmaConta,abrirRef,confirmaArquivo,lerBytes};
+  /* lista tudo o que está numa pasta do acervo (para ligar arquivos que já existem, sem copiar) */
+  async function listarFilhos(partes) {
+    const d=await sessao(); const p=await pasta(d,partes); const out=[];
+    let at=arq(d,p.id)+'/children?$top=200&$select='+SELECT;
+    while(at){const r=await graph(d.access,at);
+      for(const x of r.value||[]) if(!x.remoteItem && validSegment(x.name)) out.push({id:x.id,nome:x.name,tamanho:x.size||0,mime:x.file?.mimeType||null,pasta:!!x.folder});
+      at=r['@odata.nextLink']||null;}
+    return {drive:d.drive,itens:out};
+  }
+  return {rota,temConexao,confirmaConta,abrirRef,confirmaArquivo,lerBytes,listarFilhos};
 }

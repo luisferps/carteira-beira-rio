@@ -142,6 +142,69 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
         const v = await Promise.resolve().then(async()=>verificaTermo(d.contrato,ref?await onedrive.lerBytes(ref):d.b64,d.chave)).catch(e => ({ status: 'erro', erro: e.message }));
         await q(`update carteira.documentos set verificacao=$2 where id=$1`, [d.id, {...d.verificacao,...v}]); return json(v);
       }
+      /* liga os arquivos que já estão no OneDrive aos contratos, sem copiar nada para o banco: guarda só a referência.
+         etapas: contratos (Contratos/Assinados), propostas (Propostas), compradores (Compradores/<nome>, em lotes) */
+      if (p[0] === 'documentos' && p[1] === 'ligar-onedrive' && m === 'POST') {
+        if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
+        if (!onedrive?.listarFilhos || !(await onedrive.temConexao())) return json({ erro: 'Conecte o OneDrive em Documentos primeiro.' }, 409);
+        const sem = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+        const cts = await q(`select numero, quadra, lote, compradores from carteira.contratos`);
+        const ja = new Set((await q(`select verificacao->'onedrive'->>'id' id from carteira.documentos where verificacao ? 'onedrive'`)).map(x => x.id));
+        const novos = [], ignorados = [];
+        const liga = async (contrato, chave, drive, x) => {
+          if (ja.has(x.id + '|' + contrato + '|' + chave) || (await q(`select 1 from carteira.documentos where contrato=$1 and chave=$2 and verificacao->'onedrive'->>'id'=$3`, [contrato, chave, x.id])).length) return;
+          ja.add(x.id + '|' + contrato + '|' + chave);
+          await q(`insert into carteira.documentos(contrato, chave, nome, mime, tamanho, b64, por, verificacao) values ($1,$2,$3,$4,$5,'',$6,$7)`,
+            [contrato, chave, x.nome, x.mime, x.tamanho, 'onedrive (ligado)', { onedrive: { drive, id: x.id, nome: x.nome, tamanho: x.tamanho, mime: x.mime }, ligado: true }]);
+          novos.push(contrato + ' · ' + chave + ' · ' + x.nome);
+        };
+        const nums = new Set(cts.map(c => c.numero));
+        const etapa = body.etapa || 'contratos';
+        if (etapa === 'contratos') {
+          const { drive, itens } = await onedrive.listarFilhos(['Contratos', 'Assinados']);
+          for (const x of itens.filter(i => !i.pasta)) {
+            const n = (/^(\d{4})\b/.exec(x.nome) || [])[1];
+            if (!n || !nums.has(n)) { ignorados.push(x.nome); continue; }
+            await liga(n, /valida[cç][aã]o/i.test(x.nome) ? 'contrato_validacao_assinatura' : 'contrato_assinado', drive, x);
+          }
+          return json({ etapa, novos, ignorados });
+        }
+        if (etapa === 'propostas') {
+          const { drive, itens } = await onedrive.listarFilhos(['Propostas']);
+          const porQL = {}; for (const c of cts) { const k = (+c.quadra) + '-' + String(c.lote).replace(/^0+/, '').toUpperCase(); (porQL[k] = porQL[k] || []).push(c.numero); }
+          for (const x of itens.filter(i => !i.pasta)) {
+            const n = (/^(\d{4})\b/.exec(x.nome) || [])[1];
+            if (n && nums.has(n)) { await liga(n, 'proposta', drive, x); continue; }
+            const m2 = /Q\s*D?\s*0*(\d{1,2})\s*L\s*T?\s*0*(\d{1,3})/i.exec(x.nome);
+            const cs = m2 ? porQL[(+m2[1]) + '-' + m2[2]] || [] : [];
+            if (cs.length === 1) await liga(cs[0], 'proposta', drive, x); else ignorados.push(x.nome + (cs.length > 1 ? ' (lote com mais de um contrato: ' + cs.join(', ') + ')' : ''));
+          }
+          return json({ etapa, novos, ignorados });
+        }
+        if (etapa === 'compradores') {
+          const { drive, itens } = await onedrive.listarFilhos(['Compradores']);
+          const pastas = itens.filter(i => i.pasta).sort((a, b) => a.nome.localeCompare(b.nome));
+          const de = Math.max(0, +body.de || 0), ate = Math.min(pastas.length, de + 25);
+          const pessoa = {}; for (const c of cts) (Array.isArray(c.compradores) ? c.compradores : []).forEach((k, i) => { const s = sem(k.nome); if (s) (pessoa[s] = pessoa[s] || []).push({ n: c.numero, i }); });
+          const tipo = nome => { const s = sem(nome);
+            if (/\b(RG|CNH|IDENTIDADE|HABILITACAO|DOCUMENTO PESSOAL|DOC PESSOAL)\b/.test(s)) return 'rg';
+            if (/\bCPF\b/.test(s)) return 'cpf';
+            if (/(ENDERECO|COMPROVANTE DE RES|RESIDENCIA|CONTA DE (LUZ|AGUA|ENERGIA)|FATURA)/.test(s)) return 'endereco';
+            if (/(CERTIDAO|CASAMENTO|NASCIMENTO|ESTADO CIVIL|DIVORCIO|AVERBACAO|UNIAO ESTAVEL)/.test(s)) return 'estado_civil';
+            return 'outro'; };
+          for (const f of pastas.slice(de, ate)) {
+            const quem = pessoa[sem(f.nome)] || [];
+            if (!quem.length) { ignorados.push('pasta sem comprador no sistema: ' + f.nome); continue; }
+            const { itens: arqs } = await onedrive.listarFilhos(['Compradores', f.nome]);
+            for (const x of arqs.filter(i => !i.pasta)) {
+              const t = tipo(x.nome);
+              for (const w of quem) await liga(w.n, `p${w.i}_${t}`, drive, x);
+            }
+          }
+          return json({ etapa, novos, ignorados, de, ate, total: pastas.length, fim: ate >= pastas.length });
+        }
+        return json({ erro: 'Etapa inválida' }, 400);
+      }
       if (p[0] === 'documentos' && p[1] === 'cadeia' && m === 'GET' && infoCadeia) return json(await infoCadeia());
       if (p[0] === 'documento' && p[1] && m === 'GET') {
         const [r] = await q(`select nome,mime,b64,verificacao->'onedrive' onedrive from carteira.documentos

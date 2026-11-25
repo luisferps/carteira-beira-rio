@@ -2482,11 +2482,21 @@ async function abreOneDrive(){
   try{const {telaOneDrive}=await import('/ferramentas/onedrive.mjs');await telaOneDrive({root:app,api,admin:EU==='luis'});}
   catch(e){app.textContent=e.message;}
 }
+/* liga ao sistema os arquivos que já estão nas pastas do OneDrive (contrato assinado, proposta, documentos dos compradores), sem copiar nada */
+async function ligaOD(){if(!confirm('Procurar nas pastas do OneDrive (Contratos/Assinados, Propostas e Compradores) e ligar cada arquivo ao contrato certo?\n\nNada é copiado para o banco: o sistema só guarda onde o arquivo está e abre direto do OneDrive.'))return;
+  abreModal('<h3 style="margin-top:0">Ligando arquivos do OneDrive</h3><div id="lo_st">Contratos assinados…</div><div id="lo_res" class="mut" style="margin-top:8px;max-height:50vh;overflow:auto"></div>');
+  const st=t=>{const e=$('#lo_st');if(e)e.textContent=t};let novos=0;const ign=[];
+  try{let r=await api('documentos/ligar-onedrive',{method:'POST',body:{etapa:'contratos'}});novos+=r.novos.length;ign.push(...r.ignorados.map(x=>'Assinados: '+x));
+    st('Propostas…');r=await api('documentos/ligar-onedrive',{method:'POST',body:{etapa:'propostas'}});novos+=r.novos.length;ign.push(...r.ignorados.map(x=>'Propostas: '+x));
+    let de=0;for(;;){st('Documentos dos compradores… '+de);r=await api('documentos/ligar-onedrive',{method:'POST',body:{etapa:'compradores',de}});novos+=r.novos.length;ign.push(...r.ignorados.map(x=>'Compradores: '+x));st('Documentos dos compradores… '+r.ate+' de '+r.total);if(r.fim)break;de=r.ate}
+    st(`Pronto: ${novos} arquivo(s) ligado(s) aos contratos.`);
+    $('#lo_res').innerHTML=(ign.length?`<b>Não liguei (${ign.length}):</b><br>`+ign.map(esc).join('<br>'):'')+'<div class="bt" style="margin-top:8px"><button onclick="fechaModal();telaDocumentos()">Fechar</button></div>'}
+  catch(e){st('Parou: '+e.message+(novos?` (${novos} já ligados — pode rodar de novo, o que já foi ligado não duplica)`:''))}}
 let DOCF='falta';
 async function telaDocumentos(){app.innerHTML='<div class="card">Carregando…</div>';const L=await api('documentos/pendencias');
   const F=DOCF==='falta'?L.filter(x=>x.falta.length):DOCF==='ok'?L.filter(x=>!x.falta.length):L;
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
-  <div class="card"><div class="bt"><h3 style="margin:0;flex:1">Documentos</h3><a class="btn" href="#onedrive">Documentos no OneDrive</a></div><div class="tot"><div><span class="mut">Contratos ativos</span><b>${L.length}</b></div><div><span class="mut">Com documento faltando</span><b>${L.filter(x=>x.falta.length).length}</b></div><div><span class="mut">Completos</span><b>${L.filter(x=>!x.falta.length).length}</b></div></div>
+  <div class="card"><div class="bt"><h3 style="margin:0;flex:1">Documentos</h3>${EU==='luis'?'<button onclick="ligaOD()">Ligar os arquivos que já estão no OneDrive</button>':''}<a class="btn" href="#onedrive">Documentos no OneDrive</a></div><div class="tot"><div><span class="mut">Contratos ativos</span><b>${L.length}</b></div><div><span class="mut">Com documento faltando</span><b>${L.filter(x=>x.falta.length).length}</b></div><div><span class="mut">Completos</span><b>${L.filter(x=>!x.falta.length).length}</b></div></div>
    <div class="filtros" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">${[['falta','Falta documento'],['ok','Completos'],['todos','Todos']].map(([k,t])=>`<button class="${DOCF===k?'on':''}" onclick="DOCF='${k}';telaDocumentos()">${t}</button>`).join('')}</div>
    <div class="mut" style="margin-top:6px">Abra o contrato e clique em "Documentos" para anexar ou marcar o que já tem.</div></div>
   <div class="cgrid">${F.map(x=>blk({cor:x.falta.length?(x.falta.length>=x.total-1?VERM:AMAR):VERDE,num:x.contrato,ql:`Q${x.quadra} L${x.lote}`,nome:esc(nome(x.titular||'')),linhas:[x.falta.length?`Faltam ${x.falta.length} de ${x.total}`:'',x.falta.length?esc(x.falta.slice(0,3).join(' · '))+(x.falta.length>3?'…':''):''],tag:x.falta.length?'':'<span class="tag ok">Completo</span>',on:`location.hash='c/${x.contrato}'`})).join('')}</div>`}
