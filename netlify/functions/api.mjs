@@ -2200,7 +2200,11 @@ async function verificaTermoAssinado(contrato, b64, chave) {
   const r = await verificaPdf(Buffer.from(b64, 'base64'), q);
   let dev = (await titularesAtuais(contrato)).map(x => ({ nome: x.nome, cpf: x.cpf }));
   const termo = String(chave || '').replace(/^termo_assinado_/, '');
-  if (termo) { const [a] = await q(`select signatarios from carteira.acordos where contrato=$1 and conferente='luis' and regexp_replace(coalesce(termo,''),'[^\\w.-]','_','g')=$2 order by id desc limit 1`, [contrato, termo]).catch(() => []);
+  if (termo) { let [a] = await q(`select signatarios from carteira.acordos where contrato=$1 and conferente='luis' and regexp_replace(coalesce(termo,''),'[^\\w.-]','_','g')=$2 order by id desc limit 1`, [contrato, termo]).catch(() => []);
+    /* termo conferido antes de efetivar: quem assina vem da proposta */
+    let sg = a?.signatarios;
+    if (!(Array.isArray(sg) && sg.length)) { const [pr] = await q(`select dados->'signatarios' s from carteira.propostas where contrato=$1 and conferente='luis' and regexp_replace(coalesce(dados->>'termo',''),'[^\\w.-]','_','g')=$2 order by id desc limit 1`, [contrato, termo]).catch(() => []); sg = pr?.s; }
+    if (Array.isArray(sg) && sg.length) a = { signatarios: sg };
     if (Array.isArray(a?.signatarios) && a.signatarios.length) { const nn = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim(); dev = dev.filter(d => a.signatarios.some(n => nn(n) === nn(d.nome))); } }
   return { ...comparaDevedores(r, dev), assinaturas: r.assinaturas, conferido_em: new Date().toISOString() };
 }

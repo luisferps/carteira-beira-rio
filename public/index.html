@@ -1694,7 +1694,7 @@ async function efetivaProposta(id){const d=pDados(id);if(!d)return;
   <div><label for="ef_data">Data em que o termo voltou assinado</label><input type="date" id="ef_data" value="${C.hoje}" max="${C.hoje}" onchange="efPrevia(${id})"></div></div>
   <div id="ef_prev" style="margin-top:10px"></div>
   <div class="mut">Parcelas com vencimento a partir de 12 meses seguem para a emissão mensal após a correção anual.</div>
-  <div class="info">Sem o arquivo, o acordo é efetivado e fica a pendência "falta o termo assinado" — dá para anexar depois pelo botão <b>Anexar assinado</b> no acordo.</div>
+  <div class="info">Primeiro o sistema confere a assinatura do termo. Se estiver errada, você volta para a proposta e nada é gerado. Só com o termo certo ele efetiva o acordo e gera os boletos.</div>
   <div id="ef_erro" role="status"></div><button class="pri" id="ef_ok" onclick="efetivaPropostaOk(${id})">Efetivar acordo e gerar os boletos</button>`);efPrevia(id)}
 function efParcelas(d,dt){const ps=(d.parcelas||[]).map(x=>({...x}));if(ps[0]&&dt&&String(ps[0].vencimento).slice(0,10)<dt)ps[0].vencimento=dt;return ps}
 function efPrevia(id){const d=pDados(id),dt=$('#ef_data').value,ps=efParcelas(d,dt),o=(d.parcelas||[])[0];
@@ -1705,14 +1705,23 @@ const pastaTermoLocal=async od=>od.conectado?null:window.pastaRenegociacoes().ca
 async function salvaAnexo(meta,arquivo,status){const {enviaAnexo}=await import('/ferramentas/onedrive.mjs');return enviaAnexo(api,meta,arquivo,status)}
 async function gravaAssinadoNaPasta(d,f,hP){try{await carregaTermo();const h=hP||await window.pastaRenegociacoes().catch(()=>null);if(!h||!window.termoBlobs)return false;const F=await window.termoBlobs(d);
   const sub=await h.getDirectoryHandle(F.pastaNome,{create:true});const ext=(f.name.match(/\.[^.]+$/)||['.pdf'])[0];const fh=await sub.getFileHandle(F.base+' - ASSINADO'+ext,{create:true});const w=await fh.createWritable();await w.write(f);await w.close();return true}catch(e){console.warn('assinado na pasta',e);return false}}
-async function efetivaPropostaOk(id){const d0=pDados(id);if(!d0)return;const f=$('#ef_arq').files[0],dt=$('#ef_data').value||C.hoje;
-  const btn=$('#ef_ok');btn.disabled=true;btn.textContent='Efetivando…';
+/* antes de efetivar e gerar boletos, confere o termo assinado; se estiver errado, a proposta fica como está e nada é gerado */
+let EF_VF=null;
+async function efetivaPropostaOk(id,forcar){const d0=pDados(id);if(!d0)return;const f=$('#ef_arq').files[0],dt=$('#ef_data').value||C.hoje;
+  const btn=$('#ef_ok');btn.disabled=true;btn.textContent=forcar?'Efetivando…':'Conferindo o termo…';
   try{await carregaTermo();const od=await estadoOneDrive(),hP=d0.termo?await pastaTermoLocal(od):null;
     if(f&&f.size>(od.conectado?250*1024*1024:4e6))throw new Error('Arquivo acima do limite disponível.');
+    if(!forcar){
+      if(!f){btn.disabled=false;btn.textContent='Efetivar acordo e gerar os boletos';
+        $('#ef_erro').innerHTML=`<div class="aviso" style="margin-top:8px">Sem o termo assinado o sistema não consegue conferir a assinatura. Anexe o termo acima e clique de novo, ou <a href="#" onclick="efetivaPropostaOk(${id},true);return false">efetivar sem conferir</a>.</div>`;return}
+      const rd=await salvaAnexo({contrato:C.contrato.numero,chave:chaveTA(d0.termo)},f,od);EF_VF=rd?.verificacao||null;
+      if(!EF_VF||EF_VF.status!=='ok'){btn.disabled=false;btn.textContent='Efetivar acordo e gerar os boletos';
+        $('#ef_erro').innerHTML=`<div class="aviso" style="margin-top:8px;border-left:4px solid #dc2626"><b>O termo assinado não passou na conferência.</b><div style="white-space:pre-line;margin-top:4px">${esc(EF_VF?textoVerif(EF_VF):'Não consegui ler a assinatura do arquivo.')}</div>
+          <div class="bt" style="margin-top:8px"><button class="pri" onclick="fechaModal();alert('A proposta continua aberta. Nenhum acordo nem boleto foi gerado.')">Voltar para a proposta (não gera nada)</button><button onclick="efetivaPropostaOk(${id},true)">Efetivar mesmo assim</button></div></div>`;return}}
     const d={...d0,parcelas:efParcelas(d0,dt),termo_assinado_em:dt};
     const na=await api('acordo',{method:'POST',body:{...d,tipo:'acordo'}});await api('proposta/'+id,{method:'DELETE'});
-    let vf=null;if(f){const rd=await salvaAnexo({contrato:C.contrato.numero,chave:chaveTA(d.termo)},f,od);vf=rd?.verificacao||null}
-    else{const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{responsavel:'Luis',status:'aberta'},obs:`Falta o termo de acordo ${d.termo||''} assinado.`}})}
+    let vf=EF_VF;if(f&&!vf){const rd=await salvaAnexo({contrato:C.contrato.numero,chave:chaveTA(d.termo)},f,od);vf=rd?.verificacao||null}EF_VF=null;
+    if(!f){const t0=C.titulos.find(x=>x.grupo!=='acordo');await api('evento',{method:'POST',body:{contrato:C.contrato.numero,tipo:'pendencia',motivo:null,a_partir_titulo:t0?+t0.id:null,data:C.hoje,dados:{responsavel:'Luis',status:'aberta'},obs:`Falta o termo de acordo ${d.termo||''} assinado.`}})}
     await recarrega();fechaModal();let msg='Acordo '+(d.termo||'')+' efetivado.'+(vf?'\n\n'+textoVerif(vf):'');
     if((EU==='luis'||EU==='assistente')&&!COMO){const r=await api('boletos/ligar-acordo',{method:'POST',body:{acordo_id:+na.id}});await recarrega();
       const ligados=new Set((C.boletos||[]).filter(b=>b.titulo_id&&['PENDING','OVERDUE','AWAITING_RISK_ANALYSIS','RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(b.status)).map(b=>String(b.titulo_id)));
@@ -1723,7 +1732,7 @@ async function efetivaPropostaOk(id){const d0=pDados(id);if(!d0)return;const f=$
       while(fila.length){const rr=await api('boletos/emitir',{method:'POST',body:{titulos:fila.splice(0,4)}});for(const x of rr){if(x.adiado)fila.push(x.titulo_id);else if(x.erro)er.push(x.erro);else n++}}
       await recarrega();msg+=`\n${n} boleto(s) gerado(s) no Asaas${r.ligados?`, ${r.ligados} que já existia(m) ligado(s)`:''}.`+(aguardam?`\n${aguardam} parcela(s) seguem para a emissão mensal após o reajuste.`:'')+(er.length?'\nAvisos: '+er.join('; '):'')}
     if(d.termo){const A=C.acordos.find(a=>a.termo===d.termo);const dt2=A?acordoParaTermo(A.id):d;if(f&&(od.conectado||await gravaAssinadoNaPasta(dt2,f,hP)))msg+='\nTermo assinado gravado na pasta Negociações.';alert(msg);await termoNaPasta(dt2,hP)}else alert(msg)}
-  catch(e){btn.disabled=false;btn.textContent='Efetivar acordo e gerar os boletos';$('#ef_erro').textContent=e.message||'Não foi possível efetivar.'}}
+  catch(e){EF_VF=null;btn.disabled=false;btn.textContent='Efetivar acordo e gerar os boletos';$('#ef_erro').textContent=e.message||'Não foi possível efetivar.'}}
 /* termo assinado: botão em cada acordo com termo */
 const assinadoTA=a=>(C.termosAssinados||[]).includes(String(a.termo).replace(/[^\w.-]/g,'_'));
 function cardTermo(a){const ok=assinadoTA(a),vst=(C.termosVerif||{})[String(a.termo).replace(/[^\w.-]/g,'_')],antigo=String(a.data_acordo).slice(0,10)<'2026-11-01';
