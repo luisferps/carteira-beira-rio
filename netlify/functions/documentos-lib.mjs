@@ -180,8 +180,8 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
             /* lote vendido mais de uma vez: sem letra é a 1ª venda (contrato mais antigo), "B" a 2ª, "C" a 3ª */
             const suf = (/L\s*T?\s*\d{1,3}\s*[-_ ]?\s*([BC])\b/i.exec(x.nome) || [])[1];
             const idx = suf ? (suf.toUpperCase() === 'B' ? 1 : 2) : 0;
-            const ord = [...cs].sort();
-            if (ord[idx]) await liga(ord[idx], 'proposta', drive, x); else ignorados.push(x.nome + (cs.length ? ' (não sei de qual contrato: ' + cs.join(', ') + ')' : ' (nenhum contrato com essa quadra e lote)'));
+            const ord = [...cs].sort(); const ix = Math.min(idx, ord.length - 1);
+            if (ix >= 0 && ord[ix]) await liga(ord[ix], 'proposta', drive, x); else ignorados.push(x.nome + (cs.length ? ' (não sei de qual contrato: ' + cs.join(', ') + ')' : ' (nenhum contrato com essa quadra e lote)'));
           }
           return json({ etapa, novos, ignorados });
         }
