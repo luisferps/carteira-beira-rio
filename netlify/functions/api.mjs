@@ -3247,12 +3247,34 @@ export default async (req) => {
         const g = await asaas('/payments/' + b.id_asaas).catch(() => null);
         if (g && !g.deleted && PAGO_A.includes(g.status)) return json({ erro: 'Um boleto deste acordo já foi pago no Asaas — não dá para desfazer.' }, 400);
       }
-      for (const b of bols) { try { await excluirBoleto(b.id_asaas, conf, 'Acordo desfeito: entrada não paga'); cancelados.push(b.id_asaas); } catch (e) { falhas.push(b.id_asaas + ': ' + e.message); } }
+      for (const b of bols) { try { await excluirBoleto(b.id_asaas, conf, body.voltar_proposta ? 'Acordo voltou a ser proposta' : 'Acordo desfeito: entrada não paga'); cancelados.push(b.id_asaas); } catch (e) { falhas.push(b.id_asaas + ': ' + e.message); } }
       if (falhas.length) return json({ erro: 'Não consegui cancelar todos os boletos no Asaas; o acordo continua lançado.', cancelados, falhas }, 502);
-      await q('delete from carteira.titulos where acordo_id=$1 and conferente=$2', [a.id, 'luis']);
-      await q('delete from carteira.acordos where id=$1', [a.id]);
-      await log(conf, 'acordo_desfeito', { id: a.id, contrato: a.contrato, termo: a.termo, boletos: cancelados.length, motivo: 'entrada não paga' });
-      return json({ ok: true, boletos_cancelados: cancelados.length });
+      /* "voltar para proposta": acordo efetivado antes da hora (ex.: termo assinado errado) volta a ser proposta, com os mesmos dados */
+      const volta = !!body.voltar_proposta;
+      let propostaId = null;
+      if (volta) {
+        const ts = await q(`select vencimento::text vencimento, valor_face valor from carteira.titulos where acordo_id=$1 and conferente='luis' order by numero`, [a.id]);
+        const dados = { data_acordo: String(a.data_acordo).slice(0, 10), titulos_origem: (a.titulos_origem || []).map(Number), principal: a.principal, multa: a.multa, juros: a.juros, honorarios: a.honorarios,
+          valor_calculado: a.valor_calculado, valor_acordado: a.valor_acordado, desconto_encargos: a.desconto_encargos, obs: a.obs, termo: a.termo, pagador: a.pagador || null,
+          cobranca_origens: a.cobranca_origens || null, signatarios: a.signatarios || null, parcelas: ts.map(x => ({ vencimento: x.vencimento, valor: +x.valor })) };
+        await q('delete from carteira.titulos where acordo_id=$1 and conferente=$2', [a.id, 'luis']);
+        await q('delete from carteira.acordos where id=$1', [a.id]);
+        const [pr] = await q('insert into carteira.propostas(contrato, conferente, dados) values ($1,$2,$3) returning id', [a.contrato, 'luis', dados]);
+        propostaId = pr.id;
+        /* o caso de cobrança volta a ficar aberto, na etapa de proposta */
+        await garanteCobranca();
+        const [cs] = await q(`select id, etapa, encerrado_em from carteira.cobranca_casos where contrato=$1 order by (encerrado_em is null) desc, id desc limit 1`, [a.contrato]);
+        if (cs) {
+          await q(`update carteira.cobranca_casos set encerrado_em=null, motivo_encerramento=null, etapa='proposta', atualizado_em=now() where id=$1`, [cs.id]);
+          await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'acordo',$3,'luis')`, [cs.id, a.contrato, `Acordo ${a.termo || ''} voltou a ser proposta (efetivado antes da hora). Boletos do acordo cancelados no Asaas: ${cancelados.length}.`]);
+          if (cs.etapa !== 'proposta') await q(`insert into carteira.cobranca_registros(caso_id, contrato, tipo, texto, por) values ($1,$2,'etapa',$3,'luis')`, [cs.id, a.contrato, `${cs.etapa} → proposta`]);
+        }
+      } else {
+        await q('delete from carteira.titulos where acordo_id=$1 and conferente=$2', [a.id, 'luis']);
+        await q('delete from carteira.acordos where id=$1', [a.id]);
+      }
+      await log(conf, volta ? 'acordo_voltou_proposta' : 'acordo_desfeito', { id: a.id, contrato: a.contrato, termo: a.termo, boletos: cancelados.length, motivo: volta ? 'efetivado antes da hora' : 'entrada não paga', proposta: propostaId });
+      return json({ ok: true, boletos_cancelados: cancelados.length, proposta: propostaId });
     }
     if (p[0] === 'acordo' && p[1] && m === 'DELETE') {
       await q('delete from carteira.titulos where acordo_id=$1 and conferente=$2', [p[1], conf]);
