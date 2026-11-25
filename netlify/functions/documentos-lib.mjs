@@ -177,7 +177,11 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
             if (n && nums.has(n)) { await liga(n, 'proposta', drive, x); continue; }
             const m2 = /Q\s*D?\s*0*(\d{1,2})\s*L\s*T?\s*0*(\d{1,3})/i.exec(x.nome);
             const cs = m2 ? porQL[(+m2[1]) + '-' + m2[2]] || [] : [];
-            if (cs.length === 1) await liga(cs[0], 'proposta', drive, x); else ignorados.push(x.nome + (cs.length > 1 ? ' (lote com mais de um contrato: ' + cs.join(', ') + ')' : ''));
+            /* lote vendido mais de uma vez: sem letra é a 1ª venda (contrato mais antigo), "B" a 2ª, "C" a 3ª */
+            const suf = (/L\s*T?\s*\d{1,3}\s*[-_ ]?\s*([BC])\b/i.exec(x.nome) || [])[1];
+            const idx = suf ? (suf.toUpperCase() === 'B' ? 1 : 2) : 0;
+            const ord = [...cs].sort();
+            if (ord[idx]) await liga(ord[idx], 'proposta', drive, x); else ignorados.push(x.nome + (cs.length ? ' (não sei de qual contrato: ' + cs.join(', ') + ')' : ' (nenhum contrato com essa quadra e lote)'));
           }
           return json({ etapa, novos, ignorados });
         }
