@@ -2554,7 +2554,7 @@ function desenhaAgios(){
   const lin=a=>{const r=R(a.contrato),s=agSt(a.status),car=!AGR[a.contrato]?'<span class="mut">carregando…</span>':'';
     const preco=(+a.valor_pedido||0)+(r.saldo||0);
     return `<tr style="cursor:pointer" onclick="editaAgio('${a.contrato}')">
-      <td><b>Q${esc(a.quadra)} L${esc(a.lote)}</b><div class="mut">${a.contrato}${a.area?' · '+String(a.area).replace('.',',')+' m²':''}</div></td>
+      <td><b>Q${esc(a.quadra)} L${esc(a.lote)}</b><div class="mut">${a.contrato}${a.area?' · '+(+a.area).toLocaleString('pt-BR')+' m²':''}</div></td>
       <td>${esc(nome(a.titular||''))}<div class="mut">${esc(a.telefone||r.tel||'')}</div></td>
       <td><span class="tag" style="background:${s[2]};color:#fff">${s[1]}</span>${a.aceita_proposta?'<div class="mut">aceita proposta</div>':''}</td>
       <td style="text-align:right"><b>${a.valor_pedido!=null?brl(a.valor_pedido):'<span class="mut">digitar</span>'}</b></td>
@@ -2600,7 +2600,7 @@ async function salvaAgio(n){const dv={};document.querySelectorAll('.ag_dv').forE
   await api('agio/'+n,{method:'PUT',body:b});fechaModal();AGI=await api('agios');desenhaAgios()}
 async function excluiAgio(n){if(!confirm('Tirar o contrato '+n+' da lista de ágios?'))return;await api('agio/'+n,{method:'DELETE'});delete AGR[n];fechaModal();AGI=await api('agios');desenhaAgios()}
 function copiaAnuncioAgio(n){const a=AGI.find(x=>x.contrato===n)||{},r=AGR[n],v=numBR($('#ag_v')?.value)||+a.valor_pedido||0;
-  const t=`*Ágio — Condomínio de Chácaras Beira Rio*\nQuadra ${a.quadra??''}, Lote ${a.lote??''}${a.area?` · ${String(a.area).replace('.',',')} m²`:''}\n\nValor do ágio: *${brl(v)}*\nParcelas pagas: ${r.me.pagas}\nParcelas restantes: ${r.me.faltam} de ${brl(r.me.valor)}${r.an.faltam?`\nAnuais restantes: ${r.an.faltam} de ${brl(r.an.valor)}`:''}\nSaldo devedor: ${brl(r.saldo)}\n\nInerente Gestão Imobiliária`;
+  const t=`*Ágio — Condomínio de Chácaras Beira Rio*\nQuadra ${a.quadra??''}, Lote ${a.lote??''}${a.area?` · ${(+a.area).toLocaleString('pt-BR')} m²`:''}\n\nValor do ágio: *${brl(v)}*\nParcelas pagas: ${r.me.pagas}\nParcelas restantes: ${r.me.faltam} de ${brl(r.me.valor)}${r.an.faltam?`\nAnuais restantes: ${r.an.faltam} de ${brl(r.an.valor)}`:''}\nSaldo devedor: ${brl(r.saldo)}\n\nInerente Gestão Imobiliária`;
   navigator.clipboard.writeText(t).then(()=>alert('Texto copiado.'),()=>prompt('Copie o texto:',t))}
 async function telaComissoes(){app.innerHTML='<div class="card">Carregando…</div>';COML=await api('painel/comissoes');
   const v=x=>+(x.valor??x.ct_corretagem??0),pend=COML.filter(x=>v(x)>0&&!x.pago_em);
