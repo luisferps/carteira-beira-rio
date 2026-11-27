@@ -11,6 +11,7 @@ import { custoRateadoNaBaixa, rateioConferido, rateiosConferidos } from './ratei
 import { criaDevolucoes } from './devolucoes-lib.mjs';
 import { criaCessoes } from './cessoes-lib.mjs';
 import { criaPainel } from './painel-lib.mjs';
+import { criaAgios } from './agios-lib.mjs';
 import { chaveRascunhoCompra, criaDocumentos, preparaArquivoOneDrive } from './documentos-lib.mjs';
 import { criaOneDrive, destinoArquivo } from './onedrive-lib.mjs';
 import { fazBackup, listaBackups, baixaBackup } from './backup-lib.mjs';
@@ -2250,6 +2251,7 @@ const onedrive = criaOneDrive({q,pool,json:(d,s)=>{const r=json(d,s);r.headers.s
 const preparaAnexo = preparaArquivoOneDrive(q);
 const rotasDocumentos = criaDocumentos({ q, json, log: (...a) => log(...a), verificaTermo: verificaTermoAssinado, infoCadeia: () => infoCadeiaGovBr(q), onedrive });
 const rotasPainel = criaPainel({ q, json, log: (...a) => log(...a) });
+const rotasAgios = criaAgios({ q, json, log: (...a) => log(...a) });
 const rotasCessoes = criaCessoes({ q, json, log: (...a) => log(...a), asaas, asaasReq, gravaBoleto, garanteBoletos, refazBoletoPara });
 const DEV = criaDevolucoes({ q, asaas, json, log: (...a) => log(...a) });
 const rotasAcerto = criaAcerto({ q, asaas, json, log: (...a) => log(...a), dev: DEV });
@@ -2392,6 +2394,7 @@ export default async (req) => {
   { const rd = await DEV.rotas(p, m, body, realMod); if (rd) return rd; }
   { const rc2 = await rotasCessoes(p, m, body, realMod); if (rc2) return rc2; }
   { const rp = await rotasPainel(p, m, body, real); if (rp) return rp; }
+  { const rag = await rotasAgios(p, m, body, real); if (rag) return rag; }
   if (p[0]==='onedrive') return onedrive.rota(p,m,body,real,url,usuario?.email||real,preparaAnexo,req);
   { const rdc = await rotasDocumentos(p, m, body, real, url, usuario?.email || real); if (rdc) return rdc; }
 
