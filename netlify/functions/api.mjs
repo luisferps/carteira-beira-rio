@@ -2393,6 +2393,11 @@ export default async (req) => {
       }
       return json({ ok: true, qtd: r.length });
     }
+    if (p[0] === 'asaas-extrato' && m === 'GET' && real === 'luis') {
+      const de = url.searchParams.get('de') || hojeBR(), ate = url.searchParams.get('ate') || de;
+      const r = await asaasReq('GET', `/financialTransactions?startDate=${de}&finishDate=${ate}&limit=100&order=desc`);
+      return json((r.data || []).map(x => ({ id: x.id, data: x.date, tipo: x.type, valor: x.value, descricao: x.description, payment: x.paymentId || null, transfer: x.transferId || null, pix: x.pixTransactionId || null })));
+    }
     if (p[0] === 'asaas-conta' && m === 'GET' && real === 'luis') {
       /* dados bancários da conta Asaas (para informar a clientes que pagam por transferência) */
       const n = await asaasReq('GET', '/myAccount/accountNumber').catch(e => ({ erro: e.message }));
