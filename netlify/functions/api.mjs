@@ -2393,6 +2393,12 @@ export default async (req) => {
       }
       return json({ ok: true, qtd: r.length });
     }
+    if (p[0] === 'asaas-conta' && m === 'GET' && real === 'luis') {
+      /* dados bancários da conta Asaas (para informar a clientes que pagam por transferência) */
+      const n = await asaasReq('GET', '/myAccount/accountNumber').catch(e => ({ erro: e.message }));
+      const ci = await asaasReq('GET', '/myAccount/commercialInfo').catch(e => ({ erro: e.message }));
+      return json({ banco: '461 – Asaas I.P. S.A.', agencia: n.agency, conta: n.account, digito: n.accountDigit, nome: ci.companyName || ci.name, cpfCnpj: ci.cpfCnpj, erro: n.erro || ci.erro });
+    }
     if (p[0] === 'asaas-sync' && m === 'POST') {
       if (real !== 'luis') return json({ erro: 'Só o administrador' }, 403);
       return json(await passoSync(7000, !!body.recomecar));
