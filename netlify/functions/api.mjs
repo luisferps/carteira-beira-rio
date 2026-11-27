@@ -756,9 +756,12 @@ async function efetivaPropostaPaga(pid, g) {
   const [t1] = await q('select id from carteira.titulos where acordo_id=$1 and numero=1', [r.a.id]);
   await gravaBoleto(g, { contrato: pr.contrato, titulo_id: t1.id, tipo: 'acordo', origem: 'sistema' });
   await q(`update carteira.boletos set titulo_id=$2, tipo='acordo', atualizado_em=now() where id_asaas=$1`, [g.id, t1.id]);
-  const [t0] = await q(`select id from carteira.titulos where contrato=$1 and (conferente is null or conferente='luis') and grupo<>'acordo' order by vencimento limit 1`, [pr.contrato]);
-  await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','pendencia',null,$2,(now() at time zone 'America/Sao_Paulo')::date,'{}',$3)`,
-    [pr.contrato, t0?.id || null, `Falta o termo de acordo ${d.termo || ''} assinado (acordo efetivado automaticamente pelo pagamento da 1ª parcela).`]);
+  /* à vista (uma parcela só) não tem termo: não há confissão de dívida */
+  if ((d.parcelas || []).length > 1) {
+    const [t0] = await q(`select id from carteira.titulos where contrato=$1 and (conferente is null or conferente='luis') and grupo<>'acordo' order by vencimento limit 1`, [pr.contrato]);
+    await q(`insert into carteira.eventos(contrato, conferente, tipo, motivo, a_partir_titulo, data, dados, obs) values ($1,'luis','pendencia',null,$2,(now() at time zone 'America/Sao_Paulo')::date,'{}',$3)`,
+      [pr.contrato, t0?.id || null, `Falta o termo de acordo ${d.termo || ''} assinado (acordo efetivado automaticamente pelo pagamento da 1ª parcela).`]);
+  }
   await anotaCobranca(pr.contrato, 'acordo', `Proposta ${d.termo || ''} efetivada: o cliente pagou a 1ª parcela (R$ ${(+g.value).toFixed(2).replace('.', ',')}).`, 'acordo');
   /* O primeiro ciclo pode ser emitido de uma vez; as demais entram na emissão mensal. */
   const limite = aniversarioAcordo(d.data_acordo, +String(d.data_acordo).slice(0, 4) + 1);
@@ -768,6 +771,23 @@ async function efetivaPropostaPaga(pid, g) {
   if (outras.length) await anotaCobranca(pr.contrato, 'sistema', `Boletos das demais parcelas do acordo gerados no Asaas: ${gerados.length} de ${outras.length}${erros.length ? ' (avisos: ' + erros.join('; ') + ')' : ''}.`);
   await log('asaas', 'proposta_efetivada_auto', { proposta: pid, acordo: r.a.id, contrato: pr.contrato, pagamento: g.id, boletos: gerados, erros });
   return { titulo_id: t1.id, contrato: pr.contrato };
+}
+/* Pix/transferência sem boleto, do próprio cliente, no valor exato de uma proposta à vista (uma parcela) do contrato dele:
+   vira acordo quitado sozinho, sem termo e sem boleto */
+async function efetivaAVistaPix(n, g) {
+  const props = await q(`select * from carteira.propostas where contrato=$1 and conferente='luis' order by id desc`, [n]);
+  const pr = props.find(p => (p.dados?.parcelas || []).length === 1 && Math.abs(+p.dados.valor_acordado - +g.value) <= 0.01);
+  if (!pr) return null;
+  const d = pr.dados || {}, pago = String(g.paymentDate || g.clientPaymentDate || g.confirmedDate || '').slice(0, 10);
+  const r = await criaAcordo({ ...d, contrato: n, tipo: 'acordo', termo: null, parcelas: [{ vencimento: pago, valor: +g.value }],
+    obs: [d.obs, `Pago à vista por ${FORMA_A[g.billingType] || g.billingType} em ${pago.split('-').reverse().join('/')} (baixa automática pelo valor e pelo pagador), sem termo.`].filter(Boolean).join(' · ') }, 'luis');
+  if (r.erro) { await log('asaas', 'avista_nao_efetivada', { proposta: pr.id, erro: r.erro }); return null; }
+  for (const b of await q(`select id_asaas from carteira.boletos where dados->>'externalReference'=$1 and status = any($2)`, ['cbr-proposta-' + pr.id, ATIVOS_B]).catch(() => [])) { try { await excluirBoleto(b.id_asaas, 'luis', 'Proposta paga à vista por Pix'); } catch (e) { } }
+  await q('delete from carteira.propostas where id=$1', [pr.id]);
+  const [t1] = await q('select id from carteira.titulos where acordo_id=$1 and numero=1', [r.a.id]);
+  await anotaCobranca(n, 'acordo', `Proposta ${d.termo || ''} paga à vista: R$ ${(+g.value).toFixed(2).replace('.', ',')} recebidos sem boleto, do próprio cliente. Acordo quitado sozinho, sem termo.`, 'acordo');
+  await log('asaas', 'avista_pix_efetivada', { proposta: pr.id, acordo: r.a.id, contrato: n, pagamento: g.id });
+  return { titulo_id: t1.id, contrato: n };
 }
 /* boleto da taxa de cessão pago: dá baixa sozinho na cessão (e no evento de cessão, se já concluída) */
 async function taxaCessaoPaga(id, k, g) {
@@ -802,6 +822,24 @@ async function processaPagamentoAsaas(g, X, opc = {}) {
   const pagoEm = g.paymentDate || g.clientPaymentDate || g.confirmedDate;
   await garanteBoletos();
   const [bol] = await q('select contrato, titulo_id, tipo, composicao from carteira.boletos where id_asaas=$1', [g.id]);
+  if (!opc.titulo_id && !bol?.titulo_id && !g.externalReference) {
+    /* contrato: pelo cliente do Asaas; se não der, pelo nome de quem pagou igual ao de um comprador com proposta à vista desse valor */
+    let n0 = acharContrato(g, X)?.n || null;
+    if (!n0) {
+      const cands = await q(`select p.contrato, c.compradores from carteira.propostas p join carteira.contratos c on c.numero=p.contrato
+        where p.conferente='luis' and jsonb_array_length(coalesce(p.dados->'parcelas','[]'::jsonb))=1 and abs((p.dados->>'valor_acordado')::numeric - $1) <= 0.01`, [+g.value]).catch(() => []);
+      if (cands.length) {
+        if (!(g.customer in X.nomes)) { const cu = await asaas('/customers/' + g.customer).catch(() => null); X.nomes[g.customer] = cu?.name || null; }
+        const nn = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim();
+        const quem = nn(X.nomes[g.customer]), pq = quem.split(' ');
+        const bate = c => (Array.isArray(c.compradores) ? c.compradores : []).some(k => { const pk = nn(k.nome).split(' '); if (!pk.length || !pq[0]) return false; const p1 = pk[0].startsWith(pq[0]) || pq[0].startsWith(pk[0]); return p1 && (nn(k.nome) === quem || pk.slice(1).some(w => w.length > 2 && pq.slice(1).includes(w))); });
+        const ok = [...new Set(cands.filter(bate).map(c => c.contrato))];
+        if (ok.length === 1) n0 = ok[0];
+      }
+    }
+    if (n0) { const r = await efetivaAVistaPix(n0, g).catch(e => { console.error('avista', e.message); return null; });
+      if (r) { if (X?.cache) delete X.cache[r.contrato]; opc = { ...opc, titulo_id: r.titulo_id, contrato: r.contrato, nota: 'acordo à vista pago sem boleto' }; } }
+  }
   if (bol) await gravaBoleto(g, {});
   if (bol?.titulo_id && !opc.titulo_id) { opc = { ...opc, titulo_id: bol.titulo_id, contrato: opc.contrato || bol.contrato, doBoleto: true }; }
   const k = opc.contrato ? { n: opc.contrato } : acharContrato(g, X);
