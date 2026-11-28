@@ -2551,22 +2551,25 @@ async function resumoAgio(n){
 async function telaAgios(){app.innerHTML='<div class="card">Carregando…</div>';AGI=await api('agios');desenhaAgios();
   const fila=AGI.filter(a=>!AGR[a.contrato]).map(a=>a.contrato);
   while(fila.length){await Promise.all(fila.splice(0,4).map(n=>resumoAgio(n).then(r=>{AGR[n]=r}).catch(e=>{AGR[n]={erro:e.message}})));if(location.hash==='#agios')desenhaAgios()}}
+/* o que o proprietário pagou depois de cadastrar o ágio vira ágio (sai do saldo, entra no ágio); correção não mexe no ágio */
+const agPagoDepois=a=>{const r=AGR[a.contrato];return r&&!r.erro&&a.pago_base!=null?Math.max(0,Math.round(((+r.pago||0)-(+a.pago_base))*100)/100):0};
+const agA=a=>a.valor_pedido==null?null:+a.valor_pedido+agPagoDepois(a);
 const agAtivo=a=>['venda','reservado'].includes(a.status);
 function desenhaAgios(){
   const L=AGI.filter(a=>AGF==='todos'||(AGF==='ativos'?agAtivo(a):a.status===AGF)),R=n=>AGR[n]||{};
-  const at=AGI.filter(agAtivo),k=a=>agCalc(a.valor_pedido,R(a.contrato).saldo,a.comissao_inclusa!==false,a.comissao_pct);
+  const at=AGI.filter(agAtivo),k=a=>agCalc(agA(a),R(a.contrato).saldo,a.comissao_inclusa!==false,a.comissao_pct);
   const fil=[['ativos','À venda + em negociação'],...AG_ST.map(x=>[x[0],x[1]]),['todos','Todos']].map(([f,t])=>`<button class="${AGF===f?'pri':''}" onclick="AGF='${f}';desenhaAgios()">${t}</button>`).join('');
   const lin=a=>{const r=R(a.contrato),s=agSt(a.status),c=k(a),car=!AGR[a.contrato]?'<span class="mut">carregando…</span>':r.erro?'<span class="mut">erro</span>':'';
     return `<tr style="cursor:pointer" onclick="editaAgio('${a.contrato}')">
       <td><b>Q${esc(a.quadra)} L${esc(a.lote)}</b><div class="mut">${a.contrato}${a.area?' · '+(+a.area).toLocaleString('pt-BR')+' m²':''}</div></td>
       <td>${esc(nome(a.titular||''))}<div class="mut">${esc(r.tel||'')}</div><span class="tag" style="background:${s[2]};color:#fff">${s[1]}</span></td>
-      <td style="text-align:right"><b>${brl(a.valor_pedido)}</b></td>
+      <td style="text-align:right"><b>${brl(agA(a))}</b>${agPagoDepois(a)>0?`<div class="mut">+${brl(agPagoDepois(a))} pago depois</div>`:''}</td>
       <td style="text-align:right">${car||brl(c.com)}<div class="mut">${String(c.pct).replace('.',',')}% · ${a.comissao_inclusa!==false?'inclusa no ágio':'soma por cima'}</div></td>
       <td style="text-align:right">${car||brl(r.saldo)}${r.divida>0.004?`<div class="mut" style="color:#b91c1c">dívida ${brl(r.divida)}</div>`:''}</td>
       <td style="text-align:right"><b>${car||brl(c.total)}</b></td></tr>`};
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button><button class="pri" onclick="novoAgio()">+ Novo ágio</button><button onclick="copiaListaAgios()">Copiar listagem para o cliente</button></div>
   <div class="card"><h3 style="margin-top:0">Ágios à venda — Beira Rio</h3>
-   <div class="tot"><div><span class="mut">À venda / em negociação</span><b>${at.length}</b></div><div><span class="mut">Soma dos ágios</span><b>${brl(at.reduce((s,a)=>s+(+a.valor_pedido||0),0))}</b></div><div><span class="mut">Comissões</span><b>${brl(at.reduce((s,a)=>s+(AGR[a.contrato]?k(a).com:0),0))}</b></div><div><span class="mut">Vendidos</span><b>${AGI.filter(a=>a.status==='vendido').length}</b></div></div>
+   <div class="tot"><div><span class="mut">À venda / em negociação</span><b>${at.length}</b></div><div><span class="mut">Soma dos ágios</span><b>${brl(at.reduce((s,a)=>s+(agA(a)||0),0))}</b></div><div><span class="mut">Comissões</span><b>${brl(at.reduce((s,a)=>s+(AGR[a.contrato]?k(a).com:0),0))}</b></div><div><span class="mut">Vendidos</span><b>${AGI.filter(a=>a.status==='vendido').length}</b></div></div>
    <div class="mut" style="margin-top:6px">Proprietário, saldo e dívida saem do sistema. Comissão = percentual (5% de início) sobre o valor final (ágio + saldo devedor). Preço total = ágio + saldo + comissão quando ela soma por cima.</div>
    <div class="bt" style="margin-top:8px;flex-wrap:wrap">${fil}</div></div>
   <div class="card" style="overflow-x:auto">${L.length?`<table><thead><tr><th>Lote</th><th>Proprietário</th><th style="text-align:right">Ágio pedido</th><th style="text-align:right">Comissão</th><th style="text-align:right">Saldo devedor</th><th style="text-align:right">Preço total</th></tr></thead><tbody>${L.map(lin).join('')}</tbody></table>`:'<div class="mut">Nenhum ágio nesta lista. Clique em “+ Novo ágio”.</div>'}</div>`}
@@ -2589,11 +2592,11 @@ async function editaAgio(n,novo){
   <div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center"><b>Comissão</b>
    <label style="font-weight:400;display:inline-flex;gap:6px;align-items:center;margin:0"><input type="radio" name="ag_ci" value="1" ${a.comissao_inclusa!==false?'checked':''} onchange="agPreco('v')" style="width:auto"> inclusa no ágio</label>
    <label style="font-weight:400;display:inline-flex;gap:6px;align-items:center;margin:0"><input type="radio" name="ag_ci" value="0" ${a.comissao_inclusa===false?'checked':''} onchange="agPreco('v')" style="width:auto"> soma por cima do ágio</label></div>
-  <div class="f2" style="margin-top:8px"><div><label>Ágio que o proprietário pede</label><input id="ag_v" inputmode="decimal" oninput="agPreco('v')" onblur="agPreco()"></div><div><label>Comissão (%)</label><input id="ag_pct" inputmode="decimal" oninput="agPreco('pct')" onblur="agPreco()"></div><div><label>Comissão (R$)</label><input id="ag_com" inputmode="decimal" oninput="agPreco('com')" onblur="agPreco()"></div><div><label><b>Valor líquido para o proprietário</b></label><input id="ag_liq" inputmode="decimal" oninput="agPreco('liq')" onblur="agPreco()" style="font-weight:700"></div><div><label>Saldo devedor</label><input id="ag_sd" inputmode="decimal" readonly style="background:#eef2f7"></div><div><label>Dívida (já dentro do saldo)</label><input id="ag_dv" inputmode="decimal" readonly style="background:#eef2f7"></div><div><label>Preço total</label><input id="ag_tot" inputmode="decimal" oninput="agPreco('tot')" onblur="agPreco()"></div>
+  <div class="f2" style="margin-top:8px"><div><label>Ágio que o proprietário pede</label><input id="ag_v" inputmode="decimal" oninput="agPreco('v')" onblur="agPreco()">${agPagoDepois(a)>0?`<div class="mut">${brl(a.valor_pedido)} + ${brl(agPagoDepois(a))} que ele pagou depois</div>`:''}</div><div><label>Comissão (%)</label><input id="ag_pct" inputmode="decimal" oninput="agPreco('pct')" onblur="agPreco()"></div><div><label>Comissão (R$)</label><input id="ag_com" inputmode="decimal" oninput="agPreco('com')" onblur="agPreco()"></div><div><label><b>Valor líquido para o proprietário</b></label><input id="ag_liq" inputmode="decimal" oninput="agPreco('liq')" onblur="agPreco()" style="font-weight:700"></div><div><label>Saldo devedor</label><input id="ag_sd" inputmode="decimal" readonly style="background:#eef2f7"></div><div><label>Dívida (já dentro do saldo)</label><input id="ag_dv" inputmode="decimal" readonly style="background:#eef2f7"></div><div><label>Preço total</label><input id="ag_tot" inputmode="decimal" oninput="agPreco('tot')" onblur="agPreco()"></div>
    <div><label>Situação</label><select id="ag_st">${AG_ST.map(x=>`<option value="${x[0]}" ${a.status===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div></div>
   <div id="ag_det" style="margin-top:12px"></div><div id="ag_print" style="margin-top:12px"></div>
   <div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaAgio('${n}')">Salvar</button>${novo?'':`<button onclick="excluiAgio('${n}')">Excluir</button>`}</div>`);
-  window._AGV={A:a.valor_pedido!=null?+a.valor_pedido:0,p:a.comissao_pct!=null?+a.comissao_pct:5};agPreco();setTimeout(()=>$('#ag_v')?.focus(),50)}
+  window._AGV={A:agA(a)||0,p:a.comissao_pct!=null?+a.comissao_pct:5};agPreco();setTimeout(()=>$('#ag_v')?.focus(),50)}
 function agPreco(campo){const a=window._AGA,r=AGR[a?.contrato]||{},V=window._AGV;if(!V||!$('#ag_v'))return;const S=+r.saldo||0,inc=document.querySelector('input[name=ag_ci]:checked')?.value!=='0';
   if(campo){const x=numBR($('#ag_'+campo).value);if(x!=null){
     if(campo==='pct')V.p=x;else if(campo==='com')V.p=(V.A+S)>0?x/(V.A+S)*100:V.p;else V.A=agDe(campo,x,S,inc,V.p)}}
@@ -2621,11 +2624,11 @@ function agBlocos(a,r,c){const d=$('#ag_det'),p=$('#ag_print');if(!d||!p||r.erro
     ${lin('Valor do ágio',brl(c.agCli),1)}${lin('Saldo devedor',brl(r.saldo),1)}${r.me.faltam?lin('Mensais que faltam',`${r.me.faltam} de ${brl(r.me.valor)}`,1):''}${r.an.faltam?lin('Anuais que faltam',`${r.an.faltam} de ${brl(r.an.valor)}`,1):''}
     <div style="display:flex;justify-content:space-between;padding:10px 0 0"><b style="font-size:17px">Preço final</b><b style="font-size:20px;color:#0f766e">${brl(c.total)}</b></div></div>`}
 async function salvaAgio(n){agPreco();const V=window._AGV;if(!(V.A>0))return alert('Digite o valor do ágio ou o preço total.');
-  await api('agio/'+n,{method:'PUT',body:{status:$('#ag_st').value,valor_pedido:V.A,comissao_pct:V.p,comissao_inclusa:document.querySelector('input[name=ag_ci]:checked')?.value!=='0'}});
+  await api('agio/'+n,{method:'PUT',body:{status:$('#ag_st').value,valor_pedido:V.A,pago_base:+(AGR[n]?.pago)||0,comissao_pct:V.p,comissao_inclusa:document.querySelector('input[name=ag_ci]:checked')?.value!=='0'}});
   fechaModal();AGI=await api('agios');desenhaAgios()}
 async function excluiAgio(n){if(!confirm('Tirar o contrato '+n+' da lista de ágios?'))return;await api('agio/'+n,{method:'DELETE'});delete AGR[n];fechaModal();AGI=await api('agios');desenhaAgios()}
 function copiaListaAgios(){const L=AGI.filter(a=>a.status==='venda'&&AGR[a.contrato]&&!AGR[a.contrato].erro);if(!L.length)return alert('Nenhum ágio à venda.');
-  const t='*Ágios à venda — Condomínio de Chácaras Beira Rio*\n\n'+L.map(a=>{const r=AGR[a.contrato],c=agCalc(a.valor_pedido,r.saldo,a.comissao_inclusa!==false,a.comissao_pct);
+  const t='*Ágios à venda — Condomínio de Chácaras Beira Rio*\n\n'+L.map(a=>{const r=AGR[a.contrato],c=agCalc(agA(a),r.saldo,a.comissao_inclusa!==false,a.comissao_pct);
     return `*Quadra ${+a.quadra||a.quadra}, Lote ${+a.lote||a.lote}*${a.area?` · ${(+a.area).toLocaleString('pt-BR')} m²`:''}\nÁgio: ${brl(c.agCli)}\nParcelas pagas: ${r.me.pagas} · restantes: ${r.me.faltam}${r.me.valor!=null?' de '+brl(r.me.valor):''}${r.an.faltam?`\nAnuais restantes: ${r.an.faltam} de ${brl(r.an.valor)}`:''}\nSaldo devedor: ${brl(r.saldo)}\n*Valor total: ${brl(c.total)}*`}).join('\n\n')+'\n\nInerente Gestão Imobiliária';
   navigator.clipboard.writeText(t).then(()=>alert('Listagem copiada ('+L.length+' lotes). É só colar no WhatsApp.'),()=>prompt('Copie a listagem:',t))}
 async function telaComissoes(){app.innerHTML='<div class="card">Carregando…</div>';COML=await api('painel/comissoes');
