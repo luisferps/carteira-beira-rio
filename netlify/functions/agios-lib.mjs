@@ -8,6 +8,7 @@ export function criaAgios({ q, json, log }) {
     await q(`alter table carteira.agios add column if not exists comissao_inclusa boolean not null default true`);
     await q(`alter table carteira.agios add column if not exists comissao_pct numeric not null default 5`);
     await q(`alter table carteira.agios add column if not exists pago_base numeric`);
+    await q(`alter table carteira.agios add column if not exists transf_inclusa boolean not null default false`);
     ok = true;
   }
   return async function rotasAgios(p, m, body, real) {
@@ -27,11 +28,11 @@ export function criaAgios({ q, json, log }) {
         const [c] = await q(`select numero from carteira.contratos where numero=$1`, [p[1]]);
         if (!c) return json({ erro: 'Contrato não encontrado' }, 404);
         const b = body || {}, num = v => v === '' || v == null || isNaN(+v) ? null : +v;
-        await q(`insert into carteira.agios(contrato, status, valor_pedido, aceita_proposta, contato, telefone, captador, desde, divulgacao, obs, por, comissao_inclusa, comissao_pct, pago_base)
-                 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        await q(`insert into carteira.agios(contrato, status, valor_pedido, aceita_proposta, contato, telefone, captador, desde, divulgacao, obs, por, comissao_inclusa, comissao_pct, pago_base, transf_inclusa)
+                 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
                  on conflict (contrato) do update set status=excluded.status, valor_pedido=excluded.valor_pedido, aceita_proposta=excluded.aceita_proposta, contato=excluded.contato,
-                   telefone=excluded.telefone, captador=excluded.captador, desde=excluded.desde, divulgacao=excluded.divulgacao, obs=excluded.obs, por=excluded.por, comissao_inclusa=excluded.comissao_inclusa, comissao_pct=excluded.comissao_pct, pago_base=excluded.pago_base, atualizado_em=now()`,
-          [p[1], b.status || 'venda', num(b.valor_pedido), !!b.aceita_proposta, b.contato || null, b.telefone || null, b.captador || null, b.desde || null, JSON.stringify(b.divulgacao || {}), b.obs || null, real, b.comissao_inclusa !== false, num(b.comissao_pct) ?? 5, num(b.pago_base)]);
+                   telefone=excluded.telefone, captador=excluded.captador, desde=excluded.desde, divulgacao=excluded.divulgacao, obs=excluded.obs, por=excluded.por, comissao_inclusa=excluded.comissao_inclusa, comissao_pct=excluded.comissao_pct, pago_base=excluded.pago_base, transf_inclusa=excluded.transf_inclusa, atualizado_em=now()`,
+          [p[1], b.status || 'venda', num(b.valor_pedido), !!b.aceita_proposta, b.contato || null, b.telefone || null, b.captador || null, b.desde || null, JSON.stringify(b.divulgacao || {}), b.obs || null, real, b.comissao_inclusa !== false, num(b.comissao_pct) ?? 5, num(b.pago_base), !!b.transf_inclusa]);
         await log(real, 'agio_salvo', { contrato: p[1], status: b.status, valor_pedido: num(b.valor_pedido) });
         return json({ ok: true });
       }
