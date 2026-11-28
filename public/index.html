@@ -2537,7 +2537,7 @@ let COML=null;
 /* ---------- ÁGIOS (só administrador) ---------- */
 const AG_ST=[['venda','À venda','#16a34a'],['reservado','Em negociação','#f59e0b'],['vendido','Vendido','#2563eb'],['retirado','Retirado','#9ca3af']];
 const AG_COM=0.05;
-let AGI=[],AGR={},AGF='ativos',AGCT=null;
+let AGI=[],AGR={},AGF='ativos',AGCT=null,AGS={k:'quadra',d:1};
 const agSt=k=>AG_ST.find(x=>x[0]===k)||AG_ST[0];
 /* comissão de 5% sobre o valor final (ágio + saldo devedor); inclusa = sai de dentro do ágio, senão soma por cima */
 function agCalc(agio,saldo,inclusa,pct,tx,txInc){agio=+agio||0;saldo=+saldo||0;tx=+tx||0;const p=(pct==null||pct===''?5:+pct)/100;const com=Math.round((agio+saldo)*p*100)/100,agCli=inclusa?agio:agio+com;
@@ -2570,10 +2570,14 @@ const agSit=x=>`${x.pagas} pagas · ${x.atr} atrasada${x.atr===1?'':'s'} · ${x.
 const agCol=x=>x&&x.total?`${x.pagas} / ${x.atr} / ${x.fut}${x.fut&&x.valor!=null?` de ${brl(x.valor)}`:''}`:'Não tem';
 const agAtivo=a=>['venda','reservado'].includes(a.status);
 function desenhaAgios(){
-  const L=AGI.filter(a=>AGF==='todos'||(AGF==='ativos'?agAtivo(a):a.status===AGF)),R=n=>AGR[n]||{};
+  const R=n=>AGR[n]||{};
+  const L=AGI.filter(a=>AGF==='todos'||(AGF==='ativos'?agAtivo(a):a.status===AGF));
   const at=AGI.filter(agAtivo),k=a=>agCalc(agA(a),R(a.contrato).saldo,a.comissao_inclusa!==false,a.comissao_pct,R(a.contrato).taxa,a.transf_inclusa);
   const fil=[['ativos','À venda + em negociação'],...AG_ST.map(x=>[x[0],x[1]]),['todos','Todos']].map(([f,t])=>`<button class="${AGF===f?'pri':''}" onclick="AGF='${f}';desenhaAgios()">${t}</button>`).join('');
   const th='padding:8px 12px;text-align:right;white-space:nowrap;border-bottom:2px solid #0f766e;color:#0f766e;font-size:13px',td='padding:9px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid #e5e7eb';
+  const KS={quadra:a=>(+a.quadra||0)*1000+(+a.lote||0),lote:a=>+a.lote||0,area:a=>+a.area||0,agio:a=>k(a).agCli,saldo:a=>R(a.contrato).saldo??-1,me:a=>R(a.contrato).me?.fut??-1,an:a=>R(a.contrato).an?.fut??-1,divida:a=>R(a.contrato).divida??-1,total:a=>k(a).total};
+  L.sort((x,y)=>((KS[AGS.k]||KS.quadra)(x)-(KS[AGS.k]||KS.quadra)(y))*AGS.d||KS.quadra(x)-KS.quadra(y));
+  const hd=(key,t,al)=>`<th onclick="agOrdena('${key}')" style="${th};cursor:pointer;user-select:none${al?';text-align:'+al:''}">${t}${AGS.k===key?(AGS.d>0?' ▲':' ▼'):''}</th>`;
   const aV=x=>x&&x.fut?`${x.fut} de ${brl(x.valor)}`:'Não tem';
   const lin=a=>{const r=R(a.contrato),c=k(a),ok=AGR[a.contrato]&&!r.erro,v=x=>ok?x:'<span class="mut">…</span>';
     return `<tr style="cursor:pointer" onclick="editaAgio('${a.contrato}')">
@@ -2589,7 +2593,8 @@ function desenhaAgios(){
   <div class="card"><div class="tot"><div><span class="mut">À venda / em negociação</span><b>${at.length}</b></div><div><span class="mut">Soma dos ágios</span><b>${brl(at.reduce((s,a)=>s+(agA(a)||0),0))}</b></div><div><span class="mut">Comissões</span><b>${brl(at.reduce((s,a)=>s+(AGR[a.contrato]?k(a).com:0),0))}</b></div><div><span class="mut">Vendidos</span><b>${AGI.filter(a=>a.status==='vendido').length}</b></div></div>
    <div class="bt" style="margin-top:8px;flex-wrap:wrap">${fil}</div><div class="mut" style="margin-top:4px">Clique na linha para editar. A lista abaixo é a que vai para o comprador: é só tirar o print.</div></div>
   <div class="card" style="overflow-x:auto;background:#fff">${L.length?`<div style="color:#0f766e;font-weight:700;font-size:13px;letter-spacing:.5px">CONDOMÍNIO DE CHÁCARAS BEIRA RIO</div><div style="font-size:19px;font-weight:700;margin:2px 0 10px">Ágios à venda</div>
-   <table data-manter style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr><th style="${th};text-align:center">Quadra</th><th style="${th};text-align:center">Lote</th><th style="${th}">Área</th><th style="${th}">Valor do ágio</th><th style="${th}">Saldo devedor</th><th style="${th}">Mensais a vencer</th><th style="${th}">Anuais a vencer</th><th style="${th}">Débito em atraso</th><th style="${th}">Preço final</th></tr></thead><tbody>${L.map(lin).join('')}</tbody></table>`:'<div class="mut">Nenhum ágio nesta lista. Clique em “+ Novo ágio”.</div>'}</div>`}
+   <table data-manter style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr>${hd('quadra','Quadra','center')}${hd('lote','Lote','center')}${hd('area','Área')}${hd('agio','Valor do ágio')}${hd('saldo','Saldo devedor')}${hd('me','Mensais a vencer')}${hd('an','Anuais a vencer')}${hd('divida','Débito em atraso')}${hd('total','Preço final')}</tr></thead><tbody>${L.map(lin).join('')}</tbody></table>`:'<div class="mut">Nenhum ágio nesta lista. Clique em “+ Novo ágio”.</div>'}</div>`}
+function agOrdena(key){AGS=AGS.k===key?{k:key,d:-AGS.d}:{k:key,d:key==='quadra'||key==='lote'?1:-1};desenhaAgios()}
 async function novoAgio(){AGCT=AGCT||await api('contratos');
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Novo ágio</h3><button onclick="fechaModal()">Fechar</button></div>
   <label>Quadra e lote</label><input id="ag_ql" placeholder="ex.: 8 3  ou  Q08 L03" oninput="clearTimeout(window._agT);window._agT=setTimeout(achaAgio,350)" autofocus><div id="ag_res" style="margin-top:8px"></div>`);setTimeout(()=>$('#ag_ql')?.focus(),50)}
