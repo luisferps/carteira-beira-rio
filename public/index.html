@@ -262,12 +262,12 @@ async function novaObs(){const t=prompt('Observação deste contrato:');if(!t)re
 async function apagaObs(id){if(!confirm('Apagar esta observação?'))return;await api('evento/'+id,{method:'DELETE'});recarrega()}
 /* ---------- MÓDULOS ---------- */
 function telaModulos(){
-  if(EU==='assistente'&&MODS){const T={contratos:['#2563eb','contratos','Contratos','Carteira do Beira Rio: parcelas, pagamentos, acordos e relatórios.'],documentos:['#b45309','documentos','Documentos','Contrato assinado, firma, testemunhas, RG, CPF, endereço e estado civil de cada comprador.'],mapa:['#16a34a','mapa','Mapa de lotes','Quadra por quadra: em dia, em atraso, em cobrança e lotes disponíveis.'],clientes:['#2e9e4f','clientes','Clientes','Cadastro dos clientes: telefones, e-mails, endereço, documentos e contratos.'],cobranca:['#dc2626','cobranca','Cobrança','Funil, agenda de contatos, promessas e mensagens de WhatsApp.'],boletos:['#ea580c','boletos','Boletos','Gerar boletos, 2ª via, cobrança e relatórios de cobrança.'],cessoes:['#9333ea','cessoes','Cessões','Cessões de direitos: documento, andamento e troca de titulares.'],devolucoes:['#0f766e','devolucoes','Devoluções','Quem tem a receber de volta: crédito, o que já foi pago, saldo e atrasadas.'],quitacao:['#15803d','quitacao','Quitação','Quem já quitou e quem está perto: termo de quitação e informe para o IR.']};
+  if(EU==='assistente'&&MODS){const T={contratos:['#2563eb','contratos','Contratos','Carteira do Beira Rio: parcelas, pagamentos, acordos e relatórios.'],documentos:['#b45309','documentos','Documentos','Contrato assinado, firma, testemunhas, RG, CPF, endereço e estado civil de cada comprador.'],mapa:['#16a34a','mapa','Mapa de lotes','Quadra por quadra: lotes vendidos e disponíveis.'],clientes:['#2e9e4f','clientes','Clientes','Cadastro dos clientes: telefones, e-mails, endereço, documentos e contratos.'],cobranca:['#dc2626','cobranca','Cobrança','Funil, agenda de contatos, promessas e mensagens de WhatsApp.'],boletos:['#ea580c','boletos','Boletos','Gerar boletos, 2ª via, cobrança e relatórios de cobrança.'],cessoes:['#9333ea','cessoes','Cessões','Cessões de direitos: documento, andamento e troca de titulares.'],devolucoes:['#0f766e','devolucoes','Devoluções','Quem tem a receber de volta: crédito, o que já foi pago, saldo e atrasadas.'],quitacao:['#15803d','quitacao','Quitação','Quem já quitou e quem está perto: termo de quitação e informe para o IR.']};
     app.innerHTML=`<div class="mods">${MOD_NOMES.filter(([k])=>MODS.includes(k)).map(([k])=>{const t=T[k];return `<div class="mod" style="border-left-color:${t[0]}" onclick="location.hash='${t[1]}'"><b>${t[2]}</b><span>${t[3]}</span></div>`}).join('')}</div>`;return}
   app.innerHTML=`<div class="mods">
    <div class="mod" onclick="location.hash='contratos'"><b>Contratos</b><span>Carteira do Beira Rio: parcelas, pagamentos, acordos, cessões e relatórios.</span></div>
    ${EU==='luis'||EU==='assistente'?`<div class="mod" style="border-left-color:#b45309" onclick="location.hash='documentos'"><b>Documentos</b><span>Contrato assinado, firma, testemunhas, RG, CPF, endereço e estado civil de cada comprador: o que tem e o que falta, com os arquivos anexados.</span></div>`:''}
-   <div class="mod" style="border-left-color:#16a34a" onclick="location.hash='mapa'"><b>Mapa de lotes</b><span>Quadra por quadra: em dia, em atraso, em cobrança e lotes disponíveis (encerrados/retomados). Clique para abrir o contrato.</span></div>
+   <div class="mod" style="border-left-color:#16a34a" onclick="location.hash='mapa'"><b>Mapa de lotes</b><span>Quadra por quadra: lotes vendidos (vermelho) e disponíveis (verde). Clique no vendido para abrir o contrato.</span></div>
    <div class="mod" style="border-left-color:#2e9e4f" onclick="location.hash='clientes'"><b>Clientes</b><span>Cadastro dos clientes: telefones, e-mails, endereço, documentos e os contratos de cada um.</span></div>
    ${EU==='luis'||EU==='assistente'?`<div class="mod" style="border-left-color:#dc2626" onclick="location.hash='cobranca'"><b>Cobrança</b><span>Campanha de cobrança: funil, agenda de contatos, promessas e mensagens prontas de WhatsApp.</span></div>`:''}
    ${EU==='assistente'?`<div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar boletos, 2ª via, cobrança e relatórios de cobrança.</span></div>`:''}
@@ -2424,25 +2424,20 @@ async function salvaPessoais(id){const c=CLI.find(x=>x.id==id),M=c.manual||{};co
 
 /* ===== Mapa de lotes ===== */
 async function telaMapa(){app.innerHTML='<div class="card">Carregando…</div>';
-  const [L,cob]=await Promise.all([api('contratos'),EU==='luis'||EU==='assistente'?api('cobranca/painel').catch(()=>null):null]);
-  const emCob=new Set((cob?.casos||[]).map(c=>c.contrato));
+  const L=await api('contratos');
   const lotes={};for(const k of L){const id=k.quadra+'-'+k.lote;(lotes[id]=lotes[id]||[]).push(k)}
   const q={};for(const k of L){const qq=+k.quadra,ll=+k.lote;q[qq]=Math.max(q[qq]||0,ll)}
-  const sit=ks=>{const at=ks.filter(k=>!k.cancelado).sort((a,b)=>String(b.data_assinatura).localeCompare(String(a.data_assinatura)))[0];
-    if(!at)return{c:'#d1d5db',t:'Disponível (contrato encerrado)',k:ks[ks.length-1],cls:'disp'};
-    if(emCob.has(at.numero))return{c:'#7c3aed',t:'Em cobrança',k:at,cls:'cob'};
-    const n=+at.em_atraso||0;if(n>=3)return{c:'#b91c1c',t:`${n} parcelas em atraso`,k:at,cls:'grave'};if(n>0)return{c:'#f59e0b',t:`${n} parcela(s) em atraso`,k:at,cls:'atr'};
-    return{c:'#16a34a',t:'Em dia',k:at,cls:'dia'}};
-  const cont={dia:0,atr:0,grave:0,cob:0,disp:0};
+  const VD='#dc2626',DP='#16a34a';let nv=0,nd=0;
   const qs=Object.keys(q).map(Number).sort((a,b)=>a-b);
-  const html=qs.map(qq=>{let cel='';for(let l=1;l<=q[qq];l++){const id=String(qq).padStart(2,'0')+'-'+String(l).padStart(2,'0'),ks=lotes[id];
-      if(!ks){cel+=`<div class="lt vazio" title="Q${qq} L${l}: sem contrato no sistema">${l}</div>`;continue}
-      const s=sit(ks);cont[s.cls]++;cel+=`<div class="lt" style="background:${s.c}" title="Q${qq} L${l} · contrato ${s.k.numero} · ${esc(s.k.titular||'')} · ${s.t}${+s.k.em_atraso_valor?' · '+brl(+s.k.em_atraso_valor):''}" onclick="location.hash='c/${s.k.numero}'">${l}</div>`}
+  const html=qs.map(qq=>{let cel='';for(let l=1;l<=q[qq];l++){const id=String(qq).padStart(2,'0')+'-'+String(l).padStart(2,'0'),ks=lotes[id]||[];
+      const at=ks.filter(k=>!k.cancelado).sort((a,b)=>String(b.data_assinatura).localeCompare(String(a.data_assinatura)))[0];
+      if(!at){nd++;cel+=`<div class="lt" style="background:${DP};cursor:default" title="Q${qq} L${l}: disponível">${l}</div>`;continue}
+      nv++;cel+=`<div class="lt" style="background:${VD}" title="Q${qq} L${l} · vendido · contrato ${at.numero} · ${esc(at.titular||'')}" onclick="location.hash='c/${at.numero}'">${l}</div>`}
     return `<div class="lq"><b>Quadra ${String(qq).padStart(2,'0')}</b><div class="lts">${cel}</div></div>`}).join('');
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
   <div class="card"><h3 style="margin-top:0">Mapa de lotes</h3>
-   <div class="leg"><span style="--c:#16a34a">Em dia (${cont.dia})</span><span style="--c:#f59e0b">1 ou 2 parcelas em atraso (${cont.atr})</span><span style="--c:#b91c1c">3 ou mais em atraso (${cont.grave})</span><span style="--c:#7c3aed">Em cobrança (${cont.cob})</span><span style="--c:#d1d5db">Disponível — encerrado/retomado (${cont.disp})</span><span style="--c:#fff;outline:1px dashed #999">Sem contrato no sistema</span></div>
-   <div class="mut" style="margin-top:4px">Passe o mouse no lote para ver o contrato; clique para abrir.</div></div>
+   <div class="leg"><span style="--c:${DP}">Disponível (${nd})</span><span style="--c:${VD}">Vendido (${nv})</span></div>
+   <div class="mut" style="margin-top:4px">Passe o mouse no lote para ver o contrato; clique num vendido para abrir.</div></div>
   <div class="card">${html}</div>`}
 
 /* ===== Painel para a FCA: faturamento consolidado e fotografias da inadimplência ===== */
