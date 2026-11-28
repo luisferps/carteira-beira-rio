@@ -271,7 +271,7 @@ function telaModulos(){
    <div class="mod" style="border-left-color:#2e9e4f" onclick="location.hash='clientes'"><b>Clientes</b><span>Cadastro dos clientes: telefones, e-mails, endereço, documentos e os contratos de cada um.</span></div>
    ${EU==='luis'||EU==='assistente'?`<div class="mod" style="border-left-color:#dc2626" onclick="location.hash='cobranca'"><b>Cobrança</b><span>Campanha de cobrança: funil, agenda de contatos, promessas e mensagens prontas de WhatsApp.</span></div>`:''}
    ${EU==='assistente'?`<div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar boletos, 2ª via, cobrança e relatórios de cobrança.</span></div>`:''}
-   ${EU==='luis'?`<div class="mod" style="border-left-color:#64748b" onclick="location.hash='usuarios'"><b>Usuários</b><span>Liberar ou bloquear o acesso da equipe.</span></div><div class="mod" style="border-left-color:#0d9488" onclick="location.hash='agios'"><b>Ágios</b><span>Lotes do Beira Rio à venda por ágio: valor pedido, parcelas pagas e que faltam, saldo devedor e preço total.</span></div><div class="mod" style="border-left-color:#a16207" onclick="location.hash='comissoes'"><b>Comissões de venda</b><span>Corretor de cada venda, valor da comissão e quando foi paga.</span></div><div class="mod" style="border-left-color:#0369a1" onclick="location.hash='painel'"><b>Painel da carteira (FCA)</b><span>Recebido por mês e por ano desde 2022, e fotografias da inadimplência para comparar (ex.: fim de ano × hoje).</span></div><div class="mod" style="border-left-color:#9333ea" onclick="location.hash='cessoes'"><b>Cessões</b><span>Cessões de direitos: documento numerado no modelo, andamento (enviada, assinada, firma reconhecida) e conclusão com a troca de titulares.</span></div><div class="mod" style="border-left-color:#0f766e" onclick="location.hash='devolucoes'"><b>Devoluções</b><span>Quem tem a receber de volta: crédito, parcelas do dia 15, o que já foi pago (Pix do Asaas reconhecido sozinho), saldo e atrasadas.</span></div><div class="mod" style="border-left-color:#1b9fd0" onclick="location.hash='acerto'"><b>Acerto mensal</b><span>Fechamento do mês com a FCA: entradas pela data de crédito, saídas, serviços da Inerente, saldo que passa para o mês seguinte, planilha e relatório em PDF.</span></div><div class="mod" style="border-left-color:#0d9488" onclick="location.hash='correcao'"><b>Correção anual</b><span>Prévia e aplicação da correção de janeiro (IGP-M + 2% para quem atrasou), contrato por contrato.</span></div><div class="mod" style="border-left-color:#475569" onclick="location.hash='backups'"><b>Cópias de segurança</b><span>Cópia do banco inteiro toda semana (domingo), guardada fora do banco. Baixe para guardar no OneDrive.</span></div><div class="mod" style="border-left-color:#15803d" onclick="location.hash='quitacao'"><b>Quitação</b><span>Quem já quitou e quem está perto de quitar: termo de quitação e informe de pagamentos para o IR.</span></div><div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar os boletos do mês, cobrança dos 60 dias e boletos feitos direto no Asaas.</span></div><div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
+   ${EU==='luis'?`<div class="mod" style="border-left-color:#64748b" onclick="location.hash='usuarios'"><b>Usuários</b><span>Liberar ou bloquear o acesso da equipe.</span></div><div class="mod" style="border-left-color:#0d9488" onclick="location.hash='agios'"><b>Ágios</b><span>Lotes do Beira Rio à venda por ágio: digita quadra e lote, o sistema puxa proprietário, saldo e dívida e soma com o ágio e a comissão de 5%.</span></div><div class="mod" style="border-left-color:#a16207" onclick="location.hash='comissoes'"><b>Comissões de venda</b><span>Corretor de cada venda, valor da comissão e quando foi paga.</span></div><div class="mod" style="border-left-color:#0369a1" onclick="location.hash='painel'"><b>Painel da carteira (FCA)</b><span>Recebido por mês e por ano desde 2022, e fotografias da inadimplência para comparar (ex.: fim de ano × hoje).</span></div><div class="mod" style="border-left-color:#9333ea" onclick="location.hash='cessoes'"><b>Cessões</b><span>Cessões de direitos: documento numerado no modelo, andamento (enviada, assinada, firma reconhecida) e conclusão com a troca de titulares.</span></div><div class="mod" style="border-left-color:#0f766e" onclick="location.hash='devolucoes'"><b>Devoluções</b><span>Quem tem a receber de volta: crédito, parcelas do dia 15, o que já foi pago (Pix do Asaas reconhecido sozinho), saldo e atrasadas.</span></div><div class="mod" style="border-left-color:#1b9fd0" onclick="location.hash='acerto'"><b>Acerto mensal</b><span>Fechamento do mês com a FCA: entradas pela data de crédito, saídas, serviços da Inerente, saldo que passa para o mês seguinte, planilha e relatório em PDF.</span></div><div class="mod" style="border-left-color:#0d9488" onclick="location.hash='correcao'"><b>Correção anual</b><span>Prévia e aplicação da correção de janeiro (IGP-M + 2% para quem atrasou), contrato por contrato.</span></div><div class="mod" style="border-left-color:#475569" onclick="location.hash='backups'"><b>Cópias de segurança</b><span>Cópia do banco inteiro toda semana (domingo), guardada fora do banco. Baixe para guardar no OneDrive.</span></div><div class="mod" style="border-left-color:#15803d" onclick="location.hash='quitacao'"><b>Quitação</b><span>Quem já quitou e quem está perto de quitar: termo de quitação e informe de pagamentos para o IR.</span></div><div class="mod" style="border-left-color:#ea580c" onclick="location.hash='boletos'"><b>Boletos</b><span>Gerar os boletos do mês, cobrança dos 60 dias e boletos feitos direto no Asaas.</span></div><div class="mod" style="border-left-color:#7c3aed" onclick="location.hash='asaas'"><b>Asaas automático</b><span>Pagamentos lançados sozinhos depois da data de conferência de cada contrato, e os que precisam da sua decisão.</span></div>`:''}
   </div>`}
 
 
@@ -2526,82 +2526,82 @@ async function telaDocumentos(){app.innerHTML='<div class="card">Carregando…</
 let COML=null;
 /* ---------- ÁGIOS (só administrador) ---------- */
 const AG_ST=[['venda','À venda','#16a34a'],['reservado','Em negociação','#f59e0b'],['vendido','Vendido','#2563eb'],['retirado','Retirado','#9ca3af']];
-const AG_DIV=[['fotos','Fotos'],['texto','Texto'],['canva','Canva'],['marketplace','Marketplace'],['instagram','Instagram'],['zap','Portais']];
-let AGI=[],AGR={},AGF='ativos';
+const AG_COM=0.05;
+let AGI=[],AGR={},AGF='ativos',AGCT=null;
 const agSt=k=>AG_ST.find(x=>x[0]===k)||AG_ST[0];
+/* comissão de 5% sobre o valor final (ágio + saldo devedor); inclusa = sai de dentro do ágio, senão soma por cima */
+function agCalc(agio,saldo,inclusa){agio=+agio||0;saldo=+saldo||0;const com=Math.round((agio+saldo)*AG_COM*100)/100,agCli=inclusa?agio:agio+com;
+  return{com,agCli,total:agCli+saldo,liquido:inclusa?agio-com:agio}}
 async function resumoAgio(n){
   const [d,cl]=await Promise.all([api('contrato/'+n,{silencioso:true}),api('clientes?contrato='+n,{silencioso:true}).catch(()=>[])]);
   const C0=C;C=d;try{
-    const PG=new Set(['paga','paga_atraso','quitada_acordo','quitada_repact']),hoje=C.hoje;
+    const PG=new Set(['paga','paga_atraso','quitada_acordo','quitada_repact']);
     const g=k=>C.titulos.filter(t=>t.grupo===k).map(t=>({t,e:estado(t)})).filter(x=>x.e!=='cancelada'&&x.e!=='diluida');
     const conta=k=>{const L=g(k),pagas=L.filter(x=>PG.has(x.e)).length,atr=L.filter(x=>x.e==='vencida'||x.e==='em_atraso').length,fut=L.filter(x=>x.e==='futura').sort((a,b)=>String(a.t.vencimento).localeCompare(String(b.t.vencimento)));
-      return{total:L.length,pagas,faltam:L.length-pagas,atr,valor:fut.length?valorAno(fut[0].t):null,prox:fut[0]?.t.vencimento||null,aVencer:fut.reduce((s,x)=>s+valorAno(x.t),0),ult:fut.length?fut[fut.length-1].t.vencimento:null}};
+      return{total:L.length,pagas,faltam:L.length-pagas,atr,valor:fut.length?valorAno(fut[0].t):null,aVencer:fut.reduce((s,x)=>s+valorAno(x.t),0)}};
     const me=conta('mensal'),an=conta('anual'),en=conta('entrada');
     const acAb=C.titulos.filter(t=>t.grupo==='acordo'&&['futura','vencida','em_atraso'].includes(estado(t))).reduce((s,t)=>s+valorAno(t),0);
-    const T=totais(),atraso=T.at.tot||0,aVencer=me.aVencer+an.aVencer+en.aVencer,saldo=aVencer+atraso+acAb;
-    const pago=C.pagamentos.reduce((s,p)=>s+(+p.valor_pago||0),0);
+    const atraso=totais().at.tot||0,aVencer=me.aVencer+an.aVencer+en.aVencer,divida=atraso+acAb;
     let tel='';for(const c of cl||[]){const x=cliDados(c);if(x.tel[0]){tel=x.tel[0].v;break}}
-    return{me,an,en,acAb,atraso,aVencer,saldo,pago,tel,encerrado:C.eventos.some(e=>e.tipo==='encerramento')}
+    return{me,an,aVencer,divida,saldo:aVencer+divida,tel,encerrado:C.eventos.some(e=>e.tipo==='encerramento')}
   }finally{C=C0}}
 async function telaAgios(){app.innerHTML='<div class="card">Carregando…</div>';AGI=await api('agios');desenhaAgios();
   const fila=AGI.filter(a=>!AGR[a.contrato]).map(a=>a.contrato);
   while(fila.length){await Promise.all(fila.splice(0,4).map(n=>resumoAgio(n).then(r=>{AGR[n]=r}).catch(e=>{AGR[n]={erro:e.message}})));if(location.hash==='#agios')desenhaAgios()}}
+const agAtivo=a=>['venda','reservado'].includes(a.status);
 function desenhaAgios(){
-  const L=AGI.filter(a=>AGF==='todos'||(AGF==='ativos'?['venda','reservado'].includes(a.status):a.status===AGF));
-  const at=AGI.filter(a=>['venda','reservado'].includes(a.status)),R=n=>AGR[n]||{};
-  const somaAg=at.reduce((s,a)=>s+(+a.valor_pedido||0),0),somaSd=at.reduce((s,a)=>s+(R(a.contrato).saldo||0),0);
-  const fil=[['ativos','À venda + em negociação'],...AG_ST.map(x=>[x[0],x[1]]),['todos','Todos']].map(([k,t])=>`<button class="${AGF===k?'pri':''}" onclick="AGF='${k}';desenhaAgios()">${t}</button>`).join('');
-  const lin=a=>{const r=R(a.contrato),s=agSt(a.status),car=!AGR[a.contrato]?'<span class="mut">carregando…</span>':'';
-    const preco=(+a.valor_pedido||0)+(r.saldo||0);
+  const L=AGI.filter(a=>AGF==='todos'||(AGF==='ativos'?agAtivo(a):a.status===AGF)),R=n=>AGR[n]||{};
+  const at=AGI.filter(agAtivo),k=a=>agCalc(a.valor_pedido,R(a.contrato).saldo,a.comissao_inclusa!==false);
+  const fil=[['ativos','À venda + em negociação'],...AG_ST.map(x=>[x[0],x[1]]),['todos','Todos']].map(([f,t])=>`<button class="${AGF===f?'pri':''}" onclick="AGF='${f}';desenhaAgios()">${t}</button>`).join('');
+  const lin=a=>{const r=R(a.contrato),s=agSt(a.status),c=k(a),car=!AGR[a.contrato]?'<span class="mut">carregando…</span>':r.erro?'<span class="mut">erro</span>':'';
     return `<tr style="cursor:pointer" onclick="editaAgio('${a.contrato}')">
       <td><b>Q${esc(a.quadra)} L${esc(a.lote)}</b><div class="mut">${a.contrato}${a.area?' · '+(+a.area).toLocaleString('pt-BR')+' m²':''}</div></td>
-      <td>${esc(nome(a.titular||''))}<div class="mut">${esc(a.telefone||r.tel||'')}</div></td>
-      <td><span class="tag" style="background:${s[2]};color:#fff">${s[1]}</span>${a.aceita_proposta?'<div class="mut">aceita proposta</div>':''}</td>
-      <td style="text-align:right"><b>${a.valor_pedido!=null?brl(a.valor_pedido):'<span class="mut">digitar</span>'}</b></td>
-      <td style="text-align:right">${car||(r.erro?'<span class="mut">erro</span>':`${r.me.pagas} pagas<div class="mut">faltam ${r.me.faltam}${r.me.atr?` · <b style="color:#b91c1c">${r.me.atr} em atraso</b>`:''}</div>`)}</td>
-      <td style="text-align:right">${car||(r.me&&r.me.valor!=null?brl(r.me.valor):'—')}</td>
-      <td style="text-align:right">${car||(r.an&&r.an.faltam?`${r.an.faltam} × ${brl(r.an.valor)}`:'—')}</td>
-      <td style="text-align:right">${car||(r.saldo!=null?brl(r.saldo):'')}${r.atraso>0.004?`<div class="mut" style="color:#b91c1c">atraso ${brl(r.atraso)}</div>`:''}</td>
-      <td style="text-align:right"><b>${car||brl(preco)}</b></td></tr>`};
-  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button><button class="pri" onclick="novoAgio()">+ Novo ágio</button></div>
+      <td>${esc(nome(a.titular||''))}<div class="mut">${esc(r.tel||'')}</div><span class="tag" style="background:${s[2]};color:#fff">${s[1]}</span></td>
+      <td style="text-align:right"><b>${brl(a.valor_pedido)}</b></td>
+      <td style="text-align:right">${car||brl(c.com)}<div class="mut">${a.comissao_inclusa!==false?'inclusa no ágio':'soma por cima'}</div></td>
+      <td style="text-align:right">${car||brl(r.saldo)}${r.divida>0.004?`<div class="mut" style="color:#b91c1c">dívida ${brl(r.divida)}</div>`:''}</td>
+      <td style="text-align:right"><b>${car||brl(c.total)}</b></td></tr>`};
+  app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button><button class="pri" onclick="novoAgio()">+ Novo ágio</button><button onclick="copiaListaAgios()">Copiar listagem para o cliente</button></div>
   <div class="card"><h3 style="margin-top:0">Ágios à venda — Beira Rio</h3>
-   <div class="tot"><div><span class="mut">À venda / em negociação</span><b>${at.length}</b></div><div><span class="mut">Soma dos ágios pedidos</span><b>${brl(somaAg)}</b></div><div><span class="mut">Saldo devedor desses contratos</span><b>${brl(somaSd)}</b></div><div><span class="mut">Vendidos</span><b>${AGI.filter(a=>a.status==='vendido').length}</b></div></div>
-   <div class="mut" style="margin-top:6px">Parcelas, valor da parcela, anuais e saldo saem do contrato no sistema (com as correções). O valor do ágio é o que o proprietário pede — você digita. Preço total = ágio + saldo devedor.</div>
+   <div class="tot"><div><span class="mut">À venda / em negociação</span><b>${at.length}</b></div><div><span class="mut">Soma dos ágios</span><b>${brl(at.reduce((s,a)=>s+(+a.valor_pedido||0),0))}</b></div><div><span class="mut">Comissão (5%)</span><b>${brl(at.reduce((s,a)=>s+(AGR[a.contrato]?k(a).com:0),0))}</b></div><div><span class="mut">Vendidos</span><b>${AGI.filter(a=>a.status==='vendido').length}</b></div></div>
+   <div class="mut" style="margin-top:6px">Proprietário, saldo e dívida saem do sistema. Comissão = 5% do valor final (ágio + saldo devedor). Preço total = ágio + saldo + comissão quando ela soma por cima.</div>
    <div class="bt" style="margin-top:8px;flex-wrap:wrap">${fil}</div></div>
-  <div class="card" style="overflow-x:auto">${L.length?`<table><thead><tr><th>Lote</th><th>Proprietário</th><th>Situação</th><th style="text-align:right">Ágio pedido</th><th style="text-align:right">Mensais</th><th style="text-align:right">Parcela atual</th><th style="text-align:right">Anuais</th><th style="text-align:right">Saldo devedor</th><th style="text-align:right">Preço total</th></tr></thead><tbody>${L.map(lin).join('')}</tbody></table>`:'<div class="mut">Nenhum ágio nesta lista. Clique em “+ Novo ágio”.</div>'}</div>`}
-async function novoAgio(){const L=await api('contratos');const ja=new Set(AGI.map(a=>a.contrato));
+  <div class="card" style="overflow-x:auto">${L.length?`<table><thead><tr><th>Lote</th><th>Proprietário</th><th style="text-align:right">Ágio pedido</th><th style="text-align:right">Comissão 5%</th><th style="text-align:right">Saldo devedor</th><th style="text-align:right">Preço total</th></tr></thead><tbody>${L.map(lin).join('')}</tbody></table>`:'<div class="mut">Nenhum ágio nesta lista. Clique em “+ Novo ágio”.</div>'}</div>`}
+async function novoAgio(){AGCT=AGCT||await api('contratos');
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Novo ágio</h3><button onclick="fechaModal()">Fechar</button></div>
-  <label>Contrato (busque por número, quadra/lote ou nome)</label><input id="ag_bq" oninput="filtraAgio()" placeholder="ex.: 0085, Q08 L10, Maria" autofocus><div id="ag_lst" style="max-height:340px;overflow:auto;margin-top:6px"></div>`);
-  window._AGL=L.filter(c=>!c.cancelado&&!ja.has(c.numero));filtraAgio()}
-function filtraAgio(){const t=String($('#ag_bq')?.value||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
-  const m=(window._AGL||[]).filter(c=>{if(!t)return true;const s=`${c.numero} q${c.quadra} l${c.lote} q${String(c.quadra).padStart(2,'0')} l${String(c.lote).padStart(2,'0')} ${c.titular||''}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');return t.split(/\s+/).every(w=>s.includes(w))}).slice(0,40);
-  $('#ag_lst').innerHTML=m.map(c=>`<div class="cb" style="cursor:pointer;margin-bottom:4px" onclick="editaAgio('${c.numero}',true)"><b>${c.numero}</b> · Q${esc(c.quadra)} L${esc(c.lote)} · ${esc(nome(c.titular||''))}${+c.em_atraso?` <span class="tag al">${c.em_atraso} em atraso</span>`:''}</div>`).join('')||'<div class="mut">Nada encontrado.</div>'}
+  <label>Quadra e lote</label><input id="ag_ql" placeholder="ex.: 8 3  ou  Q08 L03" oninput="clearTimeout(window._agT);window._agT=setTimeout(achaAgio,350)" autofocus><div id="ag_res" style="margin-top:8px"></div>`);setTimeout(()=>$('#ag_ql')?.focus(),50)}
+async function achaAgio(){const el=$('#ag_res');if(!el)return;const m=String($('#ag_ql').value).match(/(\d+)\D+(\d+)/);if(!m){el.innerHTML='';return}
+  const q=+m[1],l=+m[2],cs=AGCT.filter(c=>+c.quadra===q&&+c.lote===l);
+  if(!cs.length){el.innerHTML='<div class="mut">Nenhum contrato nesse lote.</div>';return}
+  const c=cs.find(x=>!x.cancelado)||cs[cs.length-1];
+  if(AGI.some(a=>a.contrato===c.numero)){el.innerHTML=`<div class="mut">Esse lote já está na lista. <a href="javascript:editaAgio('${c.numero}')">Abrir</a></div>`;return}
+  el.innerHTML='<div class="mut">Puxando os dados…</div>';await editaAgio(c.numero,true)}
 async function editaAgio(n,novo){
-  let a=AGI.find(x=>x.contrato===n);if(!a)a={contrato:n,status:'venda',divulgacao:{},desde:hojeL()};
+  let a=AGI.find(x=>x.contrato===n);
+  if(!a){const c=(AGCT||[]).find(x=>x.numero===n)||{};a={contrato:n,status:'venda',comissao_inclusa:true,quadra:c.quadra,lote:c.lote,titular:c.titular}}
   if(!AGR[n])try{AGR[n]=await resumoAgio(n)}catch(e){AGR[n]={erro:e.message}}
-  const r=AGR[n],dv=a.divulgacao||{};
-  const info=r.erro?`<div class="mut">Não consegui ler o contrato: ${esc(r.erro)}</div>`:`<div class="tot" style="margin:8px 0"><div><span class="mut">Mensais</span><b>${r.me.pagas} pagas · faltam ${r.me.faltam}</b></div><div><span class="mut">Parcela atual</span><b>${r.me.valor!=null?brl(r.me.valor):'—'}</b></div><div><span class="mut">Anuais que faltam</span><b>${r.an.faltam?r.an.faltam+' × '+brl(r.an.valor):'—'}</b></div><div><span class="mut">Saldo devedor</span><b>${brl(r.saldo)}</b></div></div>
-    <div class="mut">${r.me.prox?'Próxima mensal: '+dbr(r.me.prox)+' · última: '+dbr(r.me.ult)+' · ':''}A vencer ${brl(r.aVencer)}${r.atraso>0.004?` · <b style="color:#b91c1c">em atraso ${brl(r.atraso)} (${r.me.atr+r.an.atr} parcela(s), com multa e juros)</b>`:''}${r.acAb>0.004?' · acordo em aberto '+brl(r.acAb):''} · Já pago ${brl(r.pago)}${r.encerrado?' · <b style="color:#b91c1c">contrato encerrado</b>':''}</div>`;
-  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Ágio — contrato ${n}</h3><button onclick="location.hash='c/${n}';fechaModal()">Abrir contrato</button><button onclick="fechaModal()">Fechar</button></div>${info}
-  <div class="f2"><div><label>Situação</label><select id="ag_st">${AG_ST.map(x=>`<option value="${x[0]}" ${a.status===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div>
-   <div><label>Valor do ágio pedido pelo proprietário</label><input id="ag_v" inputmode="decimal" value="${a.valor_pedido!=null?brl(a.valor_pedido):''}" oninput="agPreco(${r.saldo||0})"></div>
-   <div><label>Contato (quem negocia)</label><input id="ag_ct" value="${esc(a.contato||'')}" placeholder="${esc(nome(a.titular||''))}"></div>
-   <div><label>Telefone</label><input id="ag_tel" value="${esc(a.telefone||'')}" placeholder="${esc(r.tel||'')}"></div>
-   <div><label>Captador</label><input id="ag_cap" value="${esc(a.captador||'')}"></div>
-   <div><label>À venda desde</label><input id="ag_d" type="date" value="${a.desde||''}"></div></div>
-  <label style="margin-top:8px"><input type="checkbox" id="ag_pr" ${a.aceita_proposta?'checked':''}> Aceita proposta</label>
-  <div style="margin-top:8px"><label>Divulgação</label><div class="bt" style="flex-wrap:wrap">${AG_DIV.map(([k,t])=>`<label style="font-weight:400"><input type="checkbox" class="ag_dv" value="${k}" ${dv[k]?'checked':''}> ${t}</label>`).join('')}</div></div>
-  <label style="margin-top:8px">Anotações</label><textarea id="ag_o" rows="3">${esc(a.obs||'')}</textarea>
-  <div id="ag_pc" class="mut" style="margin-top:6px"></div>
-  <div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaAgio('${n}')">Salvar</button>${r.erro?'':`<button onclick="copiaAnuncioAgio('${n}')">Copiar texto do anúncio</button>`}${novo?'':`<button onclick="excluiAgio('${n}')">Excluir</button>`}</div>`);agPreco(r.saldo||0)}
-function agPreco(saldo){const v=numBR($('#ag_v')?.value)||0,el=$('#ag_pc');if(el)el.innerHTML=`Preço total para o comprador: <b>${brl(v+saldo)}</b> (ágio ${brl(v)} + saldo ${brl(saldo)})`}
-async function salvaAgio(n){const dv={};document.querySelectorAll('.ag_dv').forEach(x=>{if(x.checked)dv[x.value]=true});
-  const b={status:$('#ag_st').value,valor_pedido:numBR($('#ag_v').value),contato:$('#ag_ct').value.trim(),telefone:$('#ag_tel').value.trim(),captador:$('#ag_cap').value.trim(),desde:$('#ag_d').value||null,aceita_proposta:$('#ag_pr').checked,divulgacao:dv,obs:$('#ag_o').value.trim()};
-  await api('agio/'+n,{method:'PUT',body:b});fechaModal();AGI=await api('agios');desenhaAgios()}
+  const r=AGR[n];window._AGA=a;
+  const info=r.erro?`<div class="mut">Não consegui ler o contrato: ${esc(r.erro)}</div>`:`<div class="tot" style="margin:8px 0"><div><span class="mut">Proprietário</span><b>${esc(nome(a.titular||''))}</b><span class="mut">${esc(r.tel||'')}</span></div><div><span class="mut">Saldo a vencer</span><b>${brl(r.aVencer)}</b></div><div><span class="mut">Dívida (atraso com multa e juros)</span><b style="color:${r.divida>0.004?'#b91c1c':'inherit'}">${brl(r.divida)}</b></div><div><span class="mut">Saldo devedor total</span><b>${brl(r.saldo)}</b></div></div>
+    <div class="mut">Mensais: ${r.me.pagas} pagas · faltam ${r.me.faltam}${r.me.valor!=null?' de '+brl(r.me.valor):''}${r.an.faltam?` · anuais: faltam ${r.an.faltam} de ${brl(r.an.valor)}`:''}${r.encerrado?' · <b style="color:#b91c1c">contrato encerrado</b>':''}</div>`;
+  abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Ágio — Q${esc(a.quadra)} L${esc(a.lote)} (contrato ${n})</h3><button onclick="location.hash='c/${n}';fechaModal()">Abrir contrato</button><button onclick="fechaModal()">Fechar</button></div>${info}
+  <div class="f2" style="margin-top:8px"><div><label>Valor do ágio que o proprietário pede</label><input id="ag_v" inputmode="decimal" value="${a.valor_pedido!=null?brl(a.valor_pedido):''}" oninput="agPreco()" autofocus></div>
+   <div><label>Situação</label><select id="ag_st">${AG_ST.map(x=>`<option value="${x[0]}" ${a.status===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div></div>
+  <div style="margin-top:8px"><label>Comissão de 5%</label>
+   <label style="font-weight:400;display:block"><input type="radio" name="ag_ci" value="1" ${a.comissao_inclusa!==false?'checked':''} onchange="agPreco()"> Já está inclusa no valor do ágio</label>
+   <label style="font-weight:400;display:block"><input type="radio" name="ag_ci" value="0" ${a.comissao_inclusa===false?'checked':''} onchange="agPreco()"> Soma por cima do ágio</label></div>
+  <div id="ag_pc" class="card" style="margin-top:8px;background:#f8fafc"></div>
+  <div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaAgio('${n}')">Salvar</button>${novo?'':`<button onclick="excluiAgio('${n}')">Excluir</button>`}</div>`);agPreco();setTimeout(()=>$('#ag_v')?.focus(),50)}
+function agPreco(){const a=window._AGA,r=AGR[a?.contrato]||{},el=$('#ag_pc');if(!el)return;const v=numBR($('#ag_v')?.value)||0,inc=document.querySelector('input[name=ag_ci]:checked')?.value!=='0';
+  const c=agCalc(v,r.saldo,inc);
+  el.innerHTML=`<div>Ágio para o comprador: <b>${brl(c.agCli)}</b></div><div>Saldo devedor: <b>${brl(r.saldo)}</b></div><div>Comissão 5% (sobre ${brl(v+(+r.saldo||0))}): <b>${brl(c.com)}</b> ${inc?'— sai de dentro do ágio':'— somada por cima'}</div><div style="font-size:17px;margin-top:4px">Preço total: <b>${brl(c.total)}</b></div><div class="mut">Proprietário recebe de ágio: ${brl(c.liquido)}</div>`}
+async function salvaAgio(n){const v=numBR($('#ag_v').value);if(!(v>0))return alert('Digite o valor do ágio.');
+  await api('agio/'+n,{method:'PUT',body:{status:$('#ag_st').value,valor_pedido:v,comissao_inclusa:document.querySelector('input[name=ag_ci]:checked')?.value!=='0'}});
+  fechaModal();AGI=await api('agios');desenhaAgios()}
 async function excluiAgio(n){if(!confirm('Tirar o contrato '+n+' da lista de ágios?'))return;await api('agio/'+n,{method:'DELETE'});delete AGR[n];fechaModal();AGI=await api('agios');desenhaAgios()}
-function copiaAnuncioAgio(n){const a=AGI.find(x=>x.contrato===n)||{},r=AGR[n],v=numBR($('#ag_v')?.value)||+a.valor_pedido||0;
-  const t=`*Ágio — Condomínio de Chácaras Beira Rio*\nQuadra ${a.quadra??''}, Lote ${a.lote??''}${a.area?` · ${(+a.area).toLocaleString('pt-BR')} m²`:''}\n\nValor do ágio: *${brl(v)}*\nParcelas pagas: ${r.me.pagas}\nParcelas restantes: ${r.me.faltam} de ${brl(r.me.valor)}${r.an.faltam?`\nAnuais restantes: ${r.an.faltam} de ${brl(r.an.valor)}`:''}\nSaldo devedor: ${brl(r.saldo)}\n\nInerente Gestão Imobiliária`;
-  navigator.clipboard.writeText(t).then(()=>alert('Texto copiado.'),()=>prompt('Copie o texto:',t))}
+function copiaListaAgios(){const L=AGI.filter(a=>a.status==='venda'&&AGR[a.contrato]&&!AGR[a.contrato].erro);if(!L.length)return alert('Nenhum ágio à venda.');
+  const t='*Ágios à venda — Condomínio de Chácaras Beira Rio*\n\n'+L.map(a=>{const r=AGR[a.contrato],c=agCalc(a.valor_pedido,r.saldo,a.comissao_inclusa!==false);
+    return `*Quadra ${+a.quadra||a.quadra}, Lote ${+a.lote||a.lote}*${a.area?` · ${(+a.area).toLocaleString('pt-BR')} m²`:''}\nÁgio: ${brl(c.agCli)}\nParcelas pagas: ${r.me.pagas} · restantes: ${r.me.faltam}${r.me.valor!=null?' de '+brl(r.me.valor):''}${r.an.faltam?`\nAnuais restantes: ${r.an.faltam} de ${brl(r.an.valor)}`:''}\nSaldo devedor: ${brl(r.saldo)}\n*Valor total: ${brl(c.total)}*`}).join('\n\n')+'\n\nInerente Gestão Imobiliária';
+  navigator.clipboard.writeText(t).then(()=>alert('Listagem copiada ('+L.length+' lotes). É só colar no WhatsApp.'),()=>prompt('Copie a listagem:',t))}
 async function telaComissoes(){app.innerHTML='<div class="card">Carregando…</div>';COML=await api('painel/comissoes');
   const v=x=>+(x.valor??x.ct_corretagem??0),pend=COML.filter(x=>v(x)>0&&!x.pago_em);
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button></div>
