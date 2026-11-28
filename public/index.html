@@ -2539,14 +2539,14 @@ async function resumoAgio(n){
   const C0=C;C=d;try{
     const PG=new Set(['paga','paga_atraso','quitada_acordo','quitada_repact']);
     const g=k=>C.titulos.filter(t=>t.grupo===k).map(t=>({t,e:estado(t)})).filter(x=>x.e!=='cancelada'&&x.e!=='diluida');
-    const conta=k=>{const L=g(k),pagas=L.filter(x=>PG.has(x.e)).length,atr=L.filter(x=>x.e==='vencida'||x.e==='em_atraso').length,fut=L.filter(x=>x.e==='futura').sort((a,b)=>String(a.t.vencimento).localeCompare(String(b.t.vencimento)));
-      return{total:L.length,pagas,faltam:L.length-pagas,atr,fut:fut.length,valor:fut.length?valorAno(fut[0].t):null,aVencer:fut.reduce((s,x)=>s+valorAno(x.t),0)}};
+    const conta=k=>{const L=g(k),pagas=L.filter(x=>PG.has(x.e)).length,noAc=L.filter(x=>x.e==='em_acordo'||x.e==='em_repact').length,atr=L.filter(x=>x.e==='vencida'||x.e==='em_atraso').length,fut=L.filter(x=>x.e==='futura').sort((a,b)=>String(a.t.vencimento).localeCompare(String(b.t.vencimento)));
+      return{total:L.length,pagas,faltam:L.length-pagas-noAc,noAc,atr,fut:fut.length,valor:fut.length?valorAno(fut[0].t):null,aVencer:fut.reduce((s,x)=>s+valorAno(x.t),0)}};
     const me=conta('mensal'),an=conta('anual'),en=conta('entrada');
-    const acAb=C.titulos.filter(t=>t.grupo==='acordo'&&['futura','vencida','em_atraso'].includes(estado(t))).reduce((s,t)=>s+valorAno(t),0);
-    const atraso=totais().at.tot||0,aVencer=me.aVencer+an.aVencer+en.aVencer,divida=atraso+acAb;
+    const acAb=C.titulos.filter(t=>t.grupo==='acordo'&&estado(t)==='futura').reduce((s,t)=>s+valorAno(t),0);
+    const TT=totais(),atrQ=TT.at.q||0,atraso=TT.at.tot||0,aVencer=me.aVencer+an.aVencer+en.aVencer,divida=atraso;
     let tel='';for(const c of cl||[]){const x=cliDados(c);if(x.tel[0]){tel=x.tel[0].v;break}}
     const pago=C.pagamentos.reduce((s,p)=>s+(+p.valor_pago||0),0);
-    return{taxa:tx?.taxa??null,taxaInfo:tx,area:C.contrato?.area,me,an,en,acAb,atraso,pago,aVencer,divida,saldo:aVencer+divida,tel,encerrado:C.eventos.some(e=>e.tipo==='encerramento')}
+    return{atrQ,taxa:tx?.taxa??null,taxaInfo:tx,area:C.contrato?.area,me,an,en,acAb,atraso,pago,aVencer,divida,saldo:aVencer+acAb+divida,tel,encerrado:C.eventos.some(e=>e.tipo==='encerramento')}
   }finally{C=C0}}
 async function telaAgios(){app.innerHTML='<div class="card">Carregando…</div>';AGI=await api('agios');desenhaAgios();
   const fila=AGI.filter(a=>!AGR[a.contrato]).map(a=>a.contrato);
@@ -2614,8 +2614,8 @@ function agBlocos(a,r,c){const d=$('#ag_det'),p=$('#ag_print');if(!d||!p||r.erro
   if(r.me.fut)rows.push(lin(`<b style="font-size:16px">${r.me.fut} mensais de ${brl(r.me.valor)}</b>`,brl(r.me.aVencer),1));
   if(r.an.fut)rows.push(lin(`<b style="font-size:16px">${r.an.fut} anuais de ${brl(r.an.valor)}</b>`,brl(r.an.aVencer),1));
   if(r.en.fut)rows.push(lin(`${r.en.fut} parcela(s) de entrada`,brl(r.en.aVencer)));
-  if(r.atraso>0.004)rows.push(lin(`<span style="color:#b91c1c">Em atraso: ${r.me.atr+r.an.atr+r.en.atr} parcela(s), com multa e juros</span>`,`<span style="color:#b91c1c">${brl(r.atraso)}</span>`));
-  if(r.acAb>0.004)rows.push(lin('Acordo em aberto',brl(r.acAb)));
+  if(r.atraso>0.004)rows.push(lin(`<span style="color:#b91c1c">Em atraso: ${r.atrQ} parcela(s), com multa e juros</span>`,`<span style="color:#b91c1c">${brl(r.atraso)}</span>`));
+  if(r.acAb>0.004)rows.push(lin('Parcelas de acordo a vencer',brl(r.acAb)));
   rows.push(`<div style="display:flex;justify-content:space-between;padding:7px 0 0;font-size:16px"><b>Saldo devedor</b><b>${brl(r.saldo)}</b></div>`);
   d.innerHTML=`<div class="card" style="background:#f8fafc;margin:0"><h4 style="margin:0 0 6px">Detalhamento do saldo devedor</h4>${rows.join('')}
     <div class="tot" style="margin-top:8px"><div><span class="mut">Já pago até hoje</span><b>${brl(r.pago)}</b></div><div><span class="mut">Mensais pagas</span><b>${r.me.pagas} de ${r.me.total}</b></div>${r.an.total?`<div><span class="mut">Anuais pagas</span><b>${r.an.pagas} de ${r.an.total}</b></div>`:''}</div></div>
