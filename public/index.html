@@ -2620,7 +2620,7 @@ function agBlocos(a,r,c){const d=$('#ag_det'),p=$('#ag_print');if(!d||!p||r.erro
    <div style="border:2px solid #0f766e;border-radius:12px;padding:18px 20px;background:#fff;max-width:420px;font-size:15px">
     <div style="color:#0f766e;font-weight:700;font-size:13px;letter-spacing:.5px">CONDOMÍNIO DE CHÁCARAS BEIRA RIO</div>
     <div style="font-size:20px;font-weight:700;margin:2px 0 12px">Quadra ${+a2.quadra||a2.quadra}, Lote ${+a2.lote||a2.lote}${(a2.area||r.area)?` · ${(+(a2.area||r.area)).toLocaleString('pt-BR')} m²`:''}</div>
-    ${lin('Valor do ágio',brl(c.agCli),1)}${lin('Saldo devedor',brl(r.saldo),1)}${lin('Parcelas que faltam',par||'—',1)}
+    ${lin('Valor do ágio',brl(c.agCli),1)}${lin('Saldo devedor',brl(r.saldo),1)}${r.me.faltam?lin('Mensais que faltam',`${r.me.faltam} de ${brl(r.me.valor)}`,1):''}${r.an.faltam?lin('Anuais que faltam',`${r.an.faltam} de ${brl(r.an.valor)}`,1):''}
     <div style="display:flex;justify-content:space-between;padding:10px 0 0"><b style="font-size:17px">Preço final</b><b style="font-size:20px;color:#0f766e">${brl(c.total)}</b></div></div>`}
 async function salvaAgio(n){agPreco();const V=window._AGV;if(!(V.A>0))return alert('Digite o valor do ágio ou o preço total.');
   await api('agio/'+n,{method:'PUT',body:{status:$('#ag_st').value,valor_pedido:V.A,comissao_pct:V.p,comissao_inclusa:document.querySelector('input[name=ag_ci]:checked')?.value!=='0'}});
