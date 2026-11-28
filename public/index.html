@@ -2540,12 +2540,13 @@ async function resumoAgio(n){
     const PG=new Set(['paga','paga_atraso','quitada_acordo','quitada_repact']);
     const g=k=>C.titulos.filter(t=>t.grupo===k).map(t=>({t,e:estado(t)})).filter(x=>x.e!=='cancelada'&&x.e!=='diluida');
     const conta=k=>{const L=g(k),pagas=L.filter(x=>PG.has(x.e)).length,atr=L.filter(x=>x.e==='vencida'||x.e==='em_atraso').length,fut=L.filter(x=>x.e==='futura').sort((a,b)=>String(a.t.vencimento).localeCompare(String(b.t.vencimento)));
-      return{total:L.length,pagas,faltam:L.length-pagas,atr,valor:fut.length?valorAno(fut[0].t):null,aVencer:fut.reduce((s,x)=>s+valorAno(x.t),0)}};
+      return{total:L.length,pagas,faltam:L.length-pagas,atr,fut:fut.length,valor:fut.length?valorAno(fut[0].t):null,aVencer:fut.reduce((s,x)=>s+valorAno(x.t),0)}};
     const me=conta('mensal'),an=conta('anual'),en=conta('entrada');
     const acAb=C.titulos.filter(t=>t.grupo==='acordo'&&['futura','vencida','em_atraso'].includes(estado(t))).reduce((s,t)=>s+valorAno(t),0);
     const atraso=totais().at.tot||0,aVencer=me.aVencer+an.aVencer+en.aVencer,divida=atraso+acAb;
     let tel='';for(const c of cl||[]){const x=cliDados(c);if(x.tel[0]){tel=x.tel[0].v;break}}
-    return{me,an,aVencer,divida,saldo:aVencer+divida,tel,encerrado:C.eventos.some(e=>e.tipo==='encerramento')}
+    const pago=C.pagamentos.reduce((s,p)=>s+(+p.valor_pago||0),0);
+    return{area:C.contrato?.area,me,an,en,acAb,atraso,pago,aVencer,divida,saldo:aVencer+divida,tel,encerrado:C.eventos.some(e=>e.tipo==='encerramento')}
   }finally{C=C0}}
 async function telaAgios(){app.innerHTML='<div class="card">Carregando…</div>';AGI=await api('agios');desenhaAgios();
   const fila=AGI.filter(a=>!AGR[a.contrato]).map(a=>a.contrato);
@@ -2589,8 +2590,9 @@ async function editaAgio(n,novo){
   <div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center"><b>Comissão</b>
    <label style="font-weight:400;display:inline-flex;gap:6px;align-items:center;margin:0"><input type="radio" name="ag_ci" value="1" ${a.comissao_inclusa!==false?'checked':''} onchange="agPreco('v')" style="width:auto"> inclusa no ágio</label>
    <label style="font-weight:400;display:inline-flex;gap:6px;align-items:center;margin:0"><input type="radio" name="ag_ci" value="0" ${a.comissao_inclusa===false?'checked':''} onchange="agPreco('v')" style="width:auto"> soma por cima do ágio</label></div>
-  <div class="f2" style="margin-top:8px"><div><label>Ágio que o proprietário pede</label><input id="ag_v" inputmode="decimal" oninput="agPreco('v')" onblur="agPreco()"></div><div><label>Comissão (%)</label><input id="ag_pct" inputmode="decimal" oninput="agPreco('pct')" onblur="agPreco()"></div><div><label>Comissão (R$)</label><input id="ag_com" inputmode="decimal" oninput="agPreco('com')" onblur="agPreco()"></div><div><label>Ágio para o comprador</label><input id="ag_cli" inputmode="decimal" oninput="agPreco('cli')" onblur="agPreco()"></div><div><label>Saldo devedor</label><input id="ag_sd" inputmode="decimal" readonly style="background:#eef2f7"></div><div><label>Dívida (já dentro do saldo)</label><input id="ag_dv" inputmode="decimal" readonly style="background:#eef2f7"></div><div><label>Preço total</label><input id="ag_tot" inputmode="decimal" oninput="agPreco('tot')" onblur="agPreco()"></div><div><label>Proprietário recebe de ágio</label><input id="ag_liq" inputmode="decimal" oninput="agPreco('liq')" onblur="agPreco()"></div>
+  <div class="f2" style="margin-top:8px"><div><label>Ágio que o proprietário pede</label><input id="ag_v" inputmode="decimal" oninput="agPreco('v')" onblur="agPreco()"></div><div><label>Comissão (%)</label><input id="ag_pct" inputmode="decimal" oninput="agPreco('pct')" onblur="agPreco()"></div><div><label>Comissão (R$)</label><input id="ag_com" inputmode="decimal" oninput="agPreco('com')" onblur="agPreco()"></div><div><label><b>Valor líquido para o proprietário</b></label><input id="ag_liq" inputmode="decimal" oninput="agPreco('liq')" onblur="agPreco()" style="font-weight:700"></div><div><label>Saldo devedor</label><input id="ag_sd" inputmode="decimal" readonly style="background:#eef2f7"></div><div><label>Dívida (já dentro do saldo)</label><input id="ag_dv" inputmode="decimal" readonly style="background:#eef2f7"></div><div><label>Preço total</label><input id="ag_tot" inputmode="decimal" oninput="agPreco('tot')" onblur="agPreco()"></div>
    <div><label>Situação</label><select id="ag_st">${AG_ST.map(x=>`<option value="${x[0]}" ${a.status===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div></div>
+  <div id="ag_det" style="margin-top:12px"></div><div id="ag_print" style="margin-top:12px"></div>
   <div class="bt" style="margin-top:10px"><button class="pri" onclick="salvaAgio('${n}')">Salvar</button>${novo?'':`<button onclick="excluiAgio('${n}')">Excluir</button>`}</div>`);
   window._AGV={A:a.valor_pedido!=null?+a.valor_pedido:0,p:a.comissao_pct!=null?+a.comissao_pct:5};agPreco();setTimeout(()=>$('#ag_v')?.focus(),50)}
 function agPreco(campo){const a=window._AGA,r=AGR[a?.contrato]||{},V=window._AGV;if(!V||!$('#ag_v'))return;const S=+r.saldo||0,inc=document.querySelector('input[name=ag_ci]:checked')?.value!=='0';
@@ -2598,7 +2600,26 @@ function agPreco(campo){const a=window._AGA,r=AGR[a?.contrato]||{},V=window._AGV
     if(campo==='pct')V.p=x;else if(campo==='com')V.p=(V.A+S)>0?x/(V.A+S)*100:V.p;else V.A=agDe(campo,x,S,inc,V.p)}}
   V.A=Math.round(V.A*100)/100;V.p=Math.round(V.p*10000)/10000;const c=agCalc(V.A,S,inc,V.p);
   const set=(k,v)=>{if(k!==campo){const el=$('#ag_'+k);if(el)el.value=v}};
-  set('v',V.A?brl(V.A):'');set('pct',String(V.p).replace('.',','));set('com',brl(c.com));set('cli',brl(c.agCli));set('sd',brl(S));set('dv',brl(r.divida||0));set('tot',brl(c.total));set('liq',brl(c.liquido))}
+  set('v',V.A?brl(V.A):'');set('pct',String(V.p).replace('.',','));set('com',brl(c.com));set('cli',brl(c.agCli));set('sd',brl(S));set('dv',brl(r.divida||0));set('tot',brl(c.total));set('liq',brl(c.liquido));agBlocos(a,r,c)}
+function agBlocos(a,r,c){const d=$('#ag_det'),p=$('#ag_print');if(!d||!p||r.erro||!r.me)return;
+  const lin=(t,v,b)=>`<tr><td>${t}</td><td style="text-align:right;white-space:nowrap">${b?'<b>'+v+'</b>':v}</td></tr>`;
+  const rows=[];
+  if(r.me.fut)rows.push(lin(`<b style="font-size:16px">${r.me.fut} mensais de ${brl(r.me.valor)}</b>`,brl(r.me.aVencer),1));
+  if(r.an.fut)rows.push(lin(`<b style="font-size:16px">${r.an.fut} anuais de ${brl(r.an.valor)}</b>`,brl(r.an.aVencer),1));
+  if(r.en.fut)rows.push(lin(`${r.en.fut} parcela(s) de entrada`,brl(r.en.aVencer)));
+  if(r.atraso>0.004)rows.push(lin(`<span style="color:#b91c1c">Em atraso: ${r.me.atr+r.an.atr+r.en.atr} parcela(s), com multa e juros</span>`,`<span style="color:#b91c1c">${brl(r.atraso)}</span>`));
+  if(r.acAb>0.004)rows.push(lin('Acordo em aberto',brl(r.acAb)));
+  rows.push(`<tr style="border-top:2px solid #cbd5e1"><td><b>Saldo devedor</b></td><td style="text-align:right"><b>${brl(r.saldo)}</b></td></tr>`);
+  d.innerHTML=`<div class="card" style="background:#f8fafc;margin:0"><h4 style="margin:0 0 6px">Detalhamento do saldo devedor</h4><table>${rows.join('')}</table>
+    <div class="tot" style="margin-top:8px"><div><span class="mut">Já pago até hoje</span><b>${brl(r.pago)}</b></div><div><span class="mut">Mensais pagas</span><b>${r.me.pagas} de ${r.me.total}</b></div>${r.an.total?`<div><span class="mut">Anuais pagas</span><b>${r.an.pagas} de ${r.an.total}</b></div>`:''}</div></div>`;
+  const a2=window._AGA||a,par=[r.me.faltam?`${r.me.faltam} mensais de ${brl(r.me.valor)}`:'',r.an.faltam?`${r.an.faltam} anuais de ${brl(r.an.valor)}`:''].filter(Boolean).join(' + ');
+  p.innerHTML=`<div class="mut" style="margin-bottom:4px">Para mandar ao interessado (tire o print deste quadro):</div>
+   <div style="border:2px solid #0f766e;border-radius:12px;padding:18px 20px;background:#fff;max-width:420px;font-size:15px">
+    <div style="color:#0f766e;font-weight:700;font-size:13px;letter-spacing:.5px">CONDOMÍNIO DE CHÁCARAS BEIRA RIO</div>
+    <div style="font-size:20px;font-weight:700;margin:2px 0 12px">Quadra ${+a2.quadra||a2.quadra}, Lote ${+a2.lote||a2.lote}${(a2.area||r.area)?` · ${(+(a2.area||r.area)).toLocaleString('pt-BR')} m²`:''}</div>
+    <table style="font-size:15px">${lin('Valor do ágio',brl(c.agCli),1)}${lin('Saldo devedor',brl(r.saldo),1)}${lin('Parcelas que faltam',par||'—',1)}
+    <tr style="border-top:2px solid #0f766e"><td style="font-size:17px"><b>Preço final</b></td><td style="text-align:right;font-size:19px;color:#0f766e"><b>${brl(c.total)}</b></td></tr></table>
+    <div class="mut" style="margin-top:10px;font-size:12px">Inerente Gestão Imobiliária</div></div>`}
 async function salvaAgio(n){agPreco();const V=window._AGV;if(!(V.A>0))return alert('Digite o valor do ágio ou o preço total.');
   await api('agio/'+n,{method:'PUT',body:{status:$('#ag_st').value,valor_pedido:V.A,comissao_pct:V.p,comissao_inclusa:document.querySelector('input[name=ag_ci]:checked')?.value!=='0'}});
   fechaModal();AGI=await api('agios');desenhaAgios()}
