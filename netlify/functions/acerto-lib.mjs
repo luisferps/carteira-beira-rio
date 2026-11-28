@@ -208,6 +208,18 @@ export function criaAcerto({ q, asaas, json, log, dev }) {
         sai.push({ id: e.id, data: e.data, descricao: e.descricao, beneficiario: ben, valor: R2(v), cat, auto, como, duvida: DUVIDA.test(n), tipo: e.tipo });
       }
     }
+    /* estorno: o Pix que saiu e voltou (ex.: transferência ao André feita errada e refeita) não conta nem como entrada nem como saída — o dinheiro só saiu uma vez */
+    const estornos = [];
+    for (const x of ent.filter(x => x.sem_boleto && (/estorno/i.test(x.descricao || '') || /REFUND|REVERSAL|ESTORNO/i.test(ext.find(e => e.id === x.id)?.tipo || '')))) {
+      const cand = sai.filter(y => !y.estornada && !/FEE/.test(y.tipo || '') && Math.abs(Math.abs(y.valor) - x.valor) < 0.005 && y.data <= x.data && (new Date(x.data) - new Date(y.data)) / 864e5 <= 10)
+        .sort((a, b) => b.data.localeCompare(a.data) || String(a.id).localeCompare(String(b.id)));
+      const y = cand.find(y => cls[y.id] !== 'nao_estorno') || null;
+      if (!y || cls[x.id]) continue;
+      y.estornada = true; x.estorno = true;
+      estornos.push({ valor: x.valor, saida: { id: y.id, data: y.data, descricao: y.descricao, beneficiario: y.beneficiario }, volta: { id: x.id, data: x.data, descricao: x.descricao } });
+    }
+    for (let i = ent.length - 1; i >= 0; i--) if (ent[i].estorno) ent.splice(i, 1);
+    for (let i = sai.length - 1; i >= 0; i--) if (sai[i].estornada) sai.splice(i, 1);
     await ligaParcelas(ent.filter(x => x.cat !== 'contrato'));
     const comis = await comissoes(ent);
     for (const x of ent) {
@@ -247,6 +259,7 @@ export function criaAcerto({ q, asaas, json, log, dev }) {
       const ini = R2(+saldos[0].saldo - +saldos[0].valor), fimS = R2(+saldos[saldos.length - 1].saldo);
       conf.push({ ok: Math.abs(R2(ini + totE - totS) - fimS) < 0.02, t: 'Saldo da conta no Asaas', d: `Começou o mês com ${br(ini)}, entrou ${br(totE)}, saiu ${br(totS)} e terminou com ${br(fimS)}.` });
     }
+    conf.push({ ok: true, t: 'Transferências estornadas (saíram e voltaram — ficam fora do acerto)', d: estornos.length ? estornos.map(e => `${br(e.valor)} para ${e.saida.beneficiario || e.saida.descricao} em ${e.saida.data.split('-').reverse().join('/')}, devolvido em ${e.volta.data.split('-').reverse().join('/')}`).join(' · ') : 'Nenhuma.' });
     const semPg = ent.filter(x => x.sem_boleto);
     conf.push({ ok: !semPg.length, t: 'Recebimentos com o boleto identificado', d: semPg.length ? `${semPg.length} recebimento(s) sem o boleto do Asaas — clique em "Atualizar do Asaas".` : `Os ${ent.length} recebimentos têm o boleto identificado.` });
     if (P?.fechado_em && P.dados?.entradas) {
@@ -285,7 +298,7 @@ export function criaAcerto({ q, asaas, json, log, dev }) {
       ano: { total: R2(anoAte), meses: +mes.slice(5), media: R2(anoAte / +mes.slice(5)), ano_passado_ate: R2(anoAntAte) } };
     return { mes, periodo: [mes + '-01', ultimoDia(mes)], carregado_em: M?.carregado_em || null, fechado: false, fechado_fora: foraSis ? 'Este mês foi fechado fora do sistema (planilha), com saldo ' + br(+M.saldo) + '. Aqui é só para conferir.' : null, entradas: ent, saidas: sai,
       E, totE, S, totS, servicos: serv, totServ, acerto: ac, resultado: res, saldo_anterior: saldoAnt, origem_saldo: origemSaldo, caixa: R2(totE - totS), andre,
-      ajustes, texto: M?.texto || '', conferencias: conf, pendentes: pend, comparativo: comp };
+      ajustes, texto: M?.texto || '', conferencias: conf, pendentes: pend, comparativo: comp, estornos };
   }
 
   async function geraTexto(mes) {
