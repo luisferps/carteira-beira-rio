@@ -2584,7 +2584,7 @@ function desenhaAgios(){
       <td style="${td}">${v(aV(r.me))}</td>
       <td style="${td}">${v(aV(r.an))}</td>
       <td style="${td};color:${r.divida>0.004?'#b91c1c':'inherit'}">${v(r.divida>0.004?brl(r.divida):'Não tem')}</td>
-      <td style="${td};font-size:16px;color:#0f766e"><b>${v(brl(c.total+(!c.txInc&&c.tx?c.tx:0)))}</b>${ok&&!c.txInc&&c.tx?`<div style="font-size:11px;color:#64748b;font-weight:400">com transferência</div>`:''}</td></tr>`};
+      <td style="${td};font-size:16px;color:#0f766e"><b>${v(brl(c.total))}</b></td></tr>`};
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button><button class="pri" onclick="novoAgio()">+ Novo ágio</button><button onclick="copiaListaAgios()">Copiar listagem (texto)</button></div>
   <div class="card"><div class="tot"><div><span class="mut">À venda / em negociação</span><b>${at.length}</b></div><div><span class="mut">Soma dos ágios</span><b>${brl(at.reduce((s,a)=>s+(agA(a)||0),0))}</b></div><div><span class="mut">Comissões</span><b>${brl(at.reduce((s,a)=>s+(AGR[a.contrato]?k(a).com:0),0))}</b></div><div><span class="mut">Vendidos</span><b>${AGI.filter(a=>a.status==='vendido').length}</b></div></div>
    <div class="bt" style="margin-top:8px;flex-wrap:wrap">${fil}</div><div class="mut" style="margin-top:4px">Clique na linha para editar. A lista abaixo é a que vai para o comprador: é só tirar o print.</div></div>
@@ -2667,7 +2667,7 @@ async function salvaAgio(n){agPreco();const V=window._AGV;if(!(V.A>0))return ale
 async function excluiAgio(n){if(!confirm('Tirar o contrato '+n+' da lista de ágios?'))return;await api('agio/'+n,{method:'DELETE'});delete AGR[n];fechaModal();AGI=await api('agios');desenhaAgios()}
 function copiaListaAgios(){const L=AGI.filter(a=>a.status==='venda'&&AGR[a.contrato]&&!AGR[a.contrato].erro);if(!L.length)return alert('Nenhum ágio à venda.');
   const t='*Ágios à venda — Condomínio de Chácaras Beira Rio*\n\n'+L.map(a=>{const r=AGR[a.contrato],c=agCalc(agA(a),r.saldo,a.comissao_inclusa!==false,a.comissao_pct,r.taxa,a.transf_inclusa);
-    return `*Quadra ${+a.quadra||a.quadra}, Lote ${+a.lote||a.lote}*${a.area?` · ${(+a.area).toLocaleString('pt-BR')} m²`:''}\nÁgio: ${brl(c.agCli)}\nMensais: ${agSit(r.me)}${r.me.fut&&r.me.valor!=null?' de '+brl(r.me.valor):''}${r.an.total?`\nAnuais: ${agSit(r.an)}${r.an.fut?' de '+brl(r.an.valor):''}`:''}${r.divida>0.004?`\nDébito em atraso: ${brl(r.divida)}`:''}\nSaldo devedor total: ${brl(r.saldo)}\n*Valor total: ${brl(c.total)}*${!c.txInc&&c.tx?`\n+ Taxa de transferência: ${brl(c.tx)}`:''}`}).join('\n\n')+'\n\nInerente Gestão Imobiliária';
+    return `*Quadra ${+a.quadra||a.quadra}, Lote ${+a.lote||a.lote}*${a.area?` · ${(+a.area).toLocaleString('pt-BR')} m²`:''}\nÁgio: ${brl(c.agCli)}\nMensais: ${agSit(r.me)}${r.me.fut&&r.me.valor!=null?' de '+brl(r.me.valor):''}${r.an.total?`\nAnuais: ${agSit(r.an)}${r.an.fut?' de '+brl(r.an.valor):''}`:''}${r.divida>0.004?`\nDébito em atraso: ${brl(r.divida)}`:''}\nSaldo devedor total: ${brl(r.saldo)}\n*Valor total: ${brl(c.total)}*`}).join('\n\n')+'\n\nInerente Gestão Imobiliária';
   navigator.clipboard.writeText(t).then(()=>alert('Listagem copiada ('+L.length+' lotes). É só colar no WhatsApp.'),()=>prompt('Copie a listagem:',t))}
 async function telaComissoes(){app.innerHTML='<div class="card">Carregando…</div>';COML=await api('painel/comissoes');
   const v=x=>+(x.valor??x.ct_corretagem??0),pend=COML.filter(x=>v(x)>0&&!x.pago_em);
