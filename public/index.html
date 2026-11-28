@@ -2602,23 +2602,23 @@ function agPreco(campo){const a=window._AGA,r=AGR[a?.contrato]||{},V=window._AGV
   const set=(k,v)=>{if(k!==campo){const el=$('#ag_'+k);if(el)el.value=v}};
   set('v',V.A?brl(V.A):'');set('pct',String(V.p).replace('.',','));set('com',brl(c.com));set('cli',brl(c.agCli));set('sd',brl(S));set('dv',brl(r.divida||0));set('tot',brl(c.total));set('liq',brl(c.liquido));agBlocos(a,r,c)}
 function agBlocos(a,r,c){const d=$('#ag_det'),p=$('#ag_print');if(!d||!p||r.erro||!r.me)return;
-  const lin=(t,v,b)=>`<tr><td>${t}</td><td style="text-align:right;white-space:nowrap">${b?'<b>'+v+'</b>':v}</td></tr>`;
+  const lin=(t,v,b)=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid #e5e7eb"><span>${t}</span><span style="white-space:nowrap">${b?'<b>'+v+'</b>':v}</span></div>`;
   const rows=[];
   if(r.me.fut)rows.push(lin(`<b style="font-size:16px">${r.me.fut} mensais de ${brl(r.me.valor)}</b>`,brl(r.me.aVencer),1));
   if(r.an.fut)rows.push(lin(`<b style="font-size:16px">${r.an.fut} anuais de ${brl(r.an.valor)}</b>`,brl(r.an.aVencer),1));
   if(r.en.fut)rows.push(lin(`${r.en.fut} parcela(s) de entrada`,brl(r.en.aVencer)));
   if(r.atraso>0.004)rows.push(lin(`<span style="color:#b91c1c">Em atraso: ${r.me.atr+r.an.atr+r.en.atr} parcela(s), com multa e juros</span>`,`<span style="color:#b91c1c">${brl(r.atraso)}</span>`));
   if(r.acAb>0.004)rows.push(lin('Acordo em aberto',brl(r.acAb)));
-  rows.push(`<tr style="border-top:2px solid #cbd5e1"><td><b>Saldo devedor</b></td><td style="text-align:right"><b>${brl(r.saldo)}</b></td></tr>`);
-  d.innerHTML=`<div class="card" style="background:#f8fafc;margin:0"><h4 style="margin:0 0 6px">Detalhamento do saldo devedor</h4><table>${rows.join('')}</table>
+  rows.push(`<div style="display:flex;justify-content:space-between;padding:7px 0 0;font-size:16px"><b>Saldo devedor</b><b>${brl(r.saldo)}</b></div>`);
+  d.innerHTML=`<div class="card" style="background:#f8fafc;margin:0"><h4 style="margin:0 0 6px">Detalhamento do saldo devedor</h4>${rows.join('')}
     <div class="tot" style="margin-top:8px"><div><span class="mut">Já pago até hoje</span><b>${brl(r.pago)}</b></div><div><span class="mut">Mensais pagas</span><b>${r.me.pagas} de ${r.me.total}</b></div>${r.an.total?`<div><span class="mut">Anuais pagas</span><b>${r.an.pagas} de ${r.an.total}</b></div>`:''}</div></div>`;
   const a2=window._AGA||a,par=[r.me.faltam?`${r.me.faltam} mensais de ${brl(r.me.valor)}`:'',r.an.faltam?`${r.an.faltam} anuais de ${brl(r.an.valor)}`:''].filter(Boolean).join(' + ');
   p.innerHTML=`<div class="mut" style="margin-bottom:4px">Para mandar ao interessado (tire o print deste quadro):</div>
    <div style="border:2px solid #0f766e;border-radius:12px;padding:18px 20px;background:#fff;max-width:420px;font-size:15px">
     <div style="color:#0f766e;font-weight:700;font-size:13px;letter-spacing:.5px">CONDOMÍNIO DE CHÁCARAS BEIRA RIO</div>
     <div style="font-size:20px;font-weight:700;margin:2px 0 12px">Quadra ${+a2.quadra||a2.quadra}, Lote ${+a2.lote||a2.lote}${(a2.area||r.area)?` · ${(+(a2.area||r.area)).toLocaleString('pt-BR')} m²`:''}</div>
-    <table style="font-size:15px">${lin('Valor do ágio',brl(c.agCli),1)}${lin('Saldo devedor',brl(r.saldo),1)}${lin('Parcelas que faltam',par||'—',1)}
-    <tr style="border-top:2px solid #0f766e"><td style="font-size:17px"><b>Preço final</b></td><td style="text-align:right;font-size:19px;color:#0f766e"><b>${brl(c.total)}</b></td></tr></table>
+    ${lin('Valor do ágio',brl(c.agCli),1)}${lin('Saldo devedor',brl(r.saldo),1)}${lin('Parcelas que faltam',par||'—',1)}
+    <div style="display:flex;justify-content:space-between;padding:10px 0 0"><b style="font-size:17px">Preço final</b><b style="font-size:20px;color:#0f766e">${brl(c.total)}</b></div>
     <div class="mut" style="margin-top:10px;font-size:12px">Inerente Gestão Imobiliária</div></div>`}
 async function salvaAgio(n){agPreco();const V=window._AGV;if(!(V.A>0))return alert('Digite o valor do ágio ou o preço total.');
   await api('agio/'+n,{method:'PUT',body:{status:$('#ag_st').value,valor_pedido:V.A,comissao_pct:V.p,comissao_inclusa:document.querySelector('input[name=ag_ci]:checked')?.value!=='0'}});
