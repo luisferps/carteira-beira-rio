@@ -71,7 +71,7 @@ export function criaDocumentos({ q, json, log, verificaTermo, infoCadeia, onedri
         if (arquivos.some(a => a.chave === 'pacote_original')) itens_contrato.push(['pacote_original','PDF original do envio']);
         for(const a of arquivos.filter(x=>/^termo_(word|pdf)_/.test(x.chave)))
           if(!itens_contrato.some(([k])=>k===a.chave)) itens_contrato.push([a.chave,'Termo '+a.chave.split('_').slice(2).join('_')+(a.chave.startsWith('termo_pdf')?' (PDF)':' (Word)')]);
-        return json({ itens_contrato, itens_pessoa: itensPessoa(c?.fonte), pessoas: (Array.isArray(c?.compradores) ? c.compradores : []).map((x, i) => ({ i, nome: x.nome })),
+        return json({ itens_contrato, itens_pessoa: itensPessoa(c?.fonte), pessoas: (Array.isArray(c?.compradores) ? c.compradores : []).map((x, i) => ({ i, nome: x.nome, cpf: String(x.cpf || '').replace(/\D/g, '') || null })),
           check: await q(`select chave, status, obs, por, em from carteira.doc_check where contrato=$1`, [n]),
           arquivos });
       }

@@ -786,7 +786,24 @@ async function fichaCliente(id){if(!CLI.length||!CLI.find(c=>c.id==id)){app.inne
    <h4>Endereço</h4>${d.end.length?d.end.map((e,i)=>`<div style="margin:3px 0">${i?'':'<b>'}${esc(e.v)}${i?'':'</b>'}${orgT(e.o)}</div>`).join(''):'<div class="mut">Sem endereço.</div>'}
    <h4>Dados pessoais</h4><div class="cgrid mini">${dd('CPF',d.cpf)}${dd('RG / CNH',[P.rg,P.emissor].filter(Boolean).join(' '))}${dd('Nascimento',nasc)}${dd('Estado civil',P.estado_civil)}${dd('Sexo',P.sexo)}${dd('Naturalidade',[P.naturalidade,P.uf_nat].filter(Boolean).join('/'))}${dd('Nacionalidade',P.nacionalidade)}${dd('Profissão',P.profissao)}${dd('Empresa',P.empresa||A.company)}${dd('Renda',P.renda?brl(+P.renda):'')}</div>
    ${d.M.obs||A.observations?`<h4>Observações</h4>${d.M.obs?`<div>${esc(d.M.obs)}${orgT('Editado')}</div>`:''}${A.observations?`<div>${esc(A.observations)}${orgT('Asaas')}</div>`:''}`:''}
-   <div class="mut" style="margin-top:12px">Contato: o que vem do Asaas tem prioridade; o da planilha aparece embaixo quando é diferente.</div></div>`}
+   <h4>Documentos</h4><div id="cl_docs"><span class="mut">Carregando os documentos…</span></div>
+   <div class="mut" style="margin-top:12px">Contato: o que vem do Asaas tem prioridade; o da planilha aparece embaixo quando é diferente.</div></div>`;docsDoCliente(c,d)}
+/* documentos do cliente (RG, CPF, endereço, estado civil…) de cada contrato em que ele é comprador */
+async function docsDoCliente(c,d){const el=$('#cl_docs');if(!el)return;if(typeof pode==='function'&&!pode('documentos')){el.innerHTML='<div class="mut">O módulo Documentos não está liberado para o seu usuário.</div>';return}const cpf=digs(d.cpf),nm=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+  const ks=c.contratos.filter(k=>k.atual||!k.encerrado).length?c.contratos.filter(k=>k.atual||!k.encerrado):c.contratos;
+  if(!ks.length){el.innerHTML='<div class="mut">Sem contrato, sem documentos.</div>';return}
+  const out=[];
+  for(const k of ks){let D;try{D=await api('documentos?contrato='+k.numero,{silencioso:true})}catch(e){continue}
+    const p=D.pessoas.find(x=>cpf&&x.cpf===cpf)||D.pessoas.find(x=>nm(x.nome)===nm(d.nome));
+    const ar=ch=>D.arquivos.filter(x=>x.chave===ch||(/_cpf$/.test(ch)&&x.chave===ch.replace(/_cpf$/,'_rg')&&x.verificacao?.inclui_cpf));
+    const ck=ch=>D.check.find(x=>x.chave===ch);
+    const itens=p?[...D.itens_pessoa,['outro','Outros anexos']].map(([ch,l])=>({ch:'p'+p.i+'_'+ch,l})).filter(x=>x.l!=='Outros anexos'||ar(x.ch).length):[];
+    const lin=x=>{const A=ar(x.ch),c2=ck(x.ch),ok=A.length||c2?.status==='ok',disp=c2?.status==='dispensado';
+      return `<div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid #f1f5f9;flex-wrap:wrap"><span style="color:${ok?'#16a34a':disp?'#94a3b8':'#dc2626'}">${ok||disp?'●':'○'}</span><span style="min-width:190px;font-weight:600">${esc(x.l)}</span>
+       ${A.map(a=>`<span style="display:inline-flex;gap:6px;align-items:center;background:#f1f5f9;border-radius:6px;padding:3px 8px"><a href="#" onclick="abreDoc(${a.id});return false">${esc(a.nome||'arquivo')}</a><a href="#" title="Baixar" onclick="baixaDoc(${a.id});return false" style="text-decoration:none">⬇</a></span>`).join('')||`<span class="mut">${ok?'tem (físico / outra pasta)':disp?'não precisa':'falta'}</span>`}</div>`};
+    out.push(`<div style="margin:6px 0 12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:2px"><b>Contrato ${k.numero}</b><span class="mut">Q${k.quadra} L${k.lote}</span><button style="padding:3px 8px;margin-left:auto" onclick="abreDocsDe('${k.numero}')">Anexar / ver todos do contrato</button></div>
+      ${p?itens.map(lin).join(''):'<div class="mut">Este cliente não está na lista de compradores do contrato.</div>'}</div>`)}
+  el.innerHTML=out.join('')||'<div class="mut">Não consegui ler os documentos.</div>'}
 function cliPorId(id){return CLI.find(c=>c.id==id)||(CASO?.cliRaw||[]).find(c=>c.id==id)||(C?.clientes||[]).find(c=>c.id==id)}
 function editaCliente(id){const c=cliPorId(id),M=c.manual||{};
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Editar contato</h3><button onclick="fechaModal()">Fechar</button></div>
