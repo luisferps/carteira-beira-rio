@@ -2584,8 +2584,7 @@ async function editaAgio(n,novo){
   if(!a){const c=(AGCT||[]).find(x=>x.numero===n)||{};a={contrato:n,status:'venda',comissao_inclusa:true,quadra:c.quadra,lote:c.lote,titular:c.titular}}
   if(!AGR[n])try{AGR[n]=await resumoAgio(n)}catch(e){AGR[n]={erro:e.message}}
   const r=AGR[n];window._AGA=a;
-  const info=r.erro?`<div class="mut">Não consegui ler o contrato: ${esc(r.erro)}</div>`:`<div class="tot" style="margin:8px 0"><div><span class="mut">Proprietário</span><b>${esc(nome(a.titular||''))}</b><span class="mut">${esc(r.tel||'')}</span></div><div><span class="mut">Saldo a vencer</span><b>${brl(r.aVencer)}</b></div><div><span class="mut">Dívida (atraso com multa e juros)</span><b style="color:${r.divida>0.004?'#b91c1c':'inherit'}">${brl(r.divida)}</b></div><div><span class="mut">Saldo devedor total</span><b>${brl(r.saldo)}</b></div></div>
-    <div class="mut">Mensais: ${r.me.pagas} pagas · faltam ${r.me.faltam}${r.me.valor!=null?' de '+brl(r.me.valor):''}${r.an.faltam?` · anuais: faltam ${r.an.faltam} de ${brl(r.an.valor)}`:''}${r.encerrado?' · <b style="color:#b91c1c">contrato encerrado</b>':''}</div>`;
+  const info=r.erro?`<div class="mut">Não consegui ler o contrato: ${esc(r.erro)}</div>`:`<div class="tot" style="margin:8px 0"><div><span class="mut">Proprietário</span><b>${esc(nome(a.titular||''))}</b><span class="mut">${esc(r.tel||'')}</span>${r.encerrado?'<b style="color:#b91c1c">contrato encerrado</b>':''}</div><div><span class="mut">Dívida (atraso com multa e juros)</span><b style="color:${r.divida>0.004?'#b91c1c':'inherit'}">${brl(r.divida)}</b></div><div><span class="mut">Saldo devedor total</span><b>${brl(r.saldo)}</b></div></div>`;
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Ágio — Q${esc(a.quadra)} L${esc(a.lote)} (contrato ${n})</h3><button onclick="location.hash='c/${n}';fechaModal()">Abrir contrato</button><button onclick="fechaModal()">Fechar</button></div>${info}
   <div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center"><b>Comissão</b>
    <label style="font-weight:400;display:inline-flex;gap:6px;align-items:center;margin:0"><input type="radio" name="ag_ci" value="1" ${a.comissao_inclusa!==false?'checked':''} onchange="agPreco('v')" style="width:auto"> inclusa no ágio</label>
@@ -2616,8 +2615,7 @@ function agBlocos(a,r,c){const d=$('#ag_det'),p=$('#ag_print');if(!d||!p||r.erro
     ${lin('Recebe líquido (ágio − comissão)',brl(c.liquido))}${lin('Já pagou até hoje',brl(r.pago))}
     <div style="display:flex;justify-content:space-between;padding:7px 0 0;font-size:16px;color:${luc<0?'#b91c1c':'#15803d'}"><b>${luc<0?'Prejuízo':'Lucro'}</b><b>${brl(luc)}${r.pago>0?` (${(luc/r.pago*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}%)`:''}</b></div></div>`;
   const a2=window._AGA||a,par=[r.me.faltam?`${r.me.faltam} mensais de ${brl(r.me.valor)}`:'',r.an.faltam?`${r.an.faltam} anuais de ${brl(r.an.valor)}`:''].filter(Boolean).join(' + ');
-  p.innerHTML=`<div class="mut" style="margin-bottom:4px">Para mandar ao interessado (tire o print deste quadro):</div>
-   <div style="border:2px solid #0f766e;border-radius:12px;padding:18px 20px;background:#fff;max-width:420px;font-size:15px">
+  p.innerHTML=`<div style="border:2px solid #0f766e;border-radius:12px;padding:18px 20px;background:#fff;max-width:420px;font-size:15px">
     <div style="color:#0f766e;font-weight:700;font-size:13px;letter-spacing:.5px">CONDOMÍNIO DE CHÁCARAS BEIRA RIO</div>
     <div style="font-size:20px;font-weight:700;margin:2px 0 12px">Quadra ${+a2.quadra||a2.quadra}, Lote ${+a2.lote||a2.lote}${(a2.area||r.area)?` · ${(+(a2.area||r.area)).toLocaleString('pt-BR')} m²`:''}</div>
     ${lin('Valor do ágio',brl(c.agCli),1)}${lin('Saldo devedor',brl(r.saldo),1)}${r.me.faltam?lin('Mensais que faltam',`${r.me.faltam} de ${brl(r.me.valor)}`,1):''}${r.an.faltam?lin('Anuais que faltam',`${r.an.faltam} de ${brl(r.an.valor)}`,1):''}
