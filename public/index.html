@@ -2481,13 +2481,13 @@ function desenhaDocs(){const D=DOCS,n=C.contrato.numero;const ck=k=>D.check.find
   const linha=(k,l)=>{const c=ck(k),A=ar(k),okk=c?.status==='ok'||A.length,disp=c?.status==='dispensado';
     const validacao=k==='contrato_validacao_assinatura';
     const ic=okk?'<span style="color:#16a34a;font-size:16px">●</span>':disp?'<span style="color:#94a3b8;font-size:16px">●</span>':'<span style="color:#dc2626;font-size:16px">○</span>';
-    const arqs=A.map(a=>`<span style="display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border-radius:6px;padding:3px 8px;margin:2px 6px 2px 0"><a href="#" onclick="abreDoc(${a.id});return false" style="font-weight:600">${esc(a.nome||'arquivo')}</a><span style="font-size:11px;color:#64748b">${a.chave===k?dbr(a.enviado_em):'CPF no RG/CNH'}</span>${a.chave===k?`<a href="#" title="Remover" onclick="apagaDoc(${a.id});return false" style="color:#94a3b8;text-decoration:none">✕</a>`:''}</span>`).join('');
+    const arqs=A.map(a=>`<span style="display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border-radius:6px;padding:3px 8px;margin:2px 6px 2px 0"><a href="#" onclick="abreDoc(${a.id});return false" style="font-weight:600">${esc(a.nome||'arquivo')}</a><span style="font-size:11px;color:#64748b">${a.chave===k?dbr(a.enviado_em):'CPF no RG/CNH'}</span><a href="#" title="Baixar" onclick="baixaDoc(${a.id});return false" style="text-decoration:none">⬇</a>${a.chave===k?`<a href="#" title="Remover" onclick="apagaDoc(${a.id});return false" style="color:#94a3b8;text-decoration:none">✕</a>`:''}</span>`).join('');
     const st=okk?(A.length?'':'tem (físico / em outra pasta)'):disp?'não precisa':(validacao?'opcional':'falta');
     return `<div style="display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid #f1f5f9;flex-wrap:wrap">
       <div style="flex:1;min-width:260px;display:flex;gap:10px;align-items:flex-start">${ic}<div><div style="font-weight:600;color:#0f172a">${esc(l)}</div><div style="margin-top:2px">${arqs||`<span style="font-size:12px;color:${okk||disp?'#64748b':'#dc2626'}">${st}</span>`}</div></div></div>
       <div style="display:flex;gap:6px;align-items:center"><button onclick="enviaDoc('${k}')" style="padding:5px 10px">${validacao?'Anexar validação':'Anexar'}</button>${validacao?'':`<select style="width:auto;padding:5px 6px;font-size:13px" onchange="marcaDoc('${k}',this.value)"><option value="" ${!c?'selected':''}>${A.length?'Tem arquivo':'Falta'}</option><option value="ok" ${c?.status==='ok'?'selected':''}>Tem (físico / outra pasta)</option><option value="dispensado" ${disp?'selected':''}>Não precisa</option></select>`}</div></div>`};
   const sec=(t,h)=>`<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:6px 16px 4px;margin-top:12px"><div style="font-size:12px;font-weight:700;letter-spacing:.6px;color:#64748b;text-transform:uppercase;padding:8px 4px 4px">${t}</div>${h}</div>`;
-  abreModal(`<div style="display:flex;align-items:flex-start;gap:12px"><div style="flex:1"><div style="font-size:12px;color:#64748b">Contrato ${n} · Quadra ${esc(C.contrato.quadra)}, Lote ${esc(C.contrato.lote)}</div><h2 style="margin:2px 0 0;font-size:21px">Documentos</h2></div>${location.hash.startsWith('#c/')?'':`<button onclick="fechaModal();location.hash='c/${n}'">Abrir contrato</button>`}<button onclick="fechaModal()">Fechar</button></div>
+  abreModal(`<div style="display:flex;align-items:flex-start;gap:12px"><div style="flex:1"><div style="font-size:12px;color:#64748b">Contrato ${n} · Quadra ${esc(C.contrato.quadra)}, Lote ${esc(C.contrato.lote)}</div><h2 style="margin:2px 0 0;font-size:21px">Documentos</h2></div>${D.arquivos.length?'<button onclick="baixaTodosDocs()">⬇ Baixar todos</button>':''}${location.hash.startsWith('#c/')?'':`<button onclick="fechaModal();location.hash='c/${n}'">Abrir contrato</button>`}<button onclick="fechaModal()">Fechar</button></div>
   ${ck('obs_planilha')?`<div class="aviso" style="margin-top:10px">Nota da planilha de documentos: ${esc(ck('obs_planilha').obs)}</div>`:''}
   ${sec('Do contrato',D.itens_contrato.map(([k,l])=>linha(k,l)).join(''))}
   ${D.pessoas.map(p=>sec(esc(nome(p.nome)),D.itens_pessoa.map(([k,l])=>linha('p'+p.i+'_'+k,l)).join('')+(ar('p'+p.i+'_outro').length?linha('p'+p.i+'_outro','Outros anexos'):''))).join('')}
@@ -2502,6 +2502,25 @@ function enviaDoc(k){const n=C.contrato.numero, assinada=k==='contrato_assinado'
   }catch(e){alert(e.message)}finally{aguardeT(false)}};i.click()}
 async function marcaDoc(k,v){await api('documentos/check',{method:'PUT',body:{contrato:C.contrato.numero,chave:k,status:v||null}});modalDocs()}
 async function apagaDoc(id){const cloud=DOCS?.arquivos.find(x=>x.id==id)?.verificacao?.onedrive;if(!confirm(cloud?'Remover o vínculo deste arquivo no contrato? O original fica no OneDrive.':'Apagar este arquivo?'))return;const n=C.contrato.numero;await api('documento/'+id,{method:'DELETE'});if(C?.contrato.numero!==n)return;if(C.contrato.fonte==='emissão pelo sistema')await recarrega();await modalDocs()}
+/* busca o arquivo (OneDrive ou banco) e devolve {blob,nome,mime} */
+async function docBlob(id){const r=await api('documento/'+id,{silencioso:true});let blob,mime=r.mime||'';
+  if(r.url){const x=await fetch(r.url);if(!x.ok)throw new Error('O OneDrive não entregou o arquivo.');blob=await x.blob();mime=mime||blob.type}
+  else blob=new Blob([Uint8Array.from(atob(r.b64),c=>c.charCodeAt(0))],{type:mime||'application/octet-stream'});
+  if(!/pdf|image/.test(mime)&&/\.(jpe?g|png|webp|gif)$/i.test(r.nome||''))mime='image/'+(r.nome.split('.').pop().toLowerCase().replace('jpg','jpeg'));
+  if(!/pdf|image/.test(mime)&&/\.pdf$/i.test(r.nome||''))mime='application/pdf';
+  return{blob:new Blob([blob],{type:mime}),nome:r.nome||'documento',mime}}
+function salvaBlob(blob,nome){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=nome;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),30000)}
+async function baixaDoc(id){try{aguardeT(true,'Baixando…');const d=await docBlob(id);salvaBlob(d.blob,d.nome)}catch(e){alert(e.message)}finally{aguardeT(false)}}
+/* baixa todos os arquivos do contrato num .zip, separados por pasta (contrato / cada comprador) */
+async function baixaTodosDocs(){const D=DOCS,n=C.contrato.numero;if(!D?.arquivos?.length)return alert('Nenhum arquivo anexado neste contrato.');
+  try{aguardeT(true,'Juntando os arquivos…');
+    if(!window.JSZip)await new Promise((ok,er)=>{const sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';sc.onload=ok;sc.onerror=()=>er(new Error('Não consegui carregar o compactador.'));document.head.appendChild(sc)});
+    const z=new JSZip(),usados=new Set(),falhas=[];
+    for(const a of D.arquivos){const m=/^p(\d+)_/.exec(a.chave||''),p=m&&D.pessoas.find(x=>String(x.i)===m[1]);const pasta=p?nome(p.nome):'Contrato';
+      try{const d=await docBlob(a.id);let nm=pasta+'/'+d.nome,i=2;while(usados.has(nm))nm=pasta+'/'+d.nome.replace(/(\.[^.]*)?$/,` (${i++})$1`);usados.add(nm);z.file(nm,d.blob)}catch(e){falhas.push(a.nome)}}
+    const zb=await z.generateAsync({type:'blob'});salvaBlob(zb,`Documentos ${n} - Q${C.contrato.quadra} L${C.contrato.lote}.zip`);
+    if(falhas.length)alert('Não consegui baixar: '+falhas.join(', '))}
+  catch(e){alert(e.message)}finally{aguardeT(false)}}
 /* abre o documento numa janela de prévia (imagem ou PDF) por cima da tela; baixa só quando não dá para mostrar */
 async function abreDoc(id){
   const fecha=()=>{const v=document.getElementById('docview');if(v){const u=v.dataset.u;v.remove();if(u)setTimeout(()=>URL.revokeObjectURL(u),1000)}};fecha();
@@ -2510,12 +2529,7 @@ async function abreDoc(id){
   document.body.appendChild(v);v.onclick=e=>{if(e.target===v||e.target.id==='dv_corpo')fecha()};$('#dv_fechar').onclick=fecha;
   const esc1=e=>{if(e.key==='Escape'){fecha();document.removeEventListener('keydown',esc1,true);e.stopPropagation()}};document.addEventListener('keydown',esc1,true);
   try{
-    const r=await api('documento/'+id,{silencioso:true});let blob,mime=r.mime||'';
-    if(r.url){const x=await fetch(r.url);if(!x.ok)throw new Error('O OneDrive não entregou o arquivo.');blob=await x.blob();mime=mime||blob.type}
-    else blob=new Blob([Uint8Array.from(atob(r.b64),c=>c.charCodeAt(0))],{type:mime||'application/octet-stream'});
-    if(!/pdf|image/.test(mime)&&/\.(jpe?g|png|webp|gif)$/i.test(r.nome||''))mime='image/'+(r.nome.split('.').pop().toLowerCase().replace('jpg','jpeg'));
-    if(!/pdf|image/.test(mime)&&/\.pdf$/i.test(r.nome||''))mime='application/pdf';
-    blob=new Blob([blob],{type:mime});const u=URL.createObjectURL(blob);v.dataset.u=u;
+    const r=await docBlob(id),mime=r.mime,u=URL.createObjectURL(r.blob);v.dataset.u=u;
     $('#dv_nome').textContent=r.nome||'Documento';const b=$('#dv_baixar');b.href=u;b.download=r.nome||'documento';b.style.display='';
     const c=$('#dv_corpo');
     if(/^image\//.test(mime))c.innerHTML=`<img src="${u}" style="max-width:100%;max-height:100%;object-fit:contain;background:#fff;border-radius:6px">`;
