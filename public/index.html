@@ -2548,9 +2548,10 @@ async function resumoAgio(n){
   const [d,cl,tx]=await Promise.all([api('contrato/'+n,{silencioso:true}),api('clientes?contrato='+n,{silencioso:true}).catch(()=>[]),api('cessoes/taxa/'+n,{silencioso:true}).catch(()=>null)]);
   const C0=C;C=d;try{
     const PG=new Set(['paga','paga_atraso','quitada_acordo','quitada_repact']);
-    const g=k=>C.titulos.filter(t=>t.grupo===k).map(t=>({t,e:estado(t)})).filter(x=>x.e!=='cancelada'&&x.e!=='diluida');
-    const conta=k=>{const L=g(k),pagas=L.filter(x=>PG.has(x.e)).length,noAc=L.filter(x=>x.e==='em_acordo'||x.e==='em_repact').length,atr=L.filter(x=>x.e==='vencida'||x.e==='em_atraso').length,fut=L.filter(x=>x.e==='futura').sort((a,b)=>String(a.t.vencimento).localeCompare(String(b.t.vencimento)));
-      return{total:L.length,pagas,faltam:L.length-pagas-noAc,noAc,atr,fut:fut.length,valor:fut.length?valorAno(fut[0].t):null,aVencer:fut.reduce((s,x)=>s+valorAno(x.t),0)}};
+    /* conta sobre todas as parcelas do contrato (ex.: 120): o que não está em atraso, a vencer ou dentro de acordo aberto já foi pago/quitado */
+    const g=k=>C.titulos.filter(t=>t.grupo===k&&!t.conferente).map(t=>({t,e:estado(t)}));
+    const conta=k=>{const L=g(k),noAc=L.filter(x=>x.e==='em_acordo'||x.e==='em_repact').length,atr=L.filter(x=>x.e==='vencida'||x.e==='em_atraso').length,fut=L.filter(x=>x.e==='futura').sort((a,b)=>String(a.t.vencimento).localeCompare(String(b.t.vencimento)));
+      return{total:L.length,pagas:L.length-atr-fut.length-noAc,faltam:atr+fut.length,noAc,atr,fut:fut.length,valor:fut.length?valorAno(fut[0].t):null,aVencer:fut.reduce((s,x)=>s+valorAno(x.t),0)}};
     const me=conta('mensal'),an=conta('anual'),en=conta('entrada');
     const acAb=C.titulos.filter(t=>t.grupo==='acordo'&&estado(t)==='futura').reduce((s,t)=>s+valorAno(t),0);
     const TT=totais(),atrQ=TT.at.q||0,atraso=TT.at.tot||0,aVencer=me.aVencer+an.aVencer+en.aVencer,divida=atraso;
@@ -2645,7 +2646,8 @@ function agBlocos(a,r,c){const d=$('#ag_det'),pr=$('#ag_prop'),p=$('#ag_print');
   if(r.an.fut)rows.push(lin(`<b>${r.an.fut} anuais</b> de ${brl(r.an.valor)}`,brl(r.an.aVencer),{b:1}));
   if(r.en.fut)rows.push(lin(`${r.en.fut} parcela(s) de entrada`,brl(r.en.aVencer)));
   if(r.acAb>0.004)rows.push(lin('Parcelas de acordo a vencer',brl(r.acAb)));
-  if(r.atraso>0.004)rows.push(lin(`Em atraso: ${r.atrQ} parcela(s), com multa e juros`,brl(r.atraso),{cor:'#b91c1c',b:1}));
+  if(r.atraso>0.004){const acQ=Math.max(0,r.atrQ-r.me.atr-r.an.atr-r.en.atr),pt=[r.me.atr?`${r.me.atr} mensal${r.me.atr>1?'is':''}`:'',r.an.atr?`${r.an.atr} anual${r.an.atr>1?'is':''}`:'',r.en.atr?`${r.en.atr} de entrada`:'',acQ?`${acQ} de acordo`:''].filter(Boolean);
+    rows.push(lin(`Em atraso: ${pt.length>1?pt.slice(0,-1).join(', ')+' e '+pt.at(-1):pt[0]||r.atrQ+' parcela(s)'}, com multa e juros`,brl(r.atraso),{cor:'#b91c1c',b:1}))}
   d.innerHTML=tit('Saldo devedor')+rows.join('')+tot('Total',brl(r.saldo));
   const luc=c.liquido-(+r.pago||0),dv=r.devol||{};
   pr.innerHTML=tit('Proprietário')+lin('Já pagou (só principal)',brl(r.pago),{b:1})+lin('Mensais pagas',`${r.me.pagas} de ${r.me.total}`)+(r.an.total?lin('Anuais pagas',`${r.an.pagas} de ${r.an.total}`):'')+
