@@ -2566,6 +2566,8 @@ async function telaAgios(){app.innerHTML='<div class="card">Carregando…</div>'
 /* o que o proprietário pagou depois de cadastrar o ágio vira ágio (sai do saldo, entra no ágio); correção não mexe no ágio */
 const agPagoDepois=a=>{const r=AGR[a.contrato];if(!r||r.erro)return 0;const d=a.pago_base_parcelas!=null?(+r.pago||0)-(+a.pago_base_parcelas):a.pago_base!=null?(+r.pagoTotal||0)-(+a.pago_base):0;return Math.max(0,Math.round(d*100)/100)};
 const agA=a=>a.valor_pedido==null?null:+a.valor_pedido+agPagoDepois(a);
+const agSit=x=>`${x.pagas} pagas · ${x.atr} atrasada${x.atr===1?'':'s'} · ${x.fut} a vencer`;
+const agCol=x=>x&&x.total?`${x.pagas} / ${x.atr} / ${x.fut}${x.fut&&x.valor!=null?` de ${brl(x.valor)}`:''}`:'Não tem';
 const agAtivo=a=>['venda','reservado'].includes(a.status);
 function desenhaAgios(){
   const L=AGI.filter(a=>AGF==='todos'||(AGF==='ativos'?agAtivo(a):a.status===AGF)),R=n=>AGR[n]||{};
@@ -2579,15 +2581,16 @@ function desenhaAgios(){
       <td style="${td}">${a.area?(+a.area).toLocaleString('pt-BR')+' m²':''}</td>
       <td style="${td}"><b>${v(brl(c.agCli))}</b></td>
       <td style="${td}">${v(brl(r.saldo))}</td>
-      <td style="${td}">${v(r.me?.faltam?`${r.me.faltam} de ${brl(r.me.valor)}`:'—')}</td>
-      <td style="${td}">${v(r.an?.faltam?`${r.an.faltam} de ${brl(r.an.valor)}`:'Não tem')}</td>
+      <td style="${td}">${v(agCol(r.me))}</td>
+      <td style="${td}">${v(agCol(r.an))}</td>
+      <td style="${td};color:${r.divida>0.004?'#b91c1c':'inherit'}">${v(r.divida>0.004?brl(r.divida):'Não tem')}</td>
       <td style="${td};font-size:16px;color:#0f766e"><b>${v(brl(c.total))}</b></td>
       ${temTx?`<td style="${td}">${v(!c.txInc&&c.tx?brl(c.tx):'inclusa')}</td>`:''}</tr>`};
   app.innerHTML=`<div class="bt" style="margin-bottom:10px"><button onclick="location.hash=''">← Início</button><button class="pri" onclick="novoAgio()">+ Novo ágio</button><button onclick="copiaListaAgios()">Copiar listagem (texto)</button></div>
   <div class="card"><div class="tot"><div><span class="mut">À venda / em negociação</span><b>${at.length}</b></div><div><span class="mut">Soma dos ágios</span><b>${brl(at.reduce((s,a)=>s+(agA(a)||0),0))}</b></div><div><span class="mut">Comissões</span><b>${brl(at.reduce((s,a)=>s+(AGR[a.contrato]?k(a).com:0),0))}</b></div><div><span class="mut">Vendidos</span><b>${AGI.filter(a=>a.status==='vendido').length}</b></div></div>
    <div class="bt" style="margin-top:8px;flex-wrap:wrap">${fil}</div><div class="mut" style="margin-top:4px">Clique na linha para editar. A lista abaixo é a que vai para o comprador: é só tirar o print.</div></div>
   <div class="card" style="overflow-x:auto;background:#fff">${L.length?`<div style="color:#0f766e;font-weight:700;font-size:13px;letter-spacing:.5px">CONDOMÍNIO DE CHÁCARAS BEIRA RIO</div><div style="font-size:19px;font-weight:700;margin:2px 0 10px">Ágios à venda</div>
-   <table data-manter style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr><th style="${th};text-align:center">Quadra</th><th style="${th};text-align:center">Lote</th><th style="${th}">Área</th><th style="${th}">Valor do ágio</th><th style="${th}">Saldo devedor</th><th style="${th}">Mensais que faltam</th><th style="${th}">Anuais que faltam</th><th style="${th}">Preço final</th>${temTx?`<th style="${th}">Taxa de transferência</th>`:''}</tr></thead><tbody>${L.map(lin).join('')}</tbody></table>`:'<div class="mut">Nenhum ágio nesta lista. Clique em “+ Novo ágio”.</div>'}</div>`}
+   <table data-manter style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr><th style="${th};text-align:center">Quadra</th><th style="${th};text-align:center">Lote</th><th style="${th}">Área</th><th style="${th}">Valor do ágio</th><th style="${th}">Saldo devedor</th><th style="${th}">Mensais<div style="font-weight:400;font-size:11px">pagas / atrasadas / a vencer</div></th><th style="${th}">Anuais<div style="font-weight:400;font-size:11px">pagas / atrasadas / a vencer</div></th><th style="${th}">Débito em atraso</th><th style="${th}">Preço final</th>${temTx?`<th style="${th}">Taxa de transferência</th>`:''}</tr></thead><tbody>${L.map(lin).join('')}</tbody></table>`:'<div class="mut">Nenhum ágio nesta lista. Clique em “+ Novo ágio”.</div>'}</div>`}
 async function novoAgio(){AGCT=AGCT||await api('contratos');
   abreModal(`<div class="bt" style="align-items:center"><h3 style="flex:1">Novo ágio</h3><button onclick="fechaModal()">Fechar</button></div>
   <label>Quadra e lote</label><input id="ag_ql" placeholder="ex.: 8 3  ou  Q08 L03" oninput="clearTimeout(window._agT);window._agT=setTimeout(achaAgio,350)" autofocus><div id="ag_res" style="margin-top:8px"></div>`);setTimeout(()=>$('#ag_ql')?.focus(),50)}
@@ -2650,14 +2653,14 @@ function agBlocos(a,r,c){const d=$('#ag_det'),pr=$('#ag_prop'),p=$('#ag_print');
     rows.push(lin(`Em atraso: ${pt.length>1?pt.slice(0,-1).join(', ')+' e '+pt.at(-1):pt[0]||r.atrQ+' parcela(s)'}, com multa e juros`,brl(r.atraso),{cor:'#b91c1c',b:1}))}
   d.innerHTML=tit('Saldo devedor')+rows.join('')+tot('Total',brl(r.saldo));
   const luc=c.liquido-(+r.pago||0),dv=r.devol||{};
-  pr.innerHTML=tit('Proprietário')+lin('Já pagou (só principal)',brl(r.pago),{b:1})+lin('Mensais pagas',`${r.me.pagas} de ${r.me.total}`)+(r.an.total?lin('Anuais pagas',`${r.an.pagas} de ${r.an.total}`):'')+
+  pr.innerHTML=tit('Proprietário')+lin('Já pagou (só principal)',brl(r.pago),{b:1})+lin(`Mensais (${r.me.total})`,agSit(r.me))+(r.an.total?lin(`Anuais (${r.an.total})`,agSit(r.an)):'')+
     lin(c.txInc?'Recebe líquido (− comissão − transferência)':'Recebe líquido (− comissão)',brl(c.liquido))+tot(luc<0?'Prejuízo na venda':'Lucro na venda',`${brl(luc)}${r.pago>0?` <span style="font-size:13px">(${(luc/r.pago*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}%)</span>`:''}`,luc<0?'#b91c1c':'#15803d')+
     `<div style="margin-top:14px;padding:12px 14px;background:#f8fafc;border-radius:10px"><div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#334155">Se devolver hoje</span><b>${brl(dv.dev)}</b></div><div style="font-size:12px;color:#64748b;margin-top:4px">pago ${brl(dv.pago)} − multa 20% ${brl(dv.multa)} − corretagem ${brl(dv.corr)} − retenção 10% ${brl(dv.ret)}</div></div>`;
   const a2=window._AGA||a,pl=(t,v)=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #e5e7eb"><span>${t}</span><b style="white-space:nowrap">${v}</b></div>`;
   p.innerHTML=`<div style="border:2px solid #0f766e;border-radius:14px;padding:20px 22px;background:#fff;font-size:15px">
     <div style="color:#0f766e;font-weight:700;font-size:13px;letter-spacing:.5px">CONDOMÍNIO DE CHÁCARAS BEIRA RIO</div>
     <div style="font-size:20px;font-weight:700;margin:2px 0 12px">Quadra ${+a2.quadra||a2.quadra}, Lote ${+a2.lote||a2.lote}${(a2.area||r.area)?` · ${(+(a2.area||r.area)).toLocaleString('pt-BR')} m²`:''}</div>
-    ${pl('Valor do ágio',brl(c.agCli))}${pl('Saldo devedor',brl(r.saldo))}${pl('Mensais que faltam',r.me.faltam?`${r.me.faltam} de ${brl(r.me.valor)}`:'Não tem')}${pl('Anuais que faltam',r.an.faltam?`${r.an.faltam} de ${brl(r.an.valor)}`:'Não tem')}
+    ${pl('Valor do ágio',brl(c.agCli))}${pl(`Mensais (${r.me.total})`,agSit(r.me))}${r.me.fut?pl('Valor da mensal',brl(r.me.valor)):''}${pl('Anuais',r.an.total?`${agSit(r.an)}${r.an.fut?' de '+brl(r.an.valor):''}`:'Não tem')}${pl('Débito em atraso',r.divida>0.004?`<span style="color:#b91c1c">${brl(r.divida)}</span>`:'Não tem')}${pl('Saldo devedor total',brl(r.saldo))}
     <div style="display:flex;justify-content:space-between;padding:12px 0 0"><b style="font-size:17px">Preço final</b><b style="font-size:21px;color:#0f766e">${brl(c.total)}</b></div>${!c.txInc&&c.tx?`<div style="display:flex;justify-content:space-between;padding:6px 0 0;font-size:13px;color:#475569"><span>+ Taxa de transferência</span><span>${brl(c.tx)}</span></div>`:''}</div>`}
 async function salvaAgio(n){agPreco();const V=window._AGV;if(!(V.A>0))return alert('Digite o valor do ágio ou o preço total.');
   await api('agio/'+n,{method:'PUT',body:{status:$('#ag_st').value,valor_pedido:V.A,pago_base:+(AGR[n]?.pagoTotal)||0,pago_base_parcelas:+(AGR[n]?.pago)||0,comissao_pct:V.p,comissao_inclusa:document.querySelector('input[name=ag_ci]:checked')?.value!=='0',transf_inclusa:!!$('#ag_tx')?.checked}});
@@ -2665,7 +2668,7 @@ async function salvaAgio(n){agPreco();const V=window._AGV;if(!(V.A>0))return ale
 async function excluiAgio(n){if(!confirm('Tirar o contrato '+n+' da lista de ágios?'))return;await api('agio/'+n,{method:'DELETE'});delete AGR[n];fechaModal();AGI=await api('agios');desenhaAgios()}
 function copiaListaAgios(){const L=AGI.filter(a=>a.status==='venda'&&AGR[a.contrato]&&!AGR[a.contrato].erro);if(!L.length)return alert('Nenhum ágio à venda.');
   const t='*Ágios à venda — Condomínio de Chácaras Beira Rio*\n\n'+L.map(a=>{const r=AGR[a.contrato],c=agCalc(agA(a),r.saldo,a.comissao_inclusa!==false,a.comissao_pct,r.taxa,a.transf_inclusa);
-    return `*Quadra ${+a.quadra||a.quadra}, Lote ${+a.lote||a.lote}*${a.area?` · ${(+a.area).toLocaleString('pt-BR')} m²`:''}\nÁgio: ${brl(c.agCli)}\nParcelas pagas: ${r.me.pagas} · restantes: ${r.me.faltam}${r.me.valor!=null?' de '+brl(r.me.valor):''}${r.an.faltam?`\nAnuais restantes: ${r.an.faltam} de ${brl(r.an.valor)}`:''}\nSaldo devedor: ${brl(r.saldo)}\n*Valor total: ${brl(c.total)}*${!c.txInc&&c.tx?`\n+ Taxa de transferência: ${brl(c.tx)}`:''}`}).join('\n\n')+'\n\nInerente Gestão Imobiliária';
+    return `*Quadra ${+a.quadra||a.quadra}, Lote ${+a.lote||a.lote}*${a.area?` · ${(+a.area).toLocaleString('pt-BR')} m²`:''}\nÁgio: ${brl(c.agCli)}\nMensais: ${agSit(r.me)}${r.me.fut&&r.me.valor!=null?' de '+brl(r.me.valor):''}${r.an.total?`\nAnuais: ${agSit(r.an)}${r.an.fut?' de '+brl(r.an.valor):''}`:''}${r.divida>0.004?`\nDébito em atraso: ${brl(r.divida)}`:''}\nSaldo devedor total: ${brl(r.saldo)}\n*Valor total: ${brl(c.total)}*${!c.txInc&&c.tx?`\n+ Taxa de transferência: ${brl(c.tx)}`:''}`}).join('\n\n')+'\n\nInerente Gestão Imobiliária';
   navigator.clipboard.writeText(t).then(()=>alert('Listagem copiada ('+L.length+' lotes). É só colar no WhatsApp.'),()=>prompt('Copie a listagem:',t))}
 async function telaComissoes(){app.innerHTML='<div class="card">Carregando…</div>';COML=await api('painel/comissoes');
   const v=x=>+(x.valor??x.ct_corretagem??0),pend=COML.filter(x=>v(x)>0&&!x.pago_em);
