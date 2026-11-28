@@ -2545,14 +2545,14 @@ async function resumoAgio(n){
     const acAb=C.titulos.filter(t=>t.grupo==='acordo'&&estado(t)==='futura').reduce((s,t)=>s+valorAno(t),0);
     const TT=totais(),atrQ=TT.at.q||0,atraso=TT.at.tot||0,aVencer=me.aVencer+an.aVencer+en.aVencer,divida=atraso;
     let tel='';for(const c of cl||[]){const x=cliDados(c);if(x.tel[0]){tel=x.tel[0].v;break}}
-    const pago=C.pagamentos.reduce((s,p)=>s+(+p.valor_pago||0),0);
-    return{atrQ,taxa:tx?.taxa??null,taxaInfo:tx,area:C.contrato?.area,me,an,en,acAb,atraso,pago,aVencer,divida,saldo:aVencer+acAb+divida,tel,encerrado:C.eventos.some(e=>e.tipo==='encerramento')}
+    const pagoTotal=C.pagamentos.reduce((s,p)=>s+(+p.valor_pago||0),0),pago=pagoDevolucao().reduce((s,x)=>s+x.v,0),encPagos=pagoTotal-pago;
+    return{pagoTotal,encPagos,atrQ,taxa:tx?.taxa??null,taxaInfo:tx,area:C.contrato?.area,me,an,en,acAb,atraso,pago,aVencer,divida,saldo:aVencer+acAb+divida,tel,encerrado:C.eventos.some(e=>e.tipo==='encerramento')}
   }finally{C=C0}}
 async function telaAgios(){app.innerHTML='<div class="card">Carregando…</div>';AGI=await api('agios');desenhaAgios();
   const fila=AGI.filter(a=>!AGR[a.contrato]).map(a=>a.contrato);
   while(fila.length){await Promise.all(fila.splice(0,4).map(n=>resumoAgio(n).then(r=>{AGR[n]=r}).catch(e=>{AGR[n]={erro:e.message}})));if(location.hash==='#agios')desenhaAgios()}}
 /* o que o proprietário pagou depois de cadastrar o ágio vira ágio (sai do saldo, entra no ágio); correção não mexe no ágio */
-const agPagoDepois=a=>{const r=AGR[a.contrato];return r&&!r.erro&&a.pago_base!=null?Math.max(0,Math.round(((+r.pago||0)-(+a.pago_base))*100)/100):0};
+const agPagoDepois=a=>{const r=AGR[a.contrato];if(!r||r.erro)return 0;const d=a.pago_base_parcelas!=null?(+r.pago||0)-(+a.pago_base_parcelas):a.pago_base!=null?(+r.pagoTotal||0)-(+a.pago_base):0;return Math.max(0,Math.round(d*100)/100)};
 const agA=a=>a.valor_pedido==null?null:+a.valor_pedido+agPagoDepois(a);
 const agAtivo=a=>['venda','reservado'].includes(a.status);
 function desenhaAgios(){
@@ -2618,9 +2618,9 @@ function agBlocos(a,r,c){const d=$('#ag_det'),p=$('#ag_print');if(!d||!p||r.erro
   if(r.acAb>0.004)rows.push(lin('Parcelas de acordo a vencer',brl(r.acAb)));
   rows.push(`<div style="display:flex;justify-content:space-between;padding:7px 0 0;font-size:16px"><b>Saldo devedor</b><b>${brl(r.saldo)}</b></div>`);
   d.innerHTML=`<div class="card" style="background:#f8fafc;margin:0"><h4 style="margin:0 0 6px">Detalhamento do saldo devedor</h4>${rows.join('')}
-    <div class="tot" style="margin-top:8px"><div><span class="mut">Já pago até hoje</span><b>${brl(r.pago)}</b></div><div><span class="mut">Mensais pagas</span><b>${r.me.pagas} de ${r.me.total}</b></div>${r.an.total?`<div><span class="mut">Anuais pagas</span><b>${r.an.pagas} de ${r.an.total}</b></div>`:''}</div></div>
+    <div class="tot" style="margin-top:8px"><div><span class="mut">Já pago até hoje (parcelas)</span><b>${brl(r.pago)}</b>${r.encPagos>0.004?`<span class="mut">+ ${brl(r.encPagos)} de multa, juros e cobrança</span>`:''}</div><div><span class="mut">Mensais pagas</span><b>${r.me.pagas} de ${r.me.total}</b></div>${r.an.total?`<div><span class="mut">Anuais pagas</span><b>${r.an.pagas} de ${r.an.total}</b></div>`:''}</div></div>
    <div class="card" style="background:#f0fdf4;margin:10px 0 0"><h4 style="margin:0 0 6px">Lucro do proprietário</h4>
-    ${lin(c.txInc?'Recebe líquido (ágio − comissão − transferência)':'Recebe líquido (ágio − comissão)',brl(c.liquido))}${lin('Já pagou até hoje',brl(r.pago))}
+    ${lin(c.txInc?'Recebe líquido (ágio − comissão − transferência)':'Recebe líquido (ágio − comissão)',brl(c.liquido))}${lin('Já pagou até hoje (parcelas, sem multa e juros)',brl(r.pago))}
     <div style="display:flex;justify-content:space-between;padding:7px 0 0;font-size:16px;color:${luc<0?'#b91c1c':'#15803d'}"><b>${luc<0?'Prejuízo':'Lucro'}</b><b>${brl(luc)}${r.pago>0?` (${(luc/r.pago*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}%)`:''}</b></div></div>`;
   const a2=window._AGA||a,par=[r.me.faltam?`${r.me.faltam} mensais de ${brl(r.me.valor)}`:'',r.an.faltam?`${r.an.faltam} anuais de ${brl(r.an.valor)}`:''].filter(Boolean).join(' + ');
   p.innerHTML=`<div style="border:2px solid #0f766e;border-radius:12px;padding:18px 20px;background:#fff;max-width:420px;font-size:15px">
@@ -2629,7 +2629,7 @@ function agBlocos(a,r,c){const d=$('#ag_det'),p=$('#ag_print');if(!d||!p||r.erro
     ${lin('Valor do ágio',brl(c.agCli),1)}${lin('Saldo devedor',brl(r.saldo),1)}${r.me.faltam?lin('Mensais que faltam',`${r.me.faltam} de ${brl(r.me.valor)}`,1):''}${r.an.faltam?lin('Anuais que faltam',`${r.an.faltam} de ${brl(r.an.valor)}`,1):''}
     <div style="display:flex;justify-content:space-between;padding:10px 0 0"><b style="font-size:17px">Preço final</b><b style="font-size:20px;color:#0f766e">${brl(c.total)}</b></div>${!c.txInc&&c.tx?`<div style="display:flex;justify-content:space-between;padding:6px 0 0;font-size:13px;color:#475569"><span>+ Taxa de transferência</span><span>${brl(c.tx)}</span></div>`:''}</div>`}
 async function salvaAgio(n){agPreco();const V=window._AGV;if(!(V.A>0))return alert('Digite o valor do ágio ou o preço total.');
-  await api('agio/'+n,{method:'PUT',body:{status:$('#ag_st').value,valor_pedido:V.A,pago_base:+(AGR[n]?.pago)||0,comissao_pct:V.p,comissao_inclusa:document.querySelector('input[name=ag_ci]:checked')?.value!=='0',transf_inclusa:!!$('#ag_tx')?.checked}});
+  await api('agio/'+n,{method:'PUT',body:{status:$('#ag_st').value,valor_pedido:V.A,pago_base:+(AGR[n]?.pagoTotal)||0,pago_base_parcelas:+(AGR[n]?.pago)||0,comissao_pct:V.p,comissao_inclusa:document.querySelector('input[name=ag_ci]:checked')?.value!=='0',transf_inclusa:!!$('#ag_tx')?.checked}});
   fechaModal();AGI=await api('agios');desenhaAgios()}
 async function excluiAgio(n){if(!confirm('Tirar o contrato '+n+' da lista de ágios?'))return;await api('agio/'+n,{method:'DELETE'});delete AGR[n];fechaModal();AGI=await api('agios');desenhaAgios()}
 function copiaListaAgios(){const L=AGI.filter(a=>a.status==='venda'&&AGR[a.contrato]&&!AGR[a.contrato].erro);if(!L.length)return alert('Nenhum ágio à venda.');
