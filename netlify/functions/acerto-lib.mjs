@@ -208,10 +208,10 @@ export function criaAcerto({ q, asaas, json, log, dev }) {
         sai.push({ id: e.id, data: e.data, descricao: e.descricao, beneficiario: ben, valor: R2(v), cat, auto, como, duvida: DUVIDA.test(n), tipo: e.tipo });
       }
     }
-    /* estorno: o Pix que saiu e voltou (ex.: transferência ao André feita errada e refeita) não conta nem como entrada nem como saída — o dinheiro só saiu uma vez */
+    /* estorno: o Pix que saiu e voltou na hora (mesmo dia, ou o dia seguinte se virou a meia-noite) (ex.: transferência ao André feita errada e refeita) não conta nem como entrada nem como saída — o dinheiro só saiu uma vez */
     const estornos = [];
     for (const x of ent.filter(x => x.sem_boleto && (/estorno/i.test(x.descricao || '') || /REFUND|REVERSAL|ESTORNO/i.test(ext.find(e => e.id === x.id)?.tipo || '')))) {
-      const cand = sai.filter(y => !y.estornada && !/FEE/.test(y.tipo || '') && Math.abs(Math.abs(y.valor) - x.valor) < 0.005 && y.data <= x.data && (new Date(x.data) - new Date(y.data)) / 864e5 <= 10)
+      const cand = sai.filter(y => !y.estornada && !/FEE/.test(y.tipo || '') && Math.abs(Math.abs(y.valor) - x.valor) < 0.005 && y.data <= x.data && (new Date(x.data) - new Date(y.data)) / 864e5 <= 1)
         .sort((a, b) => b.data.localeCompare(a.data) || String(a.id).localeCompare(String(b.id)));
       const y = cand.find(y => cls[y.id] !== 'nao_estorno') || null;
       if (!y || cls[x.id]) continue;
